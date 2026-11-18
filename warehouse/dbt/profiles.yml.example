@@ -1,0 +1,18 @@
+# Template for ~/.dbt/profiles.yml (or pass --profiles-dir).
+# Copy this file, do not commit the copy. Credentials come from environment
+# variables only; see .env.example at the repository root once it exists.
+#
+# Only the local PostgreSQL target is defined. A Redshift target will be added
+# in Phase 3 together with the dbt-redshift adapter (see docs/adr/005).
+northstar:
+  target: local
+  outputs:
+    local:
+      type: postgres
+      host: "{{ env_var('NBI_PG_HOST', 'localhost') }}"
+      port: "{{ env_var('NBI_PG_PORT', '5432') | as_number }}"
+      user: "{{ env_var('NBI_PG_USER') }}"
+      password: "{{ env_var('NBI_PG_PASSWORD') }}"
+      dbname: "{{ env_var('NBI_PG_DATABASE', 'northstar') }}"
+      schema: "{{ env_var('NBI_DBT_SCHEMA', 'dbt_dev') }}"
+      threads: 4
