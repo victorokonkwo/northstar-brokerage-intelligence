@@ -1,0 +1,61 @@
+# --- Secrets and local configuration (see SECURITY.md) ---
+.env
+.env.*
+!.env.example
+profiles.yml
+*.pem
+*.key
+.claude/settings.local.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- dbt (warehouse/dbt/.gitignore covers the project folder too) ---
+target/
+dbt_packages/
+logs/
+
+# --- Terraform (commit .terraform.lock.hcl; never commit state or tfvars) ---
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# --- ML experiment tracking (local runs) ---
+mlruns/
+mlartifacts/
+
+# --- Data: only samples and the README are committed (system-overview §6) ---
+data/*
+!data/README.md
+!data/samples/
+
+# --- OS / editors ---
+.DS_Store
+.idea/
+.vscode/
+AGENTS.md
+CLAUDE.md
