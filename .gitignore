@@ -40,6 +40,7 @@ crash.log
 crash.*.log
 *.tfvars
 *.tfvars.json
+*.tfplan
 !*.tfvars.example
 override.tf
 override.tf.json
