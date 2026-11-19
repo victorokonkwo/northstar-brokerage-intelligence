@@ -32,5 +32,9 @@ models:
   northstar:
     staging:
       +materialized: view
+    intermediate:
+      +materialized: view
     core:
+      +materialized: table
+    marts:
       +materialized: table

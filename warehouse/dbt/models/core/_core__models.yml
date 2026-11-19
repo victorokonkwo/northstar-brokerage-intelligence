@@ -302,3 +302,98 @@ models:
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
       - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_fx_rates_daily
+    description: >
+      One row per published reference rate (grain: base_currency x quote_currency x
+      rate_date; unique, tested in assert_daily_fact_grains_unique). Synthetic
+      USD/CAD path, quote currency per 1 unit of base.
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: base_currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - name: quote_currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: rate_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: rate, data_type: "numeric(18, 10)", constraints: [{type: not_null}]}
+      - {name: rate_source, data_type: text, constraints: [{type: not_null}]}
+      - {name: fx_policy_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: published_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_market_prices_daily
+    description: >
+      One row per instrument x reporting date with a close on or before it (grain;
+      unique, tested in assert_daily_fact_grains_unique). is_stale is true when the
+      instrument's market traded after price_date, on or before business_date, or
+      when the calendar can't say (INV-08).
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: instrument_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: price_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: close_price, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: price_source, data_type: text, constraints: [{type: not_null}]}
+      - {name: expected_price_date, data_type: date}
+      - {name: is_stale, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_positions_daily
+    description: >
+      One row per account x instrument x reporting date with a non-zero trade-date
+      or settled quantity (grain; unique, tested in assert_daily_fact_grains_unique).
+      Market values are rounded half-even once (ADR 004), and are null when the
+      price is missing (INV-08). USD values carry the FX rate used (INV-07).
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: account_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
+      - name: instrument_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_instrument'), field: instrument_id}}
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: trade_date_quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: settled_quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: close_price, data_type: "numeric(18, 8)"}
+      - {name: price_date, data_type: date}
+      - {name: is_price_missing, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: is_price_stale, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: market_value, data_type: "numeric(18, 2)"}
+      - {name: market_value_cad, data_type: "numeric(18, 2)"}
+      - {name: fx_rate, data_type: "numeric(18, 10)"}
+      - {name: fx_rate_date, data_type: date}
+      - {name: fx_policy_version, data_type: text}
+      - {name: _price_event_id, data_type: text, description: Lineage to the close used (INV-10).}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}

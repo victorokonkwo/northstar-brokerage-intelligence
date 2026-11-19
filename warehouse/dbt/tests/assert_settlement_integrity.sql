@@ -1,13 +1,14 @@
 -- INV-06: every execution belongs to exactly one settlement obligation, and a
 -- settled obligation's quantity and amount equal the sums over its executions.
--- The amount is recomputed here only to check Python's posting (ADR 007).
+-- The amount is recomputed here, half-even like Python's gross_amount (ADR 004),
+-- only to check Python's posting (ADR 007).
 -- Returns the obligations that break it.
 with executions as (
     select
         execution_id,
         settlement_id,
         quantity,
-        round(quantity * price * multiplier, 2) as gross_amount
+        {{ round_half_even('quantity * price * multiplier', 2) }} as gross_amount
     from {{ ref('fct_executions') }}
 ),
 

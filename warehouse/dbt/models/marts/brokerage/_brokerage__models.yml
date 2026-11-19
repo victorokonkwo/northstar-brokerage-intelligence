@@ -1,0 +1,41 @@
+version: 2
+
+models:
+  - name: mart_daily_executions
+    description: >
+      Execution activity per trade date x market x currency (grain; unique, tested in
+      assert_daily_fact_grains_unique). Amounts come from the posted journal lines
+      (int_execution_amounts); tie-out tested (INV-10).
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: execution_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: order_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: gross_amount, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: commission, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: clearing_fee, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: _journal_line_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: mart_daily_positions
+    description: >
+      Portfolio value in CAD per account x reporting date (grain; unique, tested in
+      assert_daily_fact_grains_unique), summed from fct_positions_daily. Null when
+      any position lacks a price (INV-08); stale and missing flags propagate.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: position_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: market_value_cad, data_type: "numeric(18, 2)"}
+      - {name: has_missing_price, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: has_stale_price, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
