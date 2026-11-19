@@ -1,0 +1,19 @@
+# Chart of accounts (domain model §9.1). A simplified management ledger, not
+# IFRS statements; illustrative v1. Posting rules reference these codes, and
+# the posting engine refuses to start if one is missing.
+version: "1"
+effective_from: 2026-11-19
+illustrative: true
+accounts:
+  - {code: "1000", name: "Cash — settlement bank", type: ASSET}
+  - {code: "1200", name: "Receivable from clearing", type: ASSET}
+  - {code: "2100", name: "Client cash", type: LIABILITY, per_client: true}
+  - {code: "2200", name: "Payable to clearing", type: LIABILITY}
+  - {code: "2300", name: "FX conversion clearing", type: CLEARING}
+  - {code: "2400", name: "Interest payable", type: LIABILITY}
+  - {code: "3000", name: "Firm equity", type: EQUITY}
+  - {code: "4100", name: "Commission revenue", type: REVENUE}
+  - {code: "4200", name: "FX conversion revenue", type: REVENUE}
+  - {code: "4300", name: "Margin interest revenue", type: REVENUE}
+  - {code: "5100", name: "Clearing and execution costs", type: EXPENSE}
+  - {code: "5200", name: "Funding cost", type: EXPENSE}

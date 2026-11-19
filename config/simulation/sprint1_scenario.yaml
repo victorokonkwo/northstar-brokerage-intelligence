@@ -1,0 +1,34 @@
+# Sprint 1 vertical slice: one client, one deposit, one order filled in two
+# executions, and its T+1 settlement. ILLUSTRATIVE: the instrument, prices,
+# and times are invented. "SYNA" is a synthetic symbol, not a real security.
+# All timestamps are UTC. 2026-03-03 is a Tuesday and an XTSE trading day.
+scenario_id: sprint1-cad-buy
+description: CAD 25,000 deposit, then a buy of 100 SYNA filled in two executions
+illustrative: true
+settlement_time_local: "12:00:00"
+
+account:
+  account_type: CASH
+  base_currency: CAD
+  opened_at: 2026-03-02T14:00:00Z
+
+instruments:
+  - key: SYNA
+    symbol: SYNA
+    name: Synthetic Alpha Corp.
+    market: XTSE
+    asset_class: EQUITY
+    currency: CAD
+
+deposits:
+  - {at: 2026-03-02T15:00:00Z, amount: "25000.00", currency: CAD}
+
+orders:
+  - at: 2026-03-03T14:35:00Z
+    instrument: SYNA
+    side: BUY
+    order_type: MARKET
+    quantity: "100"
+    fills:
+      - {at: 2026-03-03T14:35:02Z, quantity: "60", price: "52.37"}
+      - {at: 2026-03-03T14:35:09Z, quantity: "40", price: "52.41"}

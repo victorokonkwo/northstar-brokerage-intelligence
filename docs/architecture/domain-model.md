@@ -79,7 +79,7 @@ Surrogate keys (`*_sk`) are dbt-generated hashes of the natural key plus the ver
 
 ### 4.2 Event envelope
 
-Every source event has this envelope. Payload fields depend on `event_type`. JSON Schemas will live in `contracts/events/` (Phase 2).
+Every source event has this envelope. Payload fields depend on `event_type`. The JSON Schemas are generated from the pydantic models in `northstar.domain.events` into `contracts/events/<type>.v<N>.schema.json` (`scripts/export_event_schemas.py`), and a contract test fails if they drift. Implemented so far: `account_created`, `cash_deposited`, `order_placed`, `trade_executed`, `trade_settled`.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -111,7 +111,7 @@ The initial event types are `account_created`, `cash_deposited`, `cash_withdrawn
 | Business timezone | `America/Toronto`. |
 | `business_date` | The calendar date of `event_timestamp` in `America/Toronto`. |
 | Trading events | Executions must fall on a trading day of the instrument's market. Otherwise they are quarantined as a business-rule failure. |
-| Ledger `posting_date` | `business_date` if it is a business day, otherwise the next business day (e.g., a Saturday deposit posts on Monday). |
+| Ledger `posting_date` | `business_date` if it is a business day on the **ledger calendar**, otherwise the next one (e.g., a Saturday deposit posts on Monday). The ledger calendar is the XTSE CAD settlement calendar, so a deposit on Remembrance Day posts on the next day. |
 | Settlement date | Trade date + N business days on the instrument market's settlement calendar (`northstar.domain.settlement.settlement_date`). Trading days and settlement days are different sets: the TSX trades but CAD securities do not settle on Remembrance Day and on the National Day for Truth and Reconciliation. N comes from `settlement_rules` config with **effective dates**. Canadian equities are T+1 for trade dates on or after 2024-05-27 (verified; `config/brokerage/settlement_rules.yaml`). The US moved on 2024-05-28. Earlier T+2 trade dates have no cycle in the policy, because that fact is not yet verified, so they raise `PolicyNotFoundError` ([sources](../sources.md)). The options cycle is configured per market and must be verified before use. |
 | Daily close | Business date D is processed by the batch run that starts after D ends. The run's snapshot for D is `DRAFT` until controls pass, then `PUBLISHED` (§7.4). |
 | Late-arriving record | A record whose `business_date` is D but is ingested after D's snapshot was published. It is handled under [ADR 006](../adr/006-bitemporal-records-and-restatements.md): it never edits the published version, and it produces a new snapshot version with a restatement reason. |
@@ -175,7 +175,7 @@ stateDiagram-v2
 
 ## 8. Financial invariants
 
-Each invariant must be an executable test. The test paths below are planned and do not exist yet.
+Each invariant must be an executable test. **Implemented:** the Python tests for INV-01, INV-05 and INV-06. The other paths below are planned and do not exist yet.
 
 | ID | Invariant | Enforced by (planned) |
 |---|---|---|
@@ -230,7 +230,15 @@ G = gross trade amount (quantity × price × multiplier), and c = client commiss
 | `margin_interest_accrued` | 2100 Client cash (acct) — interest | 4300 Margin interest revenue — interest |
 | funding cost accrued | 5200 Funding cost — cost | 2400 Interest payable — cost |
 
-Commission timing (per order vs. per execution) comes from the fee schedule config. It is decided in Phase 2 and recorded here.
+**Commission is charged per execution** (OQ-02, owner decision 2026-11-19). Its amount comes from `config/brokerage/fee_schedule.yaml` (illustrative values), is recorded on the `trade_executed` event with the policy versions used, and is posted from the event.
+
+Implementation details of the v1 rules (`northstar.domain.accounting`; rule IDs such as `trade_executed.buy`, version 1):
+
+- G is rounded half-even to minor units **once per execution**, at posting (`northstar.domain.trading.gross_amount`).
+- Zero amounts are not posted. A waived commission produces no 4100 line.
+- If a SELL's commission exceeds its proceeds (G − c < 0), the client line becomes a **debit** of c − G, and the batch still balances.
+- A settlement obligation is one per **(order, trade date)**, and its amount is the sum of its executions' rounded G (INV-06).
+- Line IDs are UUIDv5 over (event, rule, version, line number), so re-posting reproduces them.
 
 ### 9.3 Worked example (illustrative numbers)
 
@@ -264,7 +272,7 @@ Stock record (quantities): on T, the client gains ownership of +10 and the locat
 | ID | Question | Needed by |
 |---|---|---|
 | OQ-01 | FX conversion posting mechanics and when FX spread revenue is recognized (at conversion against the reference rate, or on covering) | Phase 2 |
-| OQ-02 | Commission timing: per order or per execution; treatment on cancelled orders with partial fills | Phase 2 |
+| OQ-02 | **Resolved (owner, 2026-11-19):** commission is charged per execution, so a cancelled order with partial fills has paid for exactly its fills | Done |
 | OQ-03 | Option settlement cycle per market, exercise/assignment and expiry handling, and whether early exercise is simulated | Phase 2 / 5 |
 | OQ-04 | **Resolved (owner, 2026-11-19):** maintained, versioned YAML per market (`config/calendars/<mic>.yaml`), with separate trading and settlement holiday lists, a primary source for every date, and explicit coverage. Dates outside coverage raise `CalendarCoverageError`. XTSE is done; the US calendar arrives with USD trading (Phase 2) | Done |
 | OQ-05 | Corporate actions (splits, dividends): out of scope, or minimal support for a dividend in the flagship scenario | Phase 2 |

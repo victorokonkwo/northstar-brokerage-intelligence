@@ -46,11 +46,11 @@ Goal: by the end of the sprint, one command creates a client, deposits cash, exe
 | 1 | Project charter; define the five modules | Done |
 | 2 | Business metrics, accounting assumptions, reporting cutoffs | Done |
 | 3 | Conceptual and logical entity models | Done |
-| 4 | Event schemas, identifiers, financial invariants | Envelope, identifiers, and invariants done. JSON Schemas are written with the generators (Days 7–8) |
+| 4 | Event schemas, identifiers, financial invariants | Done: envelope, identifiers, invariants, and JSON Schemas generated into `contracts/events/` |
 | 5 | System architecture and ADRs | Done |
 | 6 | Initialize Git, Python project, Docker Compose, CI | Done: Git, dbt scaffold, Python project, local stack, CI |
-| 7 | Account, instrument, and deposit event generators | Not started |
-| 8 | Order/execution simulation and double-entry journal postings | In progress: XTSE calendar, effective-dated settlement rules and policy loading done |
+| 7 | Account, instrument, and deposit event generators | Done: scenario-driven simulator (`northstar.simulation.scenario`, `config/simulation/sprint1_scenario.yaml`). Random generation at scale is Phase 2 |
+| 8 | Order/execution simulation and double-entry journal postings | Done: XTSE calendar, settlement rules, per-execution commission, v1 posting rules; INV-01/05/06 property tests |
 | 9 | Initial SQL models and financial integrity tests | Not started |
 | 10 | Demonstrate one deposit → trade → ledger workflow end to end | Not started |
 
