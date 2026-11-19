@@ -53,12 +53,20 @@ def test_fingerprint_changes_when_the_journal_changes(
 ) -> None:
     load_slice(conn, prepare_slice(CONFIG, SCENARIO, 42, tmp_path), "run-1", schemas)
     before = journal_fingerprint(conn, schemas)
-    # A direct UPDATE stands in for any tampering. It is possible here only
-    # because append-only enforcement (INV-11) is not built yet.
+    # Posted lines can't be updated (INV-11), so tampering here is an extra
+    # inserted line: a copy of line 1 under a new ID and line number.
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL("update {} set amount = amount + 0.01 where line_number = 1").format(
-                sql.Identifier(schemas.ledger, "journal_lines")
-            )
+            sql.SQL(
+                "insert into {t} (journal_line_id, journal_batch_id, line_number, "
+                "source_event_id, source_event_type, posting_rule_id, posting_rule_version, "
+                "chart_version, ledger_calendar_version, business_date, posting_date, "
+                "gl_account, client_account_id, entry_side, amount, currency, _ingestion_run_id) "
+                "select gen_random_uuid(), journal_batch_id, line_number + 100, "
+                "source_event_id, source_event_type, posting_rule_id, posting_rule_version, "
+                "chart_version, ledger_calendar_version, business_date, posting_date, "
+                "gl_account, client_account_id, entry_side, amount, currency, _ingestion_run_id "
+                "from {t} where line_number = 1 limit 1"
+            ).format(t=sql.Identifier(schemas.ledger, "journal_lines"))
         )
     assert journal_fingerprint(conn, schemas) != before

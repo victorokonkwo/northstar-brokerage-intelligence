@@ -1,0 +1,83 @@
+version: 2
+
+# dbt unit tests for the derivations the dev dataset never exercises (open and
+# partially filled orders, pending settlements) and for the SCD2 chain.
+unit_tests:
+  - name: order_status_covers_every_case
+    model: fct_orders
+    given:
+      - input: ref('stg_brokerage__order_placed')
+        rows:
+          - {order_id: o_filled, quantity: 10, event_timestamp: "2026-03-02 15:00:00+00"}
+          - {order_id: o_partial_cancelled, quantity: 10, event_timestamp: "2026-03-02 15:00:00+00"}
+          - {order_id: o_unfilled_cancelled, quantity: 10, event_timestamp: "2026-03-02 15:00:00+00"}
+          - {order_id: o_partial_open, quantity: 10, event_timestamp: "2026-03-02 15:00:00+00"}
+          - {order_id: o_open, quantity: 10, event_timestamp: "2026-03-02 15:00:00+00"}
+      - input: ref('stg_brokerage__trade_executed')
+        rows:
+          - {order_id: o_filled, quantity: 4}
+          - {order_id: o_filled, quantity: 6}
+          - {order_id: o_partial_cancelled, quantity: 3}
+          - {order_id: o_partial_open, quantity: 2}
+      - input: ref('stg_brokerage__order_cancelled')
+        rows:
+          - {order_id: o_partial_cancelled, cancelled_quantity: 7, event_timestamp: "2026-03-02 16:00:00+00"}
+          - {order_id: o_unfilled_cancelled, cancelled_quantity: 10, event_timestamp: "2026-03-02 16:00:00+00"}
+    expect:
+      rows:
+        - {order_id: o_filled, filled_quantity: 10, cancelled_quantity: 0, execution_count: 2, order_status: FILLED}
+        - {order_id: o_partial_cancelled, filled_quantity: 3, cancelled_quantity: 7, execution_count: 1, order_status: CANCELLED}
+        - {order_id: o_unfilled_cancelled, filled_quantity: 0, cancelled_quantity: 10, execution_count: 0, order_status: CANCELLED}
+        - {order_id: o_partial_open, filled_quantity: 2, cancelled_quantity: 0, execution_count: 1, order_status: PARTIALLY_FILLED}
+        - {order_id: o_open, filled_quantity: 0, cancelled_quantity: 0, execution_count: 0, order_status: OPEN}
+
+  - name: settlement_is_pending_until_trade_settled_arrives
+    model: fct_settlements
+    given:
+      - input: ref('stg_brokerage__trade_executed')
+        rows:
+          - {settlement_id: s_done, order_id: o1, quantity: 4, trade_date: 2026-03-02, settlement_date: 2026-03-03}
+          - {settlement_id: s_done, order_id: o1, quantity: 6, trade_date: 2026-03-02, settlement_date: 2026-03-03}
+          - {settlement_id: s_open, order_id: o2, quantity: 5, trade_date: 2026-03-03, settlement_date: 2026-03-04}
+      - input: ref('stg_brokerage__trade_settled')
+        rows:
+          - {settlement_id: s_done, quantity: 10, amount: 520.00, event_timestamp: "2026-03-03 17:00:00+00"}
+    expect:
+      rows:
+        - {settlement_id: s_done, executed_quantity: 10, execution_count: 2, settled_quantity: 10, settled_amount: 520.00, settlement_status: SETTLED}
+        - {settlement_id: s_open, executed_quantity: 5, execution_count: 1, settled_quantity: null, settled_amount: null, settlement_status: PENDING}
+
+  - name: account_versions_chain_by_event_time
+    model: dim_account
+    given:
+      - input: ref('stg_brokerage__account_created')
+        rows:
+          - {account_id: a1, account_type: CASH, base_currency: CAD, event_timestamp: "2026-01-05 14:00:00+00"}
+      - input: ref('stg_brokerage__account_updated')
+        rows:
+          - {account_id: a1, account_type: MARGIN, status: ACTIVE, reason: MARGIN_APPROVED, event_timestamp: "2026-02-02 13:00:00+00"}
+          - {account_id: a1, account_type: MARGIN, status: TRADING_RESTRICTED, reason: TRADING_RESTRICTED, event_timestamp: "2026-02-10 13:00:00+00"}
+    expect:
+      rows:
+        - {account_id: a1, account_type: CASH, status: ACTIVE, change_reason: ACCOUNT_OPENED, base_currency: CAD, valid_from: "2026-01-05 14:00:00+00", valid_to: "2026-02-02 13:00:00+00", is_current: false, opened_at: "2026-01-05 14:00:00+00"}
+        - {account_id: a1, account_type: MARGIN, status: ACTIVE, change_reason: MARGIN_APPROVED, base_currency: CAD, valid_from: "2026-02-02 13:00:00+00", valid_to: "2026-02-10 13:00:00+00", is_current: false, opened_at: "2026-01-05 14:00:00+00"}
+        - {account_id: a1, account_type: MARGIN, status: TRADING_RESTRICTED, change_reason: TRADING_RESTRICTED, base_currency: CAD, valid_from: "2026-02-10 13:00:00+00", valid_to: null, is_current: true, opened_at: "2026-01-05 14:00:00+00"}
+
+  - name: cash_movement_business_date_is_toronto
+    model: fct_cash_movements
+    given:
+      - input: ref('stg_brokerage__cash_deposited')
+        rows:
+          # 03:30 UTC on 2 March is 22:30 on 1 March in Toronto (EST).
+          - {cash_movement_id: cm1, account_id: a1, amount: 100.00, currency: CAD, event_timestamp: "2026-03-02 03:30:00+00"}
+      - input: ref('stg_brokerage__cash_withdrawn')
+        rows:
+          - {cash_movement_id: cm2, account_id: a1, amount: 40.00, currency: CAD, event_timestamp: "2026-03-02 15:00:00+00"}
+      - input: ref('stg_brokerage__fx_converted')
+        rows:
+          - {fx_conversion_id: fxc1, account_id: a1, sell_amount: 137.00, sell_currency: CAD, buy_amount: 98.52, buy_currency: USD, event_timestamp: "2026-03-02 15:30:00+00"}
+    expect:
+      rows:
+        - {cash_movement_id: cm1, movement_type: DEPOSIT, business_date: 2026-03-01, amount_in: 100.00, currency_in: CAD, amount_out: null, currency_out: null}
+        - {cash_movement_id: cm2, movement_type: WITHDRAWAL, business_date: 2026-03-02, amount_in: null, currency_in: null, amount_out: 40.00, currency_out: CAD}
+        - {cash_movement_id: fxc1, movement_type: FX_CONVERSION, business_date: 2026-03-02, amount_in: 98.52, currency_in: USD, amount_out: 137.00, currency_out: CAD}

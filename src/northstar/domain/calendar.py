@@ -170,6 +170,18 @@ class MarketCalendar(BaseModel):
             day += timedelta(days=1)
         return day
 
+    def previous_settlement_day(self, day: date) -> date:
+        """Return the last settlement day strictly before ``day``.
+
+        Raises:
+            CalendarCoverageError: The walk leaves the coverage window.
+        """
+        self._require_covered(day)
+        day -= timedelta(days=1)
+        while not self.is_settlement_day(day):
+            day -= timedelta(days=1)
+        return day
+
     def _require_covered(self, day: date) -> None:
         if not self.coverage.start <= day <= self.coverage.end:
             msg = (

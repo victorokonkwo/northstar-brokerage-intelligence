@@ -1,6 +1,51 @@
 version: 2
 
 models:
+  - name: stg_brokerage__account_created
+    description: One row per account opening. Grain and primary key = account_id.
+    columns:
+      - name: account_id
+        data_tests: [unique, not_null]
+      - name: account_type
+        data_tests:
+          - accepted_values: {arguments: {values: [CASH, MARGIN]}}
+      - name: base_currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_brokerage__account_updated
+    description: One row per account update. Grain and primary key = event_id.
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_brokerage__account_created'), field: account_id}
+      - name: account_type
+        data_tests:
+          - accepted_values: {arguments: {values: [CASH, MARGIN]}}
+      - name: status
+        data_tests:
+          - accepted_values: {arguments: {values: [ACTIVE, TRADING_RESTRICTED]}}
+      - name: reason
+        data_tests:
+          - accepted_values:
+              arguments: {values: [MARGIN_APPROVED, TRADING_RESTRICTED, RESTRICTION_LIFTED]}
+
+  - name: stg_brokerage__instrument_listed
+    description: One row per instrument listing. Grain and primary key = instrument_id.
+    columns:
+      - name: instrument_id
+        data_tests: [unique, not_null]
+      - name: asset_class
+        data_tests:
+          - accepted_values: {arguments: {values: [EQUITY, OPTION]}}
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
   - name: stg_brokerage__cash_deposited
     description: One row per cash deposit. Grain and primary key = cash_movement_id.
     columns:
@@ -10,9 +55,52 @@ models:
         data_tests: [not_null]
       - name: currency
         data_tests:
-          - accepted_values:
-              arguments:
-                values: [CAD, USD]
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_brokerage__cash_withdrawn
+    description: One row per cash withdrawal. Grain and primary key = cash_movement_id.
+    columns:
+      - name: cash_movement_id
+        data_tests: [unique, not_null]
+      - name: amount
+        data_tests: [not_null]
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_brokerage__fx_converted
+    description: One row per client FX conversion. Grain and primary key = fx_conversion_id.
+    columns:
+      - name: fx_conversion_id
+        data_tests: [unique, not_null]
+      - name: sell_currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - name: buy_currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_brokerage__order_placed
+    description: One row per order. Grain and primary key = order_id.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: side
+        data_tests:
+          - accepted_values: {arguments: {values: [BUY, SELL]}}
+      - name: order_type
+        data_tests:
+          - accepted_values: {arguments: {values: [MARKET, LIMIT]}}
+
+  - name: stg_brokerage__order_cancelled
+    description: One row per cancellation of an order's remainder. Grain and primary key = order_id.
+    columns:
+      - name: order_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_brokerage__order_placed'), field: order_id}
 
   - name: stg_brokerage__trade_executed
     description: One row per execution (fill). Grain and primary key = execution_id.
@@ -21,11 +109,16 @@ models:
         data_tests: [unique, not_null]
       - name: side
         data_tests:
-          - accepted_values:
-              arguments:
-                values: [BUY, SELL]
+          - accepted_values: {arguments: {values: [BUY, SELL]}}
       - name: currency
         data_tests:
-          - accepted_values:
-              arguments:
-                values: [CAD, USD]
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_brokerage__trade_settled
+    description: One row per settled obligation. Grain and primary key = settlement_id.
+    columns:
+      - name: settlement_id
+        data_tests: [unique, not_null]
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}

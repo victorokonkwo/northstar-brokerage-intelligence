@@ -23,6 +23,7 @@ from opentelemetry import trace
 from pydantic import TypeAdapter
 
 from northstar.application.policies import load_policies
+from northstar.application.reference_data import calendar_days
 from northstar.domain.accounting import PostingEngine
 from northstar.domain.events import Event, EventType
 from northstar.infrastructure.config_loader import load_policy
@@ -30,6 +31,7 @@ from northstar.infrastructure.postgres import (
     ExternalRow,
     WarehouseSchemas,
     ensure_tables,
+    load_calendar_days,
     load_events,
     load_external_records,
     load_journal,
@@ -147,6 +149,7 @@ def load_run(
         inserted_events = load_events(conn, ordered, run_id, schemas)
         inserted_lines = load_journal(conn, batches, run_id, schemas)
         inserted_records = load_external_records(conn, records, run_id, schemas)
+        load_calendar_days(conn, calendar_days(policies.calendars), run_id, schemas)
     return RunLoad(
         len(ordered), len(records), len(batches), inserted_events, inserted_lines, inserted_records
     )

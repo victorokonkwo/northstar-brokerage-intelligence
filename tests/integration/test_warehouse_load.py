@@ -136,3 +136,35 @@ def test_database_constraints_reject_a_non_positive_amount(
                 "'1', '1', current_date, current_date, '1000', null, 'DEBIT', 0, 'CAD', 'run')"
             ).format(sql.Identifier(schemas.ledger, "journal_lines"))
         )
+
+
+@pytest.mark.parametrize(
+    ("table", "statement"),
+    [
+        ("journal_lines", "update {t} set amount = amount + 1"),
+        ("journal_lines", "delete from {t}"),
+        ("journal_lines", "truncate {t}"),
+        ("brokerage_events", "update {t} set event_type = 'x'"),
+        ("brokerage_events", "delete from {t}"),
+    ],
+)
+def test_loaded_rows_cannot_be_changed_or_removed(
+    conn: psycopg.Connection[Any],
+    schemas: WarehouseSchemas,
+    events: tuple[Event, ...],
+    table: str,
+    statement: str,
+) -> None:
+    # INV-11 / W2.4: posted lines and raw events are append-only, enforced by the database.
+    load_events(conn, events, "run-1", schemas)
+    load_journal(conn, engine().post_events(events), "run-1", schemas)
+    conn.commit()
+    schema = schemas.ledger if table == "journal_lines" else schemas.raw
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"), conn.cursor() as cur:
+        cur.execute(sql.SQL(statement).format(t=sql.Identifier(schema, table)))
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute(sql.SQL("select count(*) from {}").format(sql.Identifier(schema, table)))
+        row = cur.fetchone()
+    assert row is not None
+    assert row[0] > 0

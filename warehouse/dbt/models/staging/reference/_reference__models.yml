@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: stg_reference__market_calendar_days
+    description: One row per market and calendar date. Grain and primary key = calendar_day_id.
+    columns:
+      - name: calendar_day_id
+        data_tests: [unique, not_null]
+      - name: market
+        data_tests: [not_null]
