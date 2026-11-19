@@ -8,6 +8,7 @@ balances in every currency (INV-01).
 """
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -23,6 +24,7 @@ from northstar.common.money import Currency, Money
 from northstar.domain.calendar import MarketCalendar, business_date
 from northstar.domain.events import (
     CashDeposited,
+    Event,
     EventType,
     Side,
     TradeExecuted,
@@ -246,6 +248,24 @@ class PostingEngine:
                 return self._post_execution(event)
             case TradeSettled():
                 return self._post_settlement(event)
+
+    def post_events(self, events: Iterable[Event]) -> tuple[JournalBatch, ...]:
+        """Post every event that changes a balance, in order.
+
+        Events in ``NON_POSTING_EVENTS`` are skipped by design.
+
+        Raises:
+            ValueError: An event type has no posting rule and is not declared
+                non-posting, so it cannot be silently ignored.
+        """
+        batches = []
+        for event in events:
+            if isinstance(event, CashDeposited | TradeExecuted | TradeSettled):
+                batches.append(self.post(event))
+            elif event.event_type not in NON_POSTING_EVENTS:
+                msg = f"no posting rule for event type {event.event_type}"
+                raise ValueError(msg)
+        return tuple(batches)
 
     def _post_deposit(self, event: CashDeposited) -> JournalBatch:
         p = event.payload

@@ -21,7 +21,7 @@ from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.event_files import write_events
 from northstar.simulation.scenario import Policies, Scenario, generate_events
 
-from factories import CONFIG, policies
+from factories import CONFIG, engine, policies
 
 SPRINT1 = CONFIG / "simulation" / "sprint1_scenario.yaml"
 
@@ -131,3 +131,45 @@ class TestRejectedScenarios:
         raw["orders"][0] = raw["orders"][0] | {"instrument": "NOPE"}
         with pytest.raises(ValidationError, match="unknown instrument"):
             Scenario.model_validate(raw)
+
+
+def test_sprint1_scenario_posts_the_expected_journal(sprint1: Scenario) -> None:
+    # The table in the PR description and the Sprint 1 demo come from here.
+    batches = engine().post_events(generate_events(sprint1, 42, policies()))
+    assert [
+        (
+            b.posting_rule_id,
+            b.posting_date,
+            [(ln.gl_account, ln.side.value, str(ln.amount.amount)) for ln in b.lines],
+        )
+        for b in batches
+    ] == [
+        (
+            "cash_deposited",
+            date(2026, 3, 2),
+            [("1000", "DEBIT", "25000.00"), ("2100", "CREDIT", "25000.00")],
+        ),
+        (
+            "trade_executed.buy",
+            date(2026, 3, 3),
+            [
+                ("2100", "DEBIT", "3147.15"),
+                ("2200", "CREDIT", "3142.20"),
+                ("4100", "CREDIT", "4.95"),
+            ],
+        ),
+        (
+            "trade_executed.buy",
+            date(2026, 3, 3),
+            [
+                ("2100", "DEBIT", "2101.35"),
+                ("2200", "CREDIT", "2096.40"),
+                ("4100", "CREDIT", "4.95"),
+            ],
+        ),
+        (
+            "trade_settled.buy",
+            date(2026, 3, 4),
+            [("2200", "DEBIT", "5238.60"), ("1000", "CREDIT", "5238.60")],
+        ),
+    ]

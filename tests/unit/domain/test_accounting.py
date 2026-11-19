@@ -3,6 +3,7 @@
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -17,8 +18,20 @@ from northstar.domain.accounting import (
     PostingEngine,
 )
 from northstar.domain.events import Side
+from northstar.infrastructure.config_loader import load_policy
+from northstar.simulation.scenario import Scenario, generate_events
 
-from factories import at_toronto, chart, deposit, engine, execution, settlement, xtse
+from factories import (
+    CONFIG,
+    at_toronto,
+    chart,
+    deposit,
+    engine,
+    execution,
+    policies,
+    settlement,
+    xtse,
+)
 
 D, C = EntrySide.DEBIT, EntrySide.CREDIT
 
@@ -191,3 +204,24 @@ def test_engine_refuses_a_chart_missing_a_rule_account() -> None:
     )
     with pytest.raises(PolicyNotFoundError, match="4100"):
         PostingEngine(incomplete, xtse())
+
+
+def test_post_events_skips_only_declared_non_posting_types() -> None:
+    events = generate_events(
+        load_policy(CONFIG / "simulation" / "sprint1_scenario.yaml", Scenario), 1, policies()
+    )
+    batches = engine().post_events(events)
+    assert [b.source_event_type.value for b in batches] == [
+        "cash_deposited",
+        "trade_executed",
+        "trade_executed",
+        "trade_settled",
+    ]
+
+
+def test_post_events_refuses_an_event_type_without_a_rule() -> None:
+    # A future event type must get a posting rule or be declared non-posting;
+    # it is never skipped silently.
+    unknown = SimpleNamespace(event_type="cash_teleported")
+    with pytest.raises(ValueError, match="no posting rule for event type cash_teleported"):
+        engine().post_events([unknown])  # type: ignore[list-item]
