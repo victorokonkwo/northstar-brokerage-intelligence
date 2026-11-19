@@ -7,7 +7,8 @@ This project processes **synthetic data only**. Real customer, account, or trans
 ## Secrets
 
 - Never commit credentials, API tokens, private keys, `.env` files, `profiles.yml` files that contain credentials, or Terraform state.
-- Locally, secrets come from environment variables. A `.env.example` that lists variable *names* only will be added in Phase 1.
+- Locally, secrets come from a git-ignored `.env` file. `.env.example` lists the variable names, with `<generate>` placeholders instead of secret values. `make env` creates `.env` from it with freshly generated random secrets and owner-only permissions (0600), and never overwrites an existing file.
+- The local stack publishes its ports on `127.0.0.1` only, and its S3 store refuses anonymous access.
 - In AWS, secrets are stored in AWS Secrets Manager and read at runtime by IAM roles with least-privilege policies.
 - If a secret is committed by mistake, rotate it immediately. Removing it from Git history does not make it safe again.
 

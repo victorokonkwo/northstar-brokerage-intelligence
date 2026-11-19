@@ -29,7 +29,7 @@ default-groups = ["dev", "dbt"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = [
@@ -58,7 +58,7 @@ convention = "google"
 [tool.mypy]
 strict = true
 python_version = "3.13"
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 warn_unreachable = true
 
 [tool.pytest.ini_options]

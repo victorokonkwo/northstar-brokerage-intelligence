@@ -36,4 +36,22 @@ make check   # lint, import-layer contracts, mypy --strict, tests
 make help    # list every target
 ```
 
-The local stack (Docker Compose) and CI are not built yet. See the [roadmap](docs/project/roadmap.md).
+### Local stack
+
+The stack needs Docker with Compose v2. It runs the warehouse Postgres, Airflow 3.4.0, and a SeaweedFS S3-compatible store, all bound to `127.0.0.1`.
+
+```bash
+make env     # create .env with generated local secrets (never overwrites)
+make up      # start everything and wait until each service is healthy
+make ps      # service status
+make down    # stop (data volumes are kept)
+make reset   # stop and DELETE the data volumes; needed if .env is regenerated
+```
+
+| Service | Address | Credentials (in `.env`) |
+|---|---|---|
+| Airflow UI and API | http://localhost:8080 | `AIRFLOW_ADMIN_USERNAME` / `AIRFLOW_ADMIN_PASSWORD` |
+| Warehouse Postgres | `localhost:5432`, database `northstar` | `NBI_PG_USER` / `NBI_PG_PASSWORD` |
+| S3 endpoint | http://localhost:8333, bucket `northstar-data-local` | `NBI_S3_ACCESS_KEY_ID` / `NBI_S3_SECRET_ACCESS_KEY` |
+
+The ports can be changed in `.env`. CI is not built yet. See the [roadmap](docs/project/roadmap.md).

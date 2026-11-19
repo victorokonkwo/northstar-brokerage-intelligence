@@ -30,8 +30,9 @@ dbt is now pinned in the `dbt` dependency group of the root `pyproject.toml` and
 ## Profile setup
 
 1. Copy `profiles.yml.example` to `~/.dbt/profiles.yml`, or point `--profiles-dir` at a private directory.
-2. Export `NBI_PG_USER` and `NBI_PG_PASSWORD`, plus the other `NBI_PG_*` variables if the defaults don't apply.
-3. Run `dbt debug` to check the connection. A local Postgres server is needed, and the Phase 1 Docker Compose file will provide it.
+2. Start the local stack with `make up` (from the repository root). It provides the warehouse Postgres server.
+3. Load the `NBI_PG_*` variables from the root `.env` into your shell: `set -a; . ./.env; set +a`.
+4. Run `uv run dbt debug` from `warehouse/dbt/` to check the connection.
 
 ## Layout rules
 
