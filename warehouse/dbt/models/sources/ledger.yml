@@ -5,7 +5,7 @@ sources:
     description: >
       Journal lines posted by the Python posting engine (northstar.domain.accounting,
       the calculation owner for postings under ADR 007). Inserted only, never updated.
-    schema: ledger
+    schema: "{{ var('ledger_schema', 'ledger') }}"
     tables:
       - name: journal_lines
         description: One row per posted journal line. Grain = journal_line_id.

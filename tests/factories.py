@@ -1,7 +1,9 @@
 """Shared test builders and Hypothesis strategies (importable via pytest ``pythonpath``)."""
 
+from collections import defaultdict
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from functools import cache
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from northstar.domain.events import (
     CashDepositedPayload,
     CashWithdrawn,
     CashWithdrawnPayload,
+    Event,
     FxConverted,
     FxConvertedPayload,
     MarginInterestAccrued,
@@ -262,3 +265,33 @@ def covered_timestamps(draw: st.DrawFn) -> datetime:
     """A UTC timestamp whose business date and posting date are inside XTSE coverage."""
     day = draw(st.dates(min_value=date(2026, 1, 1), max_value=date(2026, 12, 23)))
     return at_toronto(day, draw(st.integers(0, 23)), draw(st.integers(0, 59)))
+
+
+CENT = Decimal("0.01")
+
+
+def expected_client_cash(events: Iterable[Event]) -> dict[tuple[str, Currency], Decimal]:
+    """Client cash per (account, currency), recomputed from the events alone."""
+    balance: dict[tuple[str, Currency], Decimal] = defaultdict(Decimal)
+    for event in events:
+        match event:
+            case CashDeposited(payload=p):
+                balance[(p.account_id, p.currency)] += p.amount
+            case CashWithdrawn(payload=p):
+                balance[(p.account_id, p.currency)] -= p.amount
+            case FxConverted(payload=p):
+                balance[(p.account_id, p.sell_currency)] -= p.sell_amount
+                balance[(p.account_id, p.buy_currency)] += p.buy_amount
+            case MarginInterestAccrued(payload=p):
+                balance[(p.account_id, p.currency)] -= p.amount
+            case TradeExecuted(payload=p):
+                gross = (p.quantity * p.price * p.multiplier).quantize(
+                    CENT, rounding=ROUND_HALF_EVEN
+                )
+                if p.side is Side.BUY:
+                    balance[(p.account_id, p.currency)] -= gross + p.commission
+                else:
+                    balance[(p.account_id, p.currency)] += gross - p.commission
+            case TradeSettled():
+                pass  # settlement moves firm cash and clearing balances, never client cash
+    return dict(balance)
