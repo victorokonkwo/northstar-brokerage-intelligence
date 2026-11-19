@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: brokerage
+    description: >
+      Canonical brokerage events, loaded append-only and idempotently by
+      northstar.infrastructure.postgres.load_events (one row per event_id).
+    schema: raw
+    tables:
+      - name: brokerage_events
+        description: One row per canonical event. Grain = event_id. Payload is the event body as jsonb.
+        columns:
+          - name: event_id
+            data_tests: [unique, not_null]
+          - name: event_type
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: [account_created, cash_deposited, order_placed, trade_executed, trade_settled]

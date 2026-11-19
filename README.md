@@ -46,6 +46,10 @@ make up      # start everything and wait until each service is healthy
 make ps      # service status
 make down    # stop (data volumes are kept)
 make reset   # stop and DELETE the data volumes; needed if .env is regenerated
+
+make test-integration   # loader tests against the running warehouse
+make dbt-build          # build and test the dbt models
+make sql-lint           # SQLFluff (needs the running warehouse)
 ```
 
 | Service | Address | Credentials (in `.env`) |

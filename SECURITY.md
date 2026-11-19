@@ -7,6 +7,7 @@ This project processes **synthetic data only**. Real customer, account, or trans
 ## Secrets
 
 - Never commit credentials, API tokens, private keys, `.env` files, `profiles.yml` files that contain credentials, or Terraform state.
+- The one committed `profiles.yml` (`warehouse/dbt/profiles.yml`) uses `env_var()` for every value and holds no credentials. It is the only exception to the `.gitignore` rule, and it must stay credential-free.
 - Locally, secrets come from a git-ignored `.env` file. `.env.example` lists the variable names, with `<generate>` placeholders instead of secret values. `make env` creates `.env` from it with freshly generated random secrets and owner-only permissions (0600), and never overwrites an existing file.
 - The local stack publishes its ports on `127.0.0.1` only, and its S3 store refuses anonymous access.
 - In AWS, secrets are stored in AWS Secrets Manager and read at runtime by IAM roles with least-privilege policies.
