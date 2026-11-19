@@ -49,3 +49,7 @@ class UnbalancedJournalError(NorthstarError, ValueError):
 
 class ScenarioError(NorthstarError, ValueError):
     """Raised when a simulation scenario describes something the platform cannot do."""
+
+
+class PublicationBlockedError(NorthstarError):
+    """Raised when a snapshot fails its publication gate and stays DRAFT (ADR 006, §7.4)."""

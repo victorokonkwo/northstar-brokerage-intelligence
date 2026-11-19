@@ -239,19 +239,25 @@ def ensure_tables(conn: psycopg.Connection[Any], schemas: WarehouseSchemas) -> N
         cur.execute(sql.SQL(_JOURNAL_DDL).format(ledger=sql.Identifier(schemas.ledger)))
         cur.execute(sql.SQL(_EXTERNAL_DDL).format(raw=sql.Identifier(schemas.raw)))
         cur.execute(sql.SQL(_CALENDAR_DDL).format(raw=sql.Identifier(schemas.raw)))
-        # Loaded rows are never updated or deleted (W2.4, W3.3, INV-11).
-        for schema, table in (
-            (schemas.raw, "brokerage_events"),
-            (schemas.raw, "external_records"),
-            (schemas.raw, "market_calendar_days"),
-            (schemas.ledger, "journal_lines"),
-        ):
-            function = sql.Identifier(schema, "refuse_change")
-            cur.execute(sql.SQL(_APPEND_ONLY_DDL).format(schema=sql.Identifier(schema)))
-            for trigger in _APPEND_ONLY_TRIGGERS:
-                cur.execute(
-                    sql.SQL(trigger).format(table=sql.Identifier(schema, table), function=function)
-                )
+    # Loaded rows are never updated or deleted (W2.4, W3.3, INV-11).
+    for schema, table in (
+        (schemas.raw, "brokerage_events"),
+        (schemas.raw, "external_records"),
+        (schemas.raw, "market_calendar_days"),
+        (schemas.ledger, "journal_lines"),
+    ):
+        make_append_only(conn, schema, table)
+
+
+def make_append_only(conn: psycopg.Connection[Any], schema: str, table: str) -> None:
+    """Install triggers that refuse UPDATE, DELETE, and TRUNCATE on ``schema.table``."""
+    function = sql.Identifier(schema, "refuse_change")
+    with conn.cursor() as cur:
+        cur.execute(sql.SQL(_APPEND_ONLY_DDL).format(schema=sql.Identifier(schema)))
+        for trigger in _APPEND_ONLY_TRIGGERS:
+            cur.execute(
+                sql.SQL(trigger).format(table=sql.Identifier(schema, table), function=function)
+            )
 
 
 def load_events(

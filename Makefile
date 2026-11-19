@@ -9,7 +9,7 @@ ifndef RUN_ID
 RUN_ID := dev-$(shell date -u +%Y%m%dT%H%M%SZ)
 endif
 DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev"}'
-.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load tf-validate tf-init-bootstrap tf-plan-bootstrap
+.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset publish tf-validate tf-init-bootstrap tf-plan-bootstrap
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -94,5 +94,11 @@ ingest: | .env ## Validate the dev dataset into the raw layer and write a manife
 
 simulate-load: ingest ## Ingest the dev dataset, load it into raw_dev/ledger_dev, dbt build, print KPI-01
 	$(WITH_ENV) uv run northstar load-run --run-id $(RUN_ID) --raw-schema raw_dev --ledger-schema ledger_dev
-	$(WITH_ENV) export NBI_DBT_SCHEMA=dbt_dataset && cd warehouse/dbt && uv run dbt build --vars $(DATASET_VARS)
+	$(MAKE) dbt-build-dataset
 	$(WITH_ENV) uv run northstar ledger-summary --dbt-schema dbt_dataset
+
+dbt-build-dataset: | .env ## dbt build over raw_dev/ledger_dev into dbt_dataset (needs make up)
+	$(WITH_ENV) export NBI_DBT_SCHEMA=dbt_dataset && cd warehouse/dbt && uv run dbt build --vars $(DATASET_VARS)
+
+publish: | .env ## Publish every reporting date of the dev dataset as versioned snapshots (after simulate-load)
+	$(WITH_ENV) uv run northstar publish --dbt-schema dbt_dataset --published-schema published_dev

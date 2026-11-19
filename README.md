@@ -50,6 +50,7 @@ make reset   # stop and DELETE the data volumes; needed if .env is regenerated
 make simulate           # seeded dev dataset (50 accounts, Q1 2026): events, external records, defects
 make ingest             # validate it into the raw layer of the object store (needs make up)
 make simulate-load      # ingest, load into raw_dev/ledger_dev, dbt build, KPI-01 (needs make up)
+make publish            # publish every reporting date as a versioned snapshot (ADR 006)
 make test-integration   # loader tests against the running warehouse
 make dbt-build          # build and test the dbt models
 make sql-lint           # SQLFluff (needs the running warehouse)

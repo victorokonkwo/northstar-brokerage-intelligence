@@ -135,6 +135,27 @@ jobs:
           grep -q "0 new events, 0 new journal lines, 0 new external records" replay.txt
           echo "dataset reproduced: $(head -1 first.txt)"
 
+      - name: Published snapshots are reproducible and a late record restates (ADR 006)
+        # Publishing every reporting date, then publishing again, must create
+        # no new version (INV-09). A late deposit for 2026-03-02, ingested and
+        # loaded after publication, must restate that date as v2 with a
+        # reason, and leave v1 queryable as SUPERSEDED (FR-M1-06).
+        run: |
+          make publish | tee publish-1.txt
+          grep -Eq "; published [0-9]+$" publish-1.txt
+          make publish | tee publish-2.txt
+          grep -Eq "; unchanged [0-9]+$" publish-2.txt
+          set -a && . ./.env && set +a
+          uv run northstar ingest --dataset-dir tests/fixtures/late_deposit --run-id ci-late
+          uv run northstar load-run --run-id ci-late --raw-schema raw_dev --ledger-schema ledger_dev
+          make dbt-build-dataset
+          make publish | tee publish-3.txt
+          grep -q "2026-03-02 v2 PUBLISHED .* restates v1: mart_daily_client_cash changed" publish-3.txt
+          uv run northstar snapshot-history --published-schema published_dev \
+            --business-date 2026-03-02 | tee history.txt
+          grep -q "v1 SUPERSEDED" history.txt
+          grep -q "v2 PUBLISHED" history.txt
+
       - name: Telemetry reached the OpenTelemetry Collector
         # ADR 008/009: the e2e runs export traces, metrics, and logs over OTLP;
         # the Collector's debug exporter prints them.

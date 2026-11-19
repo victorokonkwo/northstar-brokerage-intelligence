@@ -14,6 +14,9 @@ Commands:
   and write the run manifest (needs ``make up``).
 - ``load-run``: load an ingestion run's raw objects into dataset-specific
   warehouse schemas, posting the events (needs ``make up``).
+- ``publish``: publish business dates' marts from a dbt schema as versioned
+  snapshots (ADR 006). Exits 2 if a date's gate fails and it stays DRAFT.
+- ``snapshot-history``: print every version of one business date.
 
 Connection settings come from the ``NBI_PG_*`` and ``NBI_S3_*`` environment
 variables.
@@ -23,13 +26,16 @@ import argparse
 import os
 import sys
 import uuid
+from collections import Counter
 from collections.abc import Sequence
+from datetime import UTC, date, datetime
 from importlib.metadata import version
 from pathlib import Path
 
 from opentelemetry import trace
 
 from northstar.application.ingest import ingest_dataset, load_run
+from northstar.application.publish import publish_all, publish_date
 from northstar.application.simulate import simulate_dataset
 from northstar.application.sprint1 import (
     journal_fingerprint,
@@ -37,9 +43,11 @@ from northstar.application.sprint1 import (
     prepare_slice,
     read_ledger_controls,
 )
+from northstar.common.exceptions import PublicationBlockedError
 from northstar.infrastructure.build_info import code_version
 from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectStore
 from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas
+from northstar.infrastructure.snapshots import history
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
 
 
@@ -85,6 +93,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--ledger-schema", required=True, help="schema for the journal, e.g. ledger_dev"
     )
     load.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
+
+    pub = commands.add_parser("publish", help="publish business dates as versioned snapshots")
+    pub.add_argument("--dbt-schema", required=True, help="schema dbt built the marts in")
+    pub.add_argument("--published-schema", required=True, help="schema of published snapshots")
+    pub.add_argument("--business-date", type=date.fromisoformat, help="one date (default: all)")
+    pub.add_argument("--note", help="operator note appended to any restatement reason")
+
+    hist = commands.add_parser("snapshot-history", help="print every version of a business date")
+    hist.add_argument("--published-schema", required=True, help="schema of published snapshots")
+    hist.add_argument("--business-date", type=date.fromisoformat, required=True)
     return parser
 
 
@@ -145,6 +163,60 @@ def _run(args: argparse.Namespace) -> int:
             f"{loaded.lines_inserted} new journal lines, "
             f"{loaded.records_inserted} new external records\n"
         )
+        return 0
+
+    if args.command == "publish":
+        run_id = f"publish-{uuid.uuid4().hex[:12]}"
+        now = datetime.now(UTC)
+        try:
+            with settings.connect() as conn:
+                if args.business_date is not None:
+                    results = [
+                        publish_date(
+                            conn,
+                            args.dbt_schema,
+                            args.published_schema,
+                            args.business_date,
+                            run_id,
+                            code_version(),
+                            now,
+                            args.note,
+                        )
+                    ]
+                else:
+                    results = publish_all(
+                        conn,
+                        args.dbt_schema,
+                        args.published_schema,
+                        run_id,
+                        code_version(),
+                        now,
+                        args.note,
+                    )
+        except PublicationBlockedError as error:
+            sys.stderr.write(f"blocked: {error}\n")
+            return 2
+        outcomes = Counter(r.outcome for r in results)
+        out.write(
+            f"run {run_id}: {len(results)} business dates; "
+            + ", ".join(f"{k.lower()} {v}" for k, v in sorted(outcomes.items()))
+            + "\n"
+        )
+        for r in results:
+            if r.outcome != "UNCHANGED":
+                out.write(
+                    f"  {r.business_date} v{r.snapshot_version} {r.outcome} "
+                    f"{r.content_sha256[:12]} {r.restatement_reason or ''}\n"
+                )
+        return 0
+    if args.command == "snapshot-history":
+        with settings.connect() as conn:
+            for v in history(conn, args.published_schema, args.business_date):
+                out.write(
+                    f"{v.business_date} v{v.snapshot_version} {v.status} "
+                    f"published_at={v.published_at} superseded_at={v.superseded_at} "
+                    f"sha256={v.content_sha256[:12]} reason={v.restatement_reason}\n"
+                )
         return 0
 
     if args.command == "run-slice":
