@@ -23,13 +23,16 @@ from opentelemetry.util.types import AttributeValue
 from psycopg import sql
 
 from northstar.application.policies import load_policies
+from northstar.application.reference_data import calendar_days
 from northstar.domain.accounting import JournalBatch, PostingEngine
 from northstar.domain.events import Event
 from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.event_files import write_events
 from northstar.infrastructure.postgres import (
+    CalendarDay,
     WarehouseSchemas,
     ensure_tables,
+    load_calendar_days,
     load_events,
     load_journal,
 )
@@ -50,6 +53,7 @@ class PreparedSlice:
     events_path: Path
     events_sha256: str
     batches: tuple[JournalBatch, ...]
+    calendar_days: tuple[CalendarDay, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +89,7 @@ def prepare_slice(config_dir: Path, scenario_path: Path, seed: int, out_dir: Pat
             events_path=events_path,
             events_sha256=hashlib.sha256(events_path.read_bytes()).hexdigest(),
             batches=engine.post_events(events),
+            calendar_days=tuple(calendar_days(policies.calendars)),
         )
         attributes: dict[str, AttributeValue] = {
             "northstar.scenario_id": prepared.scenario_id,
@@ -132,6 +137,7 @@ def load_slice(
             ensure_tables(conn, schemas)
             events_inserted = load_events(conn, prepared.events, run_id, schemas)
             lines_inserted = load_journal(conn, prepared.batches, run_id, schemas)
+            load_calendar_days(conn, prepared.calendar_days, run_id, schemas)
         span.set_attributes(
             {
                 "northstar.run_id": run_id,

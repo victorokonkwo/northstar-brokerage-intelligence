@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: reference
+    description: >
+      Reference data written from versioned configuration by the loaders
+      (northstar.application.reference_data). Inserted only, never updated.
+    schema: "{{ var('raw_schema', 'raw') }}"
+    tables:
+      - name: market_calendar_days
+        description: One row per market and covered calendar date. Grain = calendar_day_id (market:date).
+        columns:
+          - name: calendar_day_id
+            data_tests: [unique, not_null]

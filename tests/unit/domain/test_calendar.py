@@ -182,3 +182,15 @@ class TestBusinessDate:
     def test_naive_timestamps_are_rejected(self) -> None:
         with pytest.raises(ValueError, match="timezone-aware"):
             business_date(datetime(2026, 1, 15, 12, 0))  # noqa: DTZ001 - the case under test
+
+
+class TestPreviousSettlementDay:
+    def test_skips_weekends_and_settlement_holidays(self, xtse: MarketCalendar) -> None:
+        cal = xtse
+        assert cal.previous_settlement_day(date(2026, 3, 2)) == date(2026, 2, 27)  # Mon -> Fri
+        # Remembrance Day (2026-11-11) is a CAD settlement holiday, not a trading holiday.
+        assert cal.previous_settlement_day(date(2026, 11, 12)) == date(2026, 11, 10)
+
+    def test_leaving_coverage_is_an_error(self, xtse: MarketCalendar) -> None:
+        with pytest.raises(CalendarCoverageError):
+            xtse.previous_settlement_day(date(2026, 1, 2))  # the walk passes 2026-01-01

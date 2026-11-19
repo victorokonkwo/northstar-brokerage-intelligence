@@ -134,6 +134,56 @@ create table if not exists {raw}.external_records (
 )
 """
 
+_CALENDAR_DDL: Final = """
+create table if not exists {raw}.market_calendar_days (
+    calendar_day_id          text    primary key,
+    market                   text    not null,
+    calendar_date            date    not null,
+    is_trading_day           boolean not null,
+    is_settlement_day        boolean not null,
+    trading_holiday_name     text,
+    settlement_holiday_name  text,
+    previous_settlement_day  date,
+    next_settlement_day      date,
+    calendar_version         text    not null,
+    _ingestion_run_id        text    not null,
+    _ingested_at             timestamptz not null default now(),
+    unique (market, calendar_date)
+)
+"""
+
+_APPEND_ONLY_DDL: Final = """
+create or replace function {schema}.refuse_change() returns trigger
+language plpgsql as $$
+begin
+    raise exception '% on %.% is refused: the table is append-only (INV-11)',
+        tg_op, tg_table_schema, tg_table_name;
+end
+$$
+"""
+
+_APPEND_ONLY_TRIGGERS: Final = (
+    "create or replace trigger refuse_update_delete before update or delete on {table} "
+    "for each row execute function {function}()",
+    "create or replace trigger refuse_truncate before truncate on {table} "
+    "for each statement execute function {function}()",
+)
+
+_CALENDAR_COLUMNS: Final = (
+    "calendar_day_id",
+    "market",
+    "calendar_date",
+    "is_trading_day",
+    "is_settlement_day",
+    "trading_holiday_name",
+    "settlement_holiday_name",
+    "previous_settlement_day",
+    "next_settlement_day",
+    "calendar_version",
+    "_ingestion_run_id",
+)
+_CALENDAR_CONTENT: Final = _CALENDAR_COLUMNS[1:-1]
+
 _EXTERNAL_COLUMNS: Final = (
     "record_id",
     "record_set",
@@ -188,6 +238,20 @@ def ensure_tables(conn: psycopg.Connection[Any], schemas: WarehouseSchemas) -> N
         cur.execute(sql.SQL(_EVENTS_DDL).format(raw=sql.Identifier(schemas.raw)))
         cur.execute(sql.SQL(_JOURNAL_DDL).format(ledger=sql.Identifier(schemas.ledger)))
         cur.execute(sql.SQL(_EXTERNAL_DDL).format(raw=sql.Identifier(schemas.raw)))
+        cur.execute(sql.SQL(_CALENDAR_DDL).format(raw=sql.Identifier(schemas.raw)))
+        # Loaded rows are never updated or deleted (W2.4, W3.3, INV-11).
+        for schema, table in (
+            (schemas.raw, "brokerage_events"),
+            (schemas.raw, "external_records"),
+            (schemas.raw, "market_calendar_days"),
+            (schemas.ledger, "journal_lines"),
+        ):
+            function = sql.Identifier(schema, "refuse_change")
+            cur.execute(sql.SQL(_APPEND_ONLY_DDL).format(schema=sql.Identifier(schema)))
+            for trigger in _APPEND_ONLY_TRIGGERS:
+                cur.execute(
+                    sql.SQL(trigger).format(table=sql.Identifier(schema, table), function=function)
+                )
 
 
 def load_events(
@@ -309,6 +373,63 @@ def load_external_records(
         "record_id",
         _EXTERNAL_COLUMNS,
         _EXTERNAL_CONTENT,
+        rows,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarDay:
+    """One market's calendar on one date, as the domain calendar computes it."""
+
+    market: str
+    calendar_date: date
+    is_trading_day: bool
+    is_settlement_day: bool
+    trading_holiday_name: str | None
+    settlement_holiday_name: str | None
+    previous_settlement_day: date | None  # None where the calendar's coverage ends
+    next_settlement_day: date | None
+    calendar_version: str
+
+
+def load_calendar_days(
+    conn: psycopg.Connection[Any],
+    days: Iterable[CalendarDay],
+    run_id: str,
+    schemas: WarehouseSchemas,
+) -> int:
+    """Insert calendar days that are not already stored; return how many were new.
+
+    A stored day that differs (a corrected calendar) is refused, not
+    overwritten: changing a calendar that results were computed with is a
+    restatement and needs its own migration.
+
+    Raises:
+        LoadConflictError: A stored day differs from the configured calendar.
+    """
+    rows = [
+        (
+            f"{d.market}:{d.calendar_date.isoformat()}",
+            d.market,
+            d.calendar_date,
+            d.is_trading_day,
+            d.is_settlement_day,
+            d.trading_holiday_name,
+            d.settlement_holiday_name,
+            d.previous_settlement_day,
+            d.next_settlement_day,
+            d.calendar_version,
+            run_id,
+        )
+        for d in days
+    ]
+    return _insert_new(
+        conn,
+        schemas.raw,
+        "market_calendar_days",
+        "calendar_day_id",
+        _CALENDAR_COLUMNS,
+        _CALENDAR_CONTENT,
         rows,
     )
 

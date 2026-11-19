@@ -49,9 +49,21 @@ models:
       contract: {enforced: true}
     columns:
       - {name: execution_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
-      - {name: order_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: instrument_id, data_type: text, constraints: [{type: not_null}]}
+      - name: order_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('fct_orders'), field: order_id}}
+      - name: account_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
+      - name: instrument_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_instrument'), field: instrument_id}}
       - {name: market, data_type: text, constraints: [{type: not_null}]}
       - {name: asset_class, data_type: text, constraints: [{type: not_null}]}
       - {name: side, data_type: text, constraints: [{type: not_null}]}
@@ -60,6 +72,8 @@ models:
       - {name: multiplier, data_type: integer, constraints: [{type: not_null}]}
       - {name: currency, data_type: text, constraints: [{type: not_null}]}
       - {name: commission, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: clearing_fee, data_type: "numeric(18, 2)", constraints: [{type: not_null}], description: Firm expense in the execution currency (5100); 0.00 for trade_executed v1.}
+      - {name: executed_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: trade_date, data_type: date, constraints: [{type: not_null}]}
       - {name: settlement_date, data_type: date, constraints: [{type: not_null}]}
       - {name: settlement_id, data_type: text, constraints: [{type: not_null}]}
@@ -74,6 +88,216 @@ models:
               arguments:
                 to: source('brokerage', 'brokerage_events')
                 field: event_id
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: dim_account
+    description: >
+      Account history, SCD Type 2 built from account_created and account_updated
+      events (FR-M1-05). One row per account version (grain). Primary key account_sk
+      (natural account_id + valid_from). valid_from inclusive, valid_to exclusive
+      (null = current).
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: account_sk, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - name: account_type
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CASH, MARGIN]}}
+      - {name: base_currency, data_type: text, constraints: [{type: not_null}]}
+      - name: status
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [ACTIVE, TRADING_RESTRICTED]}}
+      - {name: change_reason, data_type: text, constraints: [{type: not_null}]}
+      - {name: is_margin_eligible, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: opened_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: valid_from, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: valid_to, data_type: timestamp with time zone}
+      - {name: is_current, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: dim_instrument
+    description: >
+      Instruments in SCD Type 2 shape (one version each until an instrument-change
+      event exists). One row per instrument version (grain). Primary key instrument_sk.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: instrument_sk, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: instrument_id, data_type: text, constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: symbol, data_type: text, constraints: [{type: not_null}]}
+      - {name: instrument_name, data_type: text, constraints: [{type: not_null}]}
+      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - name: asset_class
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [EQUITY, OPTION]}}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: multiplier, data_type: integer, constraints: [{type: not_null}]}
+      - {name: underlying_instrument_id, data_type: text}
+      - {name: strike, data_type: "numeric(18, 8)"}
+      - {name: expiry, data_type: date}
+      - {name: option_right, data_type: text}
+      - {name: exercise_style, data_type: text}
+      - {name: valid_from, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: valid_to, data_type: timestamp with time zone}
+      - {name: is_current, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: dim_calendar
+    description: >
+      One row per market and calendar date (grain). Primary key calendar_day_id
+      (market:date). Computed by northstar.domain.calendar and loaded as reference data.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: calendar_day_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - {name: calendar_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: is_trading_day, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: is_settlement_day, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: trading_holiday_name, data_type: text}
+      - {name: settlement_holiday_name, data_type: text}
+      - {name: previous_settlement_day, data_type: date}
+      - {name: next_settlement_day, data_type: date}
+      - {name: calendar_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_orders
+    description: One row per order (grain). Primary key order_id.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: order_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - name: account_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
+      - name: instrument_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_instrument'), field: instrument_id}}
+      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - {name: side, data_type: text, constraints: [{type: not_null}]}
+      - {name: order_type, data_type: text, constraints: [{type: not_null}]}
+      - {name: quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: limit_price, data_type: "numeric(18, 8)"}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: placed_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: filled_quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: cancelled_quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: execution_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: cancelled_at, data_type: timestamp with time zone}
+      - name: order_status
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [OPEN, PARTIALLY_FILLED, FILLED, CANCELLED]}}
+      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_settlements
+    description: >
+      One row per settlement obligation (grain): an order's executions on one trade
+      date (INV-06). Primary key settlement_id. settled_* columns and lineage are null
+      while PENDING; the amount is posted by Python and never recomputed here.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: settlement_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - name: order_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('fct_orders'), field: order_id}}
+      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: instrument_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - {name: side, data_type: text, constraints: [{type: not_null}]}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: trade_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: contractual_settlement_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: executed_quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: execution_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: settled_quantity, data_type: "numeric(18, 8)"}
+      - {name: settled_amount, data_type: "numeric(18, 2)"}
+      - {name: settled_at, data_type: timestamp with time zone}
+      - name: settlement_status
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [PENDING, SETTLED]}}
+      - {name: _source_event_id, data_type: text}
+      - {name: _ingestion_run_id, data_type: text}
+      - {name: _ingested_at, data_type: timestamp with time zone}
+      - {name: _schema_version, data_type: integer}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_cash_movements
+    description: >
+      One row per client deposit, withdrawal, or FX conversion (grain). Primary key
+      cash_movement_id (the fx_conversion_id for conversions). Money in and money out
+      each carry their own currency.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: cash_movement_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - name: account_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
+      - name: movement_type
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [DEPOSIT, WITHDRAWAL, FX_CONVERSION]}}
+      - {name: event_timestamp, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: amount_in, data_type: "numeric(18, 2)"}
+      - {name: currency_in, data_type: text}
+      - {name: amount_out, data_type: "numeric(18, 2)"}
+      - {name: currency_out, data_type: text}
+      - {name: reference_rate, data_type: "numeric(18, 10)"}
+      - {name: client_rate, data_type: "numeric(18, 10)"}
+      - {name: rate_date, data_type: date}
+      - {name: fx_policy_version, data_type: text}
+      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
       - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
