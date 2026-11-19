@@ -42,7 +42,11 @@ from northstar.domain.calendar import BUSINESS_TIMEZONE, MarketCalendar, busines
 from northstar.domain.events import (
     AccountCreated,
     AccountCreatedPayload,
+    AccountStatus,
     AccountType,
+    AccountUpdated,
+    AccountUpdatedPayload,
+    AccountUpdateReason,
     CashDeposited,
     CashDepositedPayload,
     CashWithdrawn,
@@ -51,6 +55,8 @@ from northstar.domain.events import (
     ExerciseStyle,
     FxConverted,
     FxConvertedPayload,
+    FxRatePublished,
+    FxRatePublishedPayload,
     InstrumentListed,
     InstrumentListedPayload,
     MarginInterestAccrued,
@@ -80,6 +86,10 @@ from northstar.domain.trading import FeeSchedule, gross_amount
 
 LEDGER_CALENDAR_MARKET = "XTSE"
 """The ledger's business calendar (domain model §5)."""
+
+FX_PUBLICATION_TIME_LOCAL = time(0, 0)
+"""Simulation convention (†): the synthetic reference rate for day D is fixed at
+the start of D, so no conversion on D is priced with a rate published after it."""
 
 _END_OF_DAY = time(23, 59, 59)
 
@@ -149,6 +159,17 @@ class OpenAccount:
 
 
 @dataclass(frozen=True, slots=True)
+class UpdateAccount:
+    """Change an account's type or trading status (margin approval, restriction)."""
+
+    at: datetime
+    account: str
+    account_type: AccountType
+    status: AccountStatus
+    reason: AccountUpdateReason
+
+
+@dataclass(frozen=True, slots=True)
 class Deposit:
     """Client cash arrives."""
 
@@ -209,7 +230,7 @@ class ClosePrice:
     close: Decimal
 
 
-type Action = OpenAccount | Deposit | Withdraw | Convert | PlaceOrder | ClosePrice
+type Action = OpenAccount | UpdateAccount | Deposit | Withdraw | Convert | PlaceOrder | ClosePrice
 
 
 # --- Engine --------------------------------------------------------------------
@@ -280,6 +301,7 @@ class SimulationEngine:
         self._settlement_queue: list[tuple[datetime, int, tuple[str, date]]] = []
         self._queued = 0
         self._account_types: dict[str, AccountType] = {}
+        self._status: dict[str, AccountStatus] = {}
         self._next_interest_day: date | None = None
         self._finished = False
         self._broken: str | None = None
@@ -318,6 +340,15 @@ class SimulationEngine:
         account_id, _ = self._account(account)
         return self._positions.trade_date_quantity(account_id, self._instrument_ids[instrument])
 
+    def account_type(self, account: str) -> AccountType:
+        """The account's current type (it changes on a margin approval)."""
+        return self._account(account)[1]
+
+    def trading_restricted(self, account: str) -> bool:
+        """Whether the account is barred from placing orders."""
+        account_id, _ = self._account(account)
+        return self._status[account_id] is AccountStatus.TRADING_RESTRICTED
+
     def reference_rate(self, on: date) -> Decimal:
         """The reference USD/CAD rate that applies on ``on`` (policy fallback)."""
         return reference_rate_on(on, self._fx_rates)[0]
@@ -342,6 +373,8 @@ class SimulationEngine:
             match action:
                 case OpenAccount():
                     self._open(action)
+                case UpdateAccount():
+                    self._update(action)
                 case Deposit():
                     self._deposit(action)
                 case Withdraw():
@@ -367,6 +400,7 @@ class SimulationEngine:
         """
         self._require_usable()
         self._accrue_interest_through(interest_until)
+        self._publish_fx_rates(interest_until)
         while self._settlement_queue:
             _, _, key = heapq.heappop(self._settlement_queue)
             self._settle(key)
@@ -485,6 +519,7 @@ class SimulationEngine:
         account_id = self._next_id(EntityType.ACCOUNT)
         self._accounts[action.account] = (account_id, action.account_type)
         self._account_types[account_id] = action.account_type
+        self._status[account_id] = AccountStatus.ACTIVE
         self._account_order.append(account_id)
         if self._next_interest_day is None:
             self._next_interest_day = business_date(action.at)
@@ -499,6 +534,51 @@ class SimulationEngine:
             ),
             None,
         )
+
+    def _update(self, action: UpdateAccount) -> None:
+        account_id, current_type = self._account(action.account)
+        if (action.account_type, action.status) == (current_type, self._status[account_id]):
+            msg = f"account {action.account!r} update changes nothing"
+            raise ScenarioError(msg)
+        has_loan = any(b < 0 for (a, _), b in self._balances.items() if a == account_id)
+        if has_loan and (current_type, action.account_type) == (
+            AccountType.MARGIN,
+            AccountType.CASH,
+        ):
+            msg = f"account {action.account!r} cannot become CASH while it has a loan"
+            raise ScenarioError(msg)
+        self._accounts[action.account] = (account_id, action.account_type)
+        self._account_types[account_id] = action.account_type
+        self._status[account_id] = action.status
+        payload = AccountUpdatedPayload(
+            account_id=account_id,
+            account_type=action.account_type,
+            status=action.status,
+            reason=action.reason,
+        )
+        ref = f"acu:{account_id}:{action.at.isoformat()}"
+        self._record(
+            _Draft(action.at, ref, None, _maker(AccountUpdated, action.at, account_id, payload)),
+            None,
+        )
+
+    def _publish_fx_rates(self, until: date) -> None:
+        """One ``fx_rate_published`` per reference rate dated on or before ``until``."""
+        for rate_date in sorted(d for d in self._fx_rates if d <= until):
+            at = _local(rate_date, FX_PUBLICATION_TIME_LOCAL)
+            payload = FxRatePublishedPayload(
+                base_currency=Currency.USD,
+                quote_currency=Currency.CAD,
+                rate_date=rate_date,
+                rate=self._fx_rates[rate_date],
+                rate_source=self._p.fx_policy.rate_source,
+                fx_policy_version=self._p.fx_policy.version,
+            )
+            ref = f"fxr:USDCAD:{rate_date.isoformat()}"
+            self._record(
+                _Draft(at, ref, None, _maker(FxRatePublished, at, ref, payload)),
+                None,
+            )
 
     def _deposit(self, action: Deposit) -> None:
         account_id, _ = self._account(action.account)
@@ -569,6 +649,9 @@ class SimulationEngine:
 
     def _order(self, action: PlaceOrder) -> None:
         account_id, account_type = self._account(action.account)
+        if self._status[account_id] is AccountStatus.TRADING_RESTRICTED:
+            msg = f"account {action.account!r} is restricted from trading"
+            raise ScenarioError(msg)
         instrument_id, spec = self._instrument(action.instrument)
         calendar = self._p.calendars[spec.market]
         if not action.fills:

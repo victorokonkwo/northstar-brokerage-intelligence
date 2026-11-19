@@ -24,8 +24,12 @@ All simulated data is **synthetic**. Instruments, prices, FX rates, and client b
 
 - **Applies policy:** commission and clearing fee (fee schedule), the settlement date (calendar and settlement rules), the FX quote (`domain.fx`, spread policy), and margin interest (margin policy).
 - **Keeps client balances by posting every event through the ledger's `PostingEngine`**, so there is one implementation of cash effects (ADR 007). Positions come from `PositionBook`.
+- **Applies account updates** (`account_updated`): a margin approval turns a CASH account into a MARGIN account from that moment, and a trading restriction blocks new orders until it is lifted. Cash movements, settlements, and interest continue during a restriction.
+- **Publishes the reference rates** it prices conversions with: one `fx_rate_published` per rate, stamped at 00:00 Toronto time on the rate date (†), so no conversion uses a rate published after it.
 - **Refuses** what a brokerage would refuse, with `ScenarioError`:
   - overdrawing a CASH account in any currency
+  - an order from a trading-restricted account
+  - an update that changes nothing, or turning a MARGIN account with a loan into a CASH account
   - a MARGIN loan above the simulator guard. This is CAD 50,000, a guard on the simulation, **not a margin requirement**; requirements are Phase 5.
   - withdrawing or converting money the client doesn't have
   - short sales
@@ -43,26 +47,27 @@ All simulated data is **synthetic**. Instruments, prices, FX rates, and client b
 | Behaviour | How |
 |---|---|
 | Accounts | `count` accounts open during the first 10 business days with an opening deposit. `margin_share` of them are MARGIN accounts. |
+| Account lifecycle | With `margin_approval_probability`, a CASH account is approved for margin on a random later business day. With `restriction_probability`, an account is restricted from trading on a random later business day, and the restriction is lifted `restriction_business_days` ledger business days later if that falls in the window. An update keeps whatever its reason doesn't change, so an approval during a restriction leaves the account restricted. Updates are processed at 08:00 Toronto time (†). |
 | Deposits | On ledger business days, with probability `daily_probability × seasonal[month]`. |
 | Withdrawals | Probability × `month_end_multiplier` on the last `month_end_days` business days of each month. At most `max_fraction` of CAD cash. |
 | Orders | Poisson count per account and day, with intensity `daily_rate × (1 + volatility_sensitivity × (activity/mean − 1))`, where activity is the day's average absolute price move. |
 | Order details | Buys are sized as a random fraction of buying power (cash, plus `margin_headroom_use` of the remaining guard headroom for MARGIN accounts). Sells take part of a position. Each order has 1–3 partial fills near the last close (`price_noise`), and with `cancel_probability` it is cancelled after a partial fill. A USD buy without USD cash first converts `usd_conversion_fraction` of CAD. |
-| Prices and FX | A daily close for each instrument on its market's trading days (`price_updated`). A reference rate for each ledger business day; other days use the most recent prior rate (FX fallback policy v1). |
+| Prices and FX | A daily close for each instrument on its market's trading days (`price_updated`). A synthetic reference rate for each ledger business day plus an opening rate for the day before the window, each published as `fx_rate_published`. Other days use the most recent prior rate (FX fallback policy v1). |
 
 These patterns are FR-SIM-05, and they are tested on generated data:
-- On the dev dataset (seed 42), 10 of 25 withdrawals fall on the 6 month-end days out of 61 business days.
+- On the dev dataset (seed 42), 10 of 25 withdrawals fall on the 6 month-end days out of 62 business days.
 - Orders per day correlate with the day's average absolute price move at 0.71.
 - With 400 accounts, February deposits run at more than 1.2× March per business day (factors 1.4 vs 1.0).
 
 ### Determinism
 
-`numpy.random.SeedSequence(seed)` is split into a market stream (child 0) and one stream per account (W4). Only the random draws come from numpy (PCG64). Everything after them, including `exp`, is `Decimal` arithmetic in an explicit context. Floating-point `exp` can differ across CPUs and math libraries, so this keeps the output **byte-identical on every machine**.
+`numpy.random.SeedSequence(seed)` is split into a market stream (child 0) and one stream per account (W4). Each account's lifecycle plan comes from a child of its stream, so planning consumes none of the account's activity draws. Only the random draws come from numpy (PCG64). Everything after them, including `exp`, is `Decimal` arithmetic in an explicit context. Floating-point `exp` can differ across CPUs and math libraries, so this keeps the output **byte-identical on every machine**.
 
 Note that the event IDs come from global sequences. Adding an account therefore shifts later IDs, even where the account's behaviour is unchanged.
 
 ### The dev dataset (seed 42)
 
-`make simulate` produces 4,979 events. All 11 event types appear, along with partial fills, cancellations, sells, CAD and USD trades, options, clearing fees, FX conversions, withdrawals, and margin interest. The events file's SHA-256 is printed by the command, and CI regenerates and compares it (Phase 2E).
+`make simulate` produces 5,148 events. All 13 event types appear, along with partial fills, cancellations, sells, CAD and USD trades, options, clearing fees, FX conversions, withdrawals, margin interest, margin approvals, and trading restrictions. The events file's SHA-256 is printed by the command, and CI regenerates and compares it (Phase 2E).
 
 ## External records (FR-SIM-02)
 
@@ -104,7 +109,7 @@ Each manifest line (`contracts/external/defect_manifest.v1.schema.json`) records
 
 Tests prove the manifest is **exact**. Every changed, dropped, or added record appears in exactly one entry, every entry corresponds to a change, and each impact is recomputed independently.
 
-The dev dataset with seed 42 has 71 defects: 17 dropped, 8 duplicates, 22 wrong fees, 12 delayed settlements, 1 wrong FX conversion, and 11 stale prices.
+The dev dataset with seed 42 has 76 defects: 20 dropped, 8 duplicates, 19 wrong fees, 12 delayed settlements, 5 wrong FX conversions, and 12 stale prices.
 
 ## Loading a dataset and the Phase 2 gate
 
@@ -117,3 +122,4 @@ The dev dataset with seed 42 has 71 defects: 17 dropped, 8 duplicates, 22 wrong 
 - FX covering trades are not simulated (2300 holds the open position).
 - The generator converts CAD → USD only. The engine and posting rules support both directions, which the scripted and property tests exercise.
 - Options expire after the window. Exercise, assignment, and expiry are Phase 5.
+- The reference rate for day D is published at the start of D, and account updates are processed at 08:00. Both are simulation conventions, not the behaviour of a real rate source or back office.

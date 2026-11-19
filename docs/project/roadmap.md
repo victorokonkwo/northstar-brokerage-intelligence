@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Last updated | 2026-11-19 |
-| Current phase | **Phase 3 — Data foundation (not started)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. Phase 2 done 2026-11-19. |
+| Current phase | **Phase 3 — Data foundation (in progress)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. Phase 2 done 2026-11-19. |
 
 This is the **authoritative status tracker**. Update it in the same change that alters status. Status values are `Not started`, `In progress`, `Done`. "Done" means the exit gate passed, with evidence linked.
 
@@ -33,12 +33,33 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | 0 Business architecture | 1 | Charter, requirements, glossary, KPI dictionary, domain model, event contracts, NFRs, ADRs, risk register | **Architecture gate:** every KPI has a decision, an exact definition, an authoritative source, and a verification method; the owner has reviewed the domain model | Done (2026-11-18) |
 | 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, OpenTelemetry foundation, AWS budget alert + Terraform baseline and CloudWatch OTLP export | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | Done (2026-11-19). Gate evidence: [CI run on `main` 3a22ecf](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44592557891). CloudWatch OTLP export deferred to Phase 3 |
 | 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | Done (2026-11-19). Gate evidence: [CI run on `main` 8895a82](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44608534995) |
-| 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Not started |
+| 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | In progress |
 | 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | Not started |
 | 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
 | 6 Treasury forecasting | 13–14 | Known vs. uncertain flows, baseline/statistical/GBM models, walk-forward evaluation, intervals, scenarios, MLflow | **Forecast evaluation gate:** reproducible forecasts evaluated against the baseline, with error, bias, coverage, and stress results documented | Not started |
 | 7 Finance intelligence | 15–16 | Profitability mart, allocation method, KPI restatements, drilldown, simulated reporting package, executive dashboard | **Reporting gate:** every finance KPI has a documented formula, passes tie-outs, and drills down to transactions | Not started |
 | 8 Production readiness | 17–18 | Load tests, failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
+
+## Phase 3 (weeks 5–7)
+
+Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and FX → 3B ingestion → 3C dbt staging, dimensions, and core facts → 3D daily facts and gate marts → 3E snapshots and restatements → 3F Airflow and OpenLineage → 3G load test and gate.
+
+### Phase 3 decisions (owner, 2026-11-19)
+
+| Decision | Outcome |
+|---|---|
+| S3 client | `boto3`, against SeaweedFS locally and S3 in the cloud |
+| FX rates for CAD translation | the simulator's synthetic reference rate, published as `fx_rate_published`. Bank of Canada ingestion is deferred to a later phase |
+| Airflow | a custom image extending `apache/airflow:3.4.0-python3.13`, with the project in its own virtualenv; tasks call the `northstar` CLI |
+| OpenLineage | file transport to `audit/lineage/` in the object store; no new service |
+| Account history | new event `account_updated` (margin approvals, trading restrictions) drives SCD2 `dim_account` |
+| Quarantine threshold | 0.5% per load (illustrative, versioned config); a load above it fails |
+| Deferred | average cost in `fct_positions_daily` (Phase 5); the reconciliation-exception condition of the publication gate (Phase 4) |
+
+| PR | Status |
+|---|---|
+| 3A events for SCD2 and FX | Built (this PR): `account_updated` and `fx_rate_published`, emitted by the engine and generator |
+| 3B–3G | Not started |
 
 ## Phase 2 (weeks 3–4)
 

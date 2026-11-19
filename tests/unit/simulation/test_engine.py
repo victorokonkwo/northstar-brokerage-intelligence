@@ -8,9 +8,15 @@ import pytest
 
 from northstar.common.exceptions import NotATradingDayError, ScenarioError
 from northstar.common.money import Currency, Money
+from northstar.domain.calendar import BUSINESS_TIMEZONE
 from northstar.domain.events import (
+    AccountStatus,
     AccountType,
+    AccountUpdated,
+    AccountUpdateReason,
     Event,
+    FxConverted,
+    FxRatePublished,
     OrderCancelled,
     OrderType,
     Side,
@@ -28,6 +34,7 @@ from northstar.simulation.engine import (
     OpenAccount,
     PlaceOrder,
     SimulationEngine,
+    UpdateAccount,
     Withdraw,
 )
 from northstar.simulation.scenario import Scenario, generate_events
@@ -67,6 +74,7 @@ class TestFlagship:
             "trade_executed": 4,
             "trade_settled": 3,
             "margin_interest_accrued": 7,  # 2026-03-04 .. 2026-03-10, every calendar day
+            "fx_rate_published": 7,  # one per reference rate in the scenario
         }
 
     def test_golden_journal(self, events: tuple[Event, ...]) -> None:
@@ -310,3 +318,119 @@ def test_finish_can_only_run_once() -> None:
     sim.finish(date(2026, 3, 2))
     with pytest.raises(ScenarioError, match="finished"):
         sim.finish(date(2026, 3, 2))
+
+
+class TestAccountUpdates:
+    def test_margin_approval_lets_a_cash_account_borrow(self) -> None:
+        sim = _opened(AccountType.CASH, cash="100.00")
+        sim.submit(
+            UpdateAccount(
+                T0 + timedelta(minutes=5),
+                "a",
+                AccountType.MARGIN,
+                AccountStatus.ACTIVE,
+                AccountUpdateReason.MARGIN_APPROVED,
+            )
+        )
+        assert sim.account_type("a") is AccountType.MARGIN
+        sim.submit(_buy(T0 + timedelta(hours=1), "10", "10.00"))  # would overdraw a CASH account
+        assert sim.cash_balance("a", Currency.CAD).amount < 0
+        events = sim.finish(T0.date())
+        (update,) = [e for e in events if isinstance(e, AccountUpdated)]
+        assert update.payload.account_type is AccountType.MARGIN
+        assert update.payload.reason is AccountUpdateReason.MARGIN_APPROVED
+
+    def test_a_restricted_account_cannot_place_orders_until_lifted(self) -> None:
+        sim = _opened(cash="1000.00")
+        restrict = AccountUpdateReason.TRADING_RESTRICTED
+        sim.submit(
+            UpdateAccount(
+                T0 + timedelta(minutes=5),
+                "a",
+                AccountType.CASH,
+                AccountStatus.TRADING_RESTRICTED,
+                restrict,
+            )
+        )
+        assert sim.trading_restricted("a")
+        with pytest.raises(ScenarioError, match="restricted from trading"):
+            sim.submit(_buy(T0 + timedelta(hours=1), "1", "10.00"))
+        lifted = _opened(cash="1000.00")
+        for minutes, status, reason in (
+            (5, AccountStatus.TRADING_RESTRICTED, restrict),
+            (6, AccountStatus.ACTIVE, AccountUpdateReason.RESTRICTION_LIFTED),
+        ):
+            lifted.submit(
+                UpdateAccount(
+                    T0 + timedelta(minutes=minutes), "a", AccountType.CASH, status, reason
+                )
+            )
+        lifted.submit(_buy(T0 + timedelta(hours=1), "1", "10.00"))
+        assert not lifted.trading_restricted("a")
+
+    def test_an_update_that_changes_nothing_is_refused(self) -> None:
+        sim = _opened()
+        with pytest.raises(ScenarioError, match="changes nothing"):
+            sim.submit(
+                UpdateAccount(
+                    T0 + timedelta(minutes=5),
+                    "a",
+                    AccountType.CASH,
+                    AccountStatus.ACTIVE,
+                    AccountUpdateReason.RESTRICTION_LIFTED,
+                )
+            )
+
+    def test_a_margin_account_with_a_loan_cannot_become_cash(self) -> None:
+        sim = _opened(AccountType.MARGIN, cash="0.01")
+        sim.submit(_buy(T0 + timedelta(hours=1), "10", "10.00"))
+        with pytest.raises(ScenarioError, match="while it has a loan"):
+            sim.submit(
+                UpdateAccount(
+                    T0 + timedelta(hours=2),
+                    "a",
+                    AccountType.CASH,
+                    AccountStatus.ACTIVE,
+                    AccountUpdateReason.MARGIN_APPROVED,
+                )
+            )
+
+
+class TestFxPublication:
+    def test_one_publication_per_rate_at_the_start_of_its_day(
+        self, events: tuple[Event, ...]
+    ) -> None:
+        scenario = load_policy(FLAGSHIP, Scenario)
+        published = [e for e in events if isinstance(e, FxRatePublished)]
+        assert {p.payload.rate_date: p.payload.rate for p in published} == {
+            r.date: r.rate for r in scenario.fx_rates
+        }
+        for p in published:
+            local = p.event_timestamp.astimezone(BUSINESS_TIMEZONE)
+            assert (local.date(), local.time()) == (p.payload.rate_date, time(0, 0))
+            assert p.payload.fx_policy_version == policies().fx_policy.version
+
+    def test_every_conversion_uses_a_rate_published_before_it(
+        self, events: tuple[Event, ...]
+    ) -> None:
+        published = {e.payload.rate_date: e for e in events if isinstance(e, FxRatePublished)}
+        conversions = [e for e in events if isinstance(e, FxConverted)]
+        assert conversions
+        for c in conversions:
+            rate = published[c.payload.rate_date]
+            assert rate.payload.rate == c.payload.reference_rate
+            assert rate.event_timestamp <= c.event_timestamp
+
+    def test_rates_after_the_finish_date_are_not_published(self) -> None:
+        sim = SimulationEngine(
+            policies(),
+            (SYNA,),
+            {date(2026, 3, 2): Decimal("1.37"), date(2026, 3, 3): Decimal("1.38")},
+            1,
+            time(12, 0),
+        )
+        sim.submit(OpenAccount(T0, "a", AccountType.CASH, Currency.CAD))
+        events = sim.finish(date(2026, 3, 2))
+        assert [e.payload.rate_date for e in events if isinstance(e, FxRatePublished)] == [
+            date(2026, 3, 2)
+        ]
