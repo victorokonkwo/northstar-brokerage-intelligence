@@ -266,7 +266,7 @@ Stock record (quantities): on T, the client gains ownership of +10 and the locat
 | OQ-01 | FX conversion posting mechanics and when FX spread revenue is recognized (at conversion against the reference rate, or on covering) | Phase 2 |
 | OQ-02 | Commission timing: per order or per execution; treatment on cancelled orders with partial fills | Phase 2 |
 | OQ-03 | Option settlement cycle per market, exercise/assignment and expiry handling, and whether early exercise is simulated | Phase 2 / 5 |
-| OQ-04 | Calendar source: maintained YAML vs. a library such as `exchange_calendars`; must cover CA and US holidays for the full simulated period | Phase 2 |
+| OQ-04 | Calendar source: maintained YAML vs. a library such as `exchange_calendars`; must cover CA and US holidays for the full simulated period. Settlement days may differ from trading days (research in sources.md → Calendars) | Sprint 1 Day 8 (owner decision 2026-11-18) |
 | OQ-05 | Corporate actions (splits, dividends): out of scope, or minimal support for a dividend in the flagship scenario | Phase 2 |
 | OQ-06 | Definition of `available_liquidity` for KPI-16 (deferred by owner decision on 2026-11-18) | Phase 6 |
 | OQ-07 | Severity thresholds and SLA values for exceptions | Phase 4 |

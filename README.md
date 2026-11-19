@@ -20,7 +20,7 @@ The flagship scenario is a client who deposits CAD 25,000, buys US-listed securi
 
 ## Planned stack
 
-Python 3.12+, SQL, dbt Core, Apache Airflow, PostgreSQL (local), Amazon S3 and Redshift Serverless (cloud), FastAPI, Streamlit, MLflow, Docker, Terraform, and GitHub Actions. The reasoning is in [`docs/adr/`](docs/adr/).
+Python 3.13, SQL, dbt Core, Apache Airflow, OpenLineage, OpenTelemetry, PostgreSQL (local), Amazon S3, Redshift Serverless, and CloudWatch (cloud), FastAPI, Streamlit, MLflow, Docker, Terraform, and GitHub Actions. The reasoning is in [`docs/adr/`](docs/adr/).
 
 ## Documentation
 

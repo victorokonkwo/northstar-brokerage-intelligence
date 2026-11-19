@@ -13,7 +13,7 @@ The working rules (honesty, financial correctness, boundaries) are in [CONTRIBUT
 
 | Concern | Tool | Setting |
 |---|---|---|
-| Version | CPython 3.12+ (exact pin is a Sprint 1 decision) | `.python-version`, `requires-python` |
+| Version | CPython 3.13 (Sprint 1 decision, 2026-11-18) | `.python-version`, `requires-python` |
 | Packaging | `uv`, `pyproject.toml`, committed `uv.lock` | src layout: `src/northstar/` |
 | Lint and format | Ruff | lint and formatter, one config in `pyproject.toml` |
 | Types | mypy | `--strict` for `src/` and `ml/`. No `Any` in public signatures. |
@@ -48,7 +48,9 @@ The working rules (honesty, financial correctness, boundaries) are in [CONTRIBUT
 
 - Structured (JSON) logs. Every log line in a job carries `run_id`, `business_date`, and the job name.
 - Log events and decisions, such as "quarantined 12 records: schema_error". Never log secrets or full payloads containing personal-like fields, even synthetic ones.
-- Metrics (row counts, durations, quarantine rate, exception counts) are emitted by every job, so pipeline health can be monitored.
+- Use OpenTelemetry for traces, metrics, and logs. Metrics (row counts, durations, quarantine rate, exception counts) are emitted by every job, so pipeline health can be monitored.
+- In AWS, export OpenTelemetry data to CloudWatch over OTLP. Keep telemetry configuration out of the domain layer; see [ADR 008](../adr/008-data-lineage-and-observability.md).
+- Emit OpenLineage events for supported Airflow and dbt jobs to record pipeline-level job, run, and dataset lineage. The event backend remains to be selected before integration.
 
 ## 2. Orchestration (Airflow)
 

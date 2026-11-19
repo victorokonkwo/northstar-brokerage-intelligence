@@ -11,5 +11,6 @@ An ADR records one significant decision: its context, the options considered, th
 | [005](005-local-postgres-cloud-redshift.md) | Local PostgreSQL, cloud Redshift, dbt Core 1.x | Accepted |
 | [006](006-bitemporal-records-and-restatements.md) | Bitemporal records and versioned restatements | Accepted |
 | [007](007-single-owner-for-each-calculation.md) | Single owner for each calculation | Accepted |
+| [008](008-data-lineage-and-observability.md) | OpenLineage and OpenTelemetry for lineage and observability | Accepted |
 
 New ADRs copy [template.md](template.md) and take the next number.
