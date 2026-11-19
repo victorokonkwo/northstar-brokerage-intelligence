@@ -20,7 +20,8 @@ This project processes **synthetic data only**. Real customer, account, or trans
 
 ## Dependencies
 
-- Dependencies are locked (`uv.lock`) and scanned in CI once CI exists (Phase 1).
+- Dependencies are locked (`uv.lock`). CI audits the lock file against the OSV vulnerability database (`uv audit`) on every pull request and push to `main`, and fails on any known vulnerability.
+- Pull requests are scanned for committed secrets by the GitGuardian GitHub app. A finding is either fixed (and the secret rotated) or recorded in GitGuardian as a false positive with a reason.
 - Adding a dependency needs a stated reason in the PR.
 
 ## Reporting a vulnerability

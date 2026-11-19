@@ -54,4 +54,8 @@ make reset   # stop and DELETE the data volumes; needed if .env is regenerated
 | Warehouse Postgres | `localhost:5432`, database `northstar` | `NBI_PG_USER` / `NBI_PG_PASSWORD` |
 | S3 endpoint | http://localhost:8333, bucket `northstar-data-local` | `NBI_S3_ACCESS_KEY_ID` / `NBI_S3_SECRET_ACCESS_KEY` |
 
-The ports can be changed in `.env`. CI is not built yet. See the [roadmap](docs/project/roadmap.md).
+The ports can be changed in `.env`.
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and every push to `main`. It runs `make check`, the repository hygiene hooks, a dependency vulnerability audit (`uv audit`), and a full local-stack start from a fresh checkout, with `dbt debug` and `dbt parse` run against it.
