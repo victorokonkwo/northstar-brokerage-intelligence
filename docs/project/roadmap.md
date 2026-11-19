@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Last updated | 2026-11-18 |
-| Current phase | **Phase 1 — Engineering foundation (not started)**. Phase 0 done 2026-11-18. |
+| Current phase | **Phase 1 — Engineering foundation (in progress, started 2026-11-18)**. Phase 0 done 2026-11-18. |
 
 This is the **authoritative status tracker**. Update it in the same change that alters status. Status values are `Not started`, `In progress`, `Done`. "Done" means the exit gate passed, with evidence linked.
 
@@ -25,9 +25,9 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | Phase | Weeks | Scope | Exit gate | Status |
 |---|---|---|---|---|
 | 0 Business architecture | 1 | Charter, requirements, glossary, KPI dictionary, domain model, event contracts, NFRs, ADRs, risk register | **Architecture gate:** every KPI has a decision, an exact definition, an authoritative source, and a verification method; the owner has reviewed the domain model | Done (2026-11-18) |
-| 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, AWS budget alert + Terraform baseline | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | Not started |
+| 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, OpenTelemetry foundation, AWS budget alert + Terraform baseline and CloudWatch OTLP export | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | In progress |
 | 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | Not started |
-| 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Not started |
+| 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Not started |
 | 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | Not started |
 | 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
 | 6 Treasury forecasting | 13–14 | Known vs. uncertain flows, baseline/statistical/GBM models, walk-forward evaluation, intervals, scenarios, MLflow | **Forecast evaluation gate:** reproducible forecasts evaluated against the baseline, with error, bias, coverage, and stress results documented | Not started |
@@ -51,12 +51,14 @@ Goal: by the end of the sprint, one command creates a client, deposits cash, exe
 | 9 | Initial SQL models and financial integrity tests | Not started |
 | 10 | Demonstrate one deposit → trade → ledger workflow end to end | Not started |
 
-### Decisions needed in Sprint 1
+### Sprint 1 decisions
 
-| Decision | Options | Notes |
+The evidence for each decision is in [sources.md → Tooling](../sources.md#tooling).
+
+| Decision | Outcome | Basis |
 |---|---|---|
-| Python version pin | 3.12 or 3.13 | dbt Core 1.12 was verified on 3.12. Check that statsmodels, LightGBM, Airflow, and MLflow support the chosen version before pinning. |
-| Airflow major version | 2.x or 3.x | Check the provider packages and the Docker image for the chosen version. |
-| Local S3-compatible store | e.g., MinIO, LocalStack | Check the licence and image availability. |
-| Calendar source (OQ-04) | maintained YAML or `exchange_calendars` | Must cover CA and US holidays for the whole simulated period. |
-| Import boundary enforcement | `import-linter` or similar | See ADR 001 consequences. |
+| Python version pin | **3.13** (owner decision 2026-11-18) | The data stack installs and imports on 3.12.16 and 3.13.18 with identical results. 3.13 is supported until 2029-10-31, a year longer than 3.12. |
+| Airflow major version | **3.x, pinned to 3.4.0** (owner decision 2026-11-18) | Images `apache/airflow:3.4.0-python3.13` and the 3.4.0 constraint files exist. The constraints pin the Postgres and Amazon providers. The latest 2.x release is 2.11.2 (2026-03-14). |
+| Local S3-compatible store | **SeaweedFS 4.54** (owner decision 2026-11-18) | Apache-2.0, official image `chrislusf/seaweedfs:4.54`. MinIO was rejected because its repository is archived and its free images are discontinued. LocalStack was rejected because it requires an auth token, which a fresh clone would not have. |
+| Calendar source (OQ-04) | **Deferred to Sprint 1 Day 8** (owner decision 2026-11-18) | `exchange_calendars` covers trading days only, over a rolling window. US settlement holidays may differ from NYSE trading holidays, which is unverified. |
+| Import boundary enforcement | Proposed: `import-linter` 2.17 (BSD-2-Clause) | Awaiting owner approval as a new dependency. See ADR 001 consequences. |

@@ -4,7 +4,7 @@
 |---|---|
 | Status | Approved target architecture (2026-11-18). Only `warehouse/dbt/` (an empty `dbt init` scaffold) exists. |
 | Last updated | 2026-11-18 |
-| Decisions | [ADR 001](../adr/001-platform-architecture.md), [ADR 003](../adr/003-batch-first-processing.md), [ADR 005](../adr/005-local-postgres-cloud-redshift.md), [ADR 007](../adr/007-single-owner-for-each-calculation.md) |
+| Decisions | [ADR 001](../adr/001-platform-architecture.md), [ADR 003](../adr/003-batch-first-processing.md), [ADR 005](../adr/005-local-postgres-cloud-redshift.md), [ADR 007](../adr/007-single-owner-for-each-calculation.md), [ADR 008](../adr/008-data-lineage-and-observability.md) |
 
 ## 1. Architecture at a glance
 
@@ -103,7 +103,7 @@ If step 3's integrity tests fail, steps 4–8 do not run for that date.
 
 | Environment | Compute and storage | Purpose |
 |---|---|---|
-| Local | Docker Compose: PostgreSQL, Airflow, an S3-compatible object store (specific product chosen in Phase 1), dev services | development, CI fixtures, demo |
+| Local | Docker Compose: PostgreSQL, Airflow, an S3-compatible object store (SeaweedFS, chosen in Sprint 1; see roadmap), dev services | development, CI fixtures, demo |
 | dev (AWS) | S3, Redshift Serverless, ECR, ECS Fargate, Secrets Manager, CloudWatch, IAM | cloud integration |
 | prod (AWS) | same as dev, separate account or state | portfolio deployment |
 
@@ -167,9 +167,9 @@ northstar-brokerage-intelligence/
 
 | Concern | Approach |
 |---|---|
-| Lineage | `_source_event_id`, `_ingestion_run_id`, `_dbt_invocation_id` on every row; run manifests in `audit/`; dbt docs lineage graph |
+| Lineage | OpenLineage job/run/dataset events for pipeline lineage; `_source_event_id`, `_ingestion_run_id`, `_dbt_invocation_id` on rows; run manifests in `audit/`; dbt docs lineage graph. OpenLineage backend is not yet selected ([ADR 008](../adr/008-data-lineage-and-observability.md)). |
 | Data quality | schema validation at ingestion; dbt generic and singular tests; invariant tests (domain model §8) |
-| Observability | structured JSON logs carrying `run_id`; pipeline health metrics; CloudWatch alarms in AWS |
+| Observability | OpenTelemetry traces, metrics, and logs; structured JSON logs carrying `run_id`; export to CloudWatch over OTLP in AWS. CloudWatch alarms and resources are managed in Terraform ([ADR 008](../adr/008-data-lineage-and-observability.md)). |
 | Security | IAM least privilege; Secrets Manager; no secrets in Git ([SECURITY.md](../../SECURITY.md)) |
 | Model governance | model cards, versioned models, backtests, and drift monitoring (written alongside the models) |
 | CI/CD | GitHub Actions: lint, type-check, tests, dbt compile and test on fixtures, Terraform validate, dependency scan |
