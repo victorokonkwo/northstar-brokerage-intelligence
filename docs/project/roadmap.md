@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Last updated | 2026-11-18 |
-| Current phase | **Phase 1 — Engineering foundation**: every scope item is delivered or deferred by the owner (CloudWatch OTLP export → Phase 3), and the gate evidence is in CI. **Awaiting owner approval to mark the gate passed.** Phase 0 done 2026-11-18. |
+| Last updated | 2026-11-19 |
+| Current phase | **Phase 2 — Brokerage simulation + accounting (not started)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. |
 
 This is the **authoritative status tracker**. Update it in the same change that alters status. Status values are `Not started`, `In progress`, `Done`. "Done" means the exit gate passed, with evidence linked.
 
@@ -31,7 +31,7 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | Phase | Weeks | Scope | Exit gate | Status |
 |---|---|---|---|---|
 | 0 Business architecture | 1 | Charter, requirements, glossary, KPI dictionary, domain model, event contracts, NFRs, ADRs, risk register | **Architecture gate:** every KPI has a decision, an exact definition, an authoritative source, and a verification method; the owner has reviewed the domain model | Done (2026-11-18) |
-| 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, OpenTelemetry foundation, AWS budget alert + Terraform baseline and CloudWatch OTLP export | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | In progress |
+| 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, OpenTelemetry foundation, AWS budget alert + Terraform baseline and CloudWatch OTLP export | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | Done (2026-11-19). Gate evidence: [CI run on `main` 3a22ecf](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44592557891). CloudWatch OTLP export deferred to Phase 3 |
 | 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | Not started |
 | 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Not started |
 | 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | Not started |
