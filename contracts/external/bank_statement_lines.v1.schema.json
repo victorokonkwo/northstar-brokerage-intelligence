@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One movement on the firm's settlement bank account (GL 1000).",
+  "properties": {
+    "amount": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Amount"
+    },
+    "currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "record_id": {
+      "title": "Record Id",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "bank_statement_line",
+      "default": "bank_statement_line",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "reference": {
+      "title": "Reference",
+      "type": "string"
+    },
+    "value_date": {
+      "format": "date",
+      "title": "Value Date",
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "reference",
+    "value_date",
+    "currency",
+    "amount",
+    "description"
+  ],
+  "title": "BankStatementLine",
+  "type": "object"
+}

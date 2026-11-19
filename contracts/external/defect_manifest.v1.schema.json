@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "DefectType": {
+      "description": "The six FR-SIM-03 defect kinds.",
+      "enum": [
+        "DROPPED_RECORD",
+        "DUPLICATE_CLEARING_MESSAGE",
+        "WRONG_FEE",
+        "DELAYED_SETTLEMENT",
+        "WRONG_FX_CONVERSION",
+        "STALE_PRICE"
+      ],
+      "title": "DefectType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One manifest line: what was changed, what reconciliation should find, and why it matters.",
+  "properties": {
+    "affected_record_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Record Ids",
+      "type": "array"
+    },
+    "broker_reference": {
+      "title": "Broker Reference",
+      "type": "string"
+    },
+    "defect_config_version": {
+      "title": "Defect Config Version",
+      "type": "string"
+    },
+    "defect_id": {
+      "title": "Defect Id",
+      "type": "string"
+    },
+    "defect_type": {
+      "$ref": "#/$defs/DefectType"
+    },
+    "expected_exception": {
+      "title": "Expected Exception",
+      "type": "string"
+    },
+    "impact_amount": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Impact Amount"
+    },
+    "impact_basis": {
+      "enum": [
+        "amount",
+        "price_per_unit"
+      ],
+      "title": "Impact Basis",
+      "type": "string"
+    },
+    "impact_currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "record_set": {
+      "title": "Record Set",
+      "type": "string"
+    }
+  },
+  "required": [
+    "defect_id",
+    "defect_type",
+    "record_set",
+    "affected_record_ids",
+    "broker_reference",
+    "expected_exception",
+    "impact_amount",
+    "impact_currency",
+    "impact_basis",
+    "defect_config_version"
+  ],
+  "title": "DefectEntry",
+  "type": "object"
+}

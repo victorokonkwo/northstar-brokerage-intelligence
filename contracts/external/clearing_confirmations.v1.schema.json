@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "Side": {
+      "description": "Order and trade direction. Long only: a SELL reduces an existing holding.",
+      "enum": [
+        "BUY",
+        "SELL"
+      ],
+      "title": "Side",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The clearing firm's confirmation of one execution.",
+  "properties": {
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "broker_reference": {
+      "title": "Broker Reference",
+      "type": "string"
+    },
+    "currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "instrument_id": {
+      "title": "Instrument Id",
+      "type": "string"
+    },
+    "price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 8,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Price"
+    },
+    "quantity": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 8,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Quantity"
+    },
+    "record_id": {
+      "title": "Record Id",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "clearing_confirmation",
+      "default": "clearing_confirmation",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "side": {
+      "$ref": "#/$defs/Side"
+    },
+    "trade_date": {
+      "format": "date",
+      "title": "Trade Date",
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "broker_reference",
+    "account_id",
+    "instrument_id",
+    "side",
+    "quantity",
+    "price",
+    "currency",
+    "trade_date"
+  ],
+  "title": "ClearingConfirmation",
+  "type": "object"
+}

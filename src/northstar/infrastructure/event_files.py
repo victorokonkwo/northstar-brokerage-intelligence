@@ -9,7 +9,7 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from northstar.domain.events import Event
 
@@ -55,3 +55,19 @@ def read_events(path: Path) -> tuple[Event, ...]:
                 msg = f"{path}:{line_number}: invalid event"
                 raise ValueError(msg) from error
     return tuple(events)
+
+
+def serialize_record(record: BaseModel) -> str:
+    """The canonical one-line JSON form of any record model (same rules as events)."""
+    return json.dumps(
+        record.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+
+def write_records(path: Path, records: Iterable[BaseModel]) -> int:
+    """Write records as canonical JSON Lines, replacing the file; return the count."""
+    lines = [serialize_record(record) + "\n" for record in records]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as file:
+        file.writelines(lines)
+    return len(lines)

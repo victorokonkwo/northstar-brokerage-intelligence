@@ -79,5 +79,6 @@ tf-init-bootstrap: ## Initialise the bootstrap stack against its S3 state (needs
 tf-plan-bootstrap: tf-init-bootstrap ## Plan the AWS bootstrap; never applies (needs AWS login)
 	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) plan -input=false -out=bootstrap.tfplan
 
-simulate: ## Generate the dev dataset's canonical events (seed 42) under data/generated
-	uv run northstar simulate --dataset config/simulation/datasets/dev.yaml --seed 42 --out data/generated
+simulate: ## Generate the dev dataset (seed 42): canonical events, external records, defects
+	uv run northstar simulate --dataset config/simulation/datasets/dev.yaml --seed 42 \
+		--defects config/simulation/defects/dev.yaml --out data/generated

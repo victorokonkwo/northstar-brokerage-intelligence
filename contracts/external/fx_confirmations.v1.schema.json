@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The FX desk's confirmation of a client conversion.",
+  "properties": {
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "broker_reference": {
+      "title": "Broker Reference",
+      "type": "string"
+    },
+    "buy_amount": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 2,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Buy Amount"
+    },
+    "buy_currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "client_rate": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 10,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Client Rate"
+    },
+    "record_id": {
+      "title": "Record Id",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "fx_confirmation",
+      "default": "fx_confirmation",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "sell_amount": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 2,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Sell Amount"
+    },
+    "sell_currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "trade_date": {
+      "format": "date",
+      "title": "Trade Date",
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "broker_reference",
+    "account_id",
+    "sell_amount",
+    "sell_currency",
+    "buy_amount",
+    "buy_currency",
+    "client_rate",
+    "trade_date"
+  ],
+  "title": "FxConfirmation",
+  "type": "object"
+}

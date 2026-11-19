@@ -1,4 +1,4 @@
-"""Write the JSON Schema of every canonical event to ``contracts/events/``.
+"""Write the JSON Schemas of canonical events (``contracts/events/``) and external records.
 
 The pydantic models in ``northstar.domain.events`` are the source of truth.
 ``tests/contract/test_event_schemas.py`` fails if the committed files differ
@@ -12,8 +12,11 @@ import sys
 from pathlib import Path
 
 from northstar.domain.events import EVENT_MODELS
+from northstar.simulation.defects import DefectEntry
+from northstar.simulation.external import RECORD_MODELS
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "contracts" / "events"
+EXTERNAL_OUTPUT = Path(__file__).resolve().parents[1] / "contracts" / "external"
 
 
 def render_schemas() -> dict[str, str]:
@@ -27,6 +30,18 @@ def render_schemas() -> dict[str, str]:
     }
 
 
+def render_external_schemas() -> dict[str, str]:
+    """Return ``{file name: content}`` for each external record set and the defect manifest."""
+    models = dict(RECORD_MODELS) | {"defect_manifest": DefectEntry}
+    return {
+        f"{name}.v1.schema.json": json.dumps(
+            model.model_json_schema(mode="validation"), indent=2, sort_keys=True
+        )
+        + "\n"
+        for name, model in models.items()
+    }
+
+
 def main(argv: list[str]) -> int:
     """Write the schemas; return the process exit code."""
     output = Path(argv[1]) if len(argv) > 1 else DEFAULT_OUTPUT
@@ -34,6 +49,11 @@ def main(argv: list[str]) -> int:
     for name, content in render_schemas().items():
         (output / name).write_text(content, encoding="utf-8")
         sys.stdout.write(f"wrote {output / name}\n")
+    if len(argv) <= 1:  # the default layout also writes the external contracts
+        EXTERNAL_OUTPUT.mkdir(parents=True, exist_ok=True)
+        for name, content in render_external_schemas().items():
+            (EXTERNAL_OUTPUT / name).write_text(content, encoding="utf-8")
+            sys.stdout.write(f"wrote {EXTERNAL_OUTPUT / name}\n")
     return 0
 
 

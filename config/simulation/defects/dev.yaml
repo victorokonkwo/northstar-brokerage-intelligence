@@ -1,0 +1,19 @@
+# Defect injection for the dev dataset (FR-SIM-03; owner decision 2026-11-19:
+# all six defect types). ILLUSTRATIVE rates. Each injected defect is written to
+# defects/manifest.jsonl with its expected exception and financial impact; that
+# manifest is the ground truth for Phase 4 reconciliation.
+version: "2026.1"
+illustrative: true
+rates:
+  dropped_clearing_confirmation: "0.01"
+  dropped_settlement_confirmation: "0.01"
+  dropped_bank_statement_line: "0.01"
+  duplicate_clearing_confirmation: "0.01"
+  wrong_fee: "0.03"
+  delayed_settlement: "0.02"
+  wrong_fx_conversion: "0.05"
+  stale_price: "0.02"
+wrong_fee_factor: "2"
+wrong_fx_buy_shift: "0.01"
+delay_min_business_days: 1
+delay_max_business_days: 3
