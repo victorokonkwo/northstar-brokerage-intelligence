@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Written and validated; **not applied** until the owner approves the plan |
+| Status | **Applied 2026-11-19** after the owner approved the plan: budget first, then the bucket. State migrated into the bucket. A follow-up `plan` shows no changes |
 | Region | `ca-central-1` (owner decision 2026-11-19) |
 
 This stack creates the account-level baseline that every later AWS stack depends on:
@@ -22,7 +22,7 @@ The address is personal data and is never committed. Put it in the git-ignored r
 TF_VAR_budget_alert_email=you@example.com
 ```
 
-The Make targets load `.env`, and Terraform reads `TF_VAR_*` variables itself. The variable is `sensitive`, so it is not printed in plans. The address is still stored in the state file, which is local and git-ignored until migration, then in the encrypted state bucket.
+The Make targets load `.env`, and Terraform reads `TF_VAR_*` variables itself. The variable is `sensitive`, so it is not printed in plans. The address is stored in the state file, which is in the encrypted, private state bucket.
 
 ## Procedure
 
@@ -39,6 +39,8 @@ Run from the repository root, with AWS credentials for the target account (`aws 
    ```bash
    terraform -chdir=infrastructure/terraform/bootstrap apply
    ```
-5. **Move this stack's state into the bucket.** Add a `backend "s3"` block (bucket from the `state_bucket_name` output, `key = "bootstrap/terraform.tfstate"`, `region = "ca-central-1"`, `use_lockfile = true`, `encrypt = true`), run `terraform init -migrate-state`, and commit the block. Until then the state is the local, git-ignored `terraform.tfstate` in this folder. Don't delete it.
+5. **Move this stack's state into the bucket.** This is done. `backend.tf` holds the fixed settings (`key`, `region`, `encrypt`, `use_lockfile`). The bucket name contains the account ID, so it isn't committed: `make tf-init-bootstrap` passes `bucket=northstar-tfstate-<account id>-ca-central-1` at init time. The local state copies were deleted after the remote state was verified.
+
+Day to day: `make tf-plan-bootstrap` initialises against the remote state and plans. It never applies.
 
 Nothing here is applied by CI. CI only runs `make tf-validate`.
