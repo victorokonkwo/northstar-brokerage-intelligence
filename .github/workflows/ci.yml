@@ -71,7 +71,11 @@ jobs:
   stack:
     name: Local stack from a fresh checkout
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
+    env:
+      # One quick retry, so the forced-failure check below finishes fast.
+      NBI_AIRFLOW_RETRIES: "1"
+      NBI_AIRFLOW_RETRY_DELAY_SECONDS: "5"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,6 +159,82 @@ jobs:
             --business-date 2026-03-02 | tee history.txt
           grep -q "v1 SUPERSEDED" history.txt
           grep -q "v2 PUBLISHED" history.txt
+
+      - name: Airflow runs the daily close, backfills, retries, alerts, and records lineage (FR-M1-07)
+        # A daily run (business date 2026-01-06) and a backfill (2026-01-09, a
+        # Friday, and 2026-01-10, a Saturday that must be skipped) publish into
+        # their own schemas; every published date must equal the CLI
+        # publication above. A run pointed at a missing dataset must fail after
+        # its retry and leave an alert. dbt lineage must be archived.
+        run: |
+          af() { docker compose --env-file .env --file infrastructure/docker/compose.yaml \
+                   exec -T airflow-scheduler airflow "$@" 2>/dev/null; }
+          wait_runs() {
+            for _ in $(seq 1 60); do
+              af dags list-runs northstar_daily -o json > runs.json || true
+              if python3 -c "import json,sys; r=json.load(open('runs.json')); \
+                  sys.exit(0 if len(r) >= $1 and all(x['state'] in ('success','failed') for x in r) else 1)"; then
+                return 0
+              fi
+              sleep 30
+            done
+            return 1
+          }
+          af dags list-import-errors | tee import-errors.txt
+          grep -q "No data found" import-errors.txt
+          test "$(af tasks list northstar_daily | tr '\n' ' ')" = "check_business_day dbt_build ingest load publish "
+          af dags unpause northstar_daily
+          af dags trigger northstar_daily --logical-date 2026-01-07T11:00:00+00:00 \
+            --run-id ci-daily --conf '{"published_schema": "published_af_daily"}'
+          af backfill create --dag-id northstar_daily --from-date 2026-01-10 \
+            --to-date 2026-01-11T12:00:00+00:00 --max-active-runs 1 \
+            --dag-run-conf '{"published_schema": "published_af_backfill"}'
+          af dags trigger northstar_daily --logical-date 2026-01-13T11:00:00+00:00 \
+            --run-id ci-fails --conf '{"dataset_dir": "/opt/northstar/data/generated/missing"}'
+          wait_runs 4
+          python3 -c "import json; print({x['run_id']: x['state'] for x in json.load(open('runs.json'))})"
+          python3 -c "import json,sys; s={x['run_id']: x['state'] for x in json.load(open('runs.json'))}; \
+            sys.exit(0 if s.pop('ci-fails') == 'failed' and set(s.values()) == {'success'} else 1)"
+          af tasks states-for-dag-run northstar_daily "backfill__2026-01-11T11:00:00+00:00" -o json \
+            | python3 -c "import json,sys; sys.exit(0 if {t['state'] for t in json.load(sys.stdin)} == {'skipped'} else 1)"
+          set -a && . ./.env && set +a
+          uv run python - <<'PY'
+          import json, os
+          import boto3
+          from botocore.config import Config
+          from northstar.infrastructure.postgres import PostgresSettings
+
+          with PostgresSettings.from_env().connect() as c:
+              for schema, expected in (("published_af_daily", 1), ("published_af_backfill", 1)):
+                  rows = c.execute(
+                      f"select a.business_date, a.content_sha256 = r.content_sha256 "
+                      f"from {schema}.snapshot_timeline a join published_dev.snapshot_timeline r "
+                      f"on r.business_date = a.business_date and r.status = 'PUBLISHED'"
+                  ).fetchall()
+                  print(schema, rows)
+                  assert len(rows) == expected and all(same for _, same in rows), schema
+          s3 = boto3.client(
+              "s3", endpoint_url=os.environ["NBI_S3_ENDPOINT_URL"],
+              aws_access_key_id=os.environ["NBI_S3_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["NBI_S3_SECRET_ACCESS_KEY"],
+              region_name="us-east-1", config=Config(s3={"addressing_style": "path"}),
+          )
+          def keys(prefix):
+              pages = s3.get_paginator("list_objects_v2").paginate(
+                  Bucket="northstar-data-local", Prefix=prefix)
+              return [o["Key"] for p in pages for o in p.get("Contents", [])]
+          alerts = keys("audit/alerts/northstar_daily/ci-fails/")
+          print("alerts", alerts)
+          assert alerts == ["audit/alerts/northstar_daily/ci-fails/ingest-try2.json"], alerts
+          lineage = keys("audit/lineage/dbt-ci-daily-try")
+          print("lineage", lineage)
+          events = [json.loads(line) for line in s3.get_object(
+              Bucket="northstar-data-local", Key=lineage[0])["Body"].read().decode().splitlines()]
+          outputs = {o["name"] for e in events if e["eventType"] == "COMPLETE" for o in e["outputs"]}
+          assert "northstar.dbt_dataset.mart_daily_client_cash" in outputs, sorted(outputs)[:5]
+          PY
+          docker compose --env-file .env --file infrastructure/docker/compose.yaml \
+            exec -T airflow-scheduler grep -c '"northstar_daily.publish"' /opt/airflow/lineage/airflow.jsonl
 
       - name: Telemetry reached the OpenTelemetry Collector
         # ADR 008/009: the e2e runs export traces, metrics, and logs over OTLP;

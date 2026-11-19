@@ -62,8 +62,9 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 | 3B ingestion | Done (#21): validation, quarantine with a threshold, dedup, content-addressed append-only raw layer, run manifests, and the warehouse load from raw ([data foundation](../architecture/data-foundation.md)) |
 | 3C dbt staging, dimensions, core facts | Done (#22): `dim_account` (event-sourced SCD2), `dim_instrument`, `dim_calendar`, `fct_orders`, `fct_settlements`, `fct_cash_movements`, extended `fct_executions`; INV-06 and point-in-time tests; append-only triggers (INV-11). External record staging moves to Phase 4 |
 | 3D daily facts and gate marts | Done (#23): FX rates and fallback, prices with staleness, daily positions valued in CAD, and the client cash, positions, executions, and finance marts with INV-03/07/08/10 tests ([data foundation](../architecture/data-foundation.md#daily-facts-and-marts)) |
-| 3E snapshots and restatements | Built (this PR): content-addressed snapshot versions, publication gate (KPI-01), append-only status log, point-in-time reads, and a late-record restatement in CI ([data foundation](../architecture/data-foundation.md#published-snapshots-and-restatements-adr-006-fr-m1-06)) |
-| 3F–3G | Not started |
+| 3E snapshots and restatements | Done (#24): content-addressed snapshot versions, publication gate (KPI-01), append-only status log, point-in-time reads, and a late-record restatement in CI ([data foundation](../architecture/data-foundation.md#published-snapshots-and-restatements-adr-006-fr-m1-06)) |
+| 3F orchestration and lineage | Built (this PR): `northstar_daily` DAG in a custom Airflow image (project venv), retries and stored alerts, backfill equal to daily runs, dbt and Airflow OpenLineage events as files ([data foundation](../architecture/data-foundation.md#orchestration-and-lineage-fr-m1-07-adr-008)) |
+| 3G load test and gate | Not started |
 
 ## Phase 2 (weeks 3–4)
 

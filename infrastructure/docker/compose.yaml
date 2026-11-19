@@ -10,7 +10,16 @@
 name: northstar
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:3.4.0-python3.13
+  # apache/airflow:3.4.0-python3.13 plus the project in /opt/northstar/.venv
+  # (airflow/Dockerfile). `make up` passes the code version as a build arg.
+  image: northstar-airflow:local
+  build:
+    context: ../..
+    dockerfile: infrastructure/docker/airflow/Dockerfile
+    args:
+      # Empty outside make: the Dockerfile then refuses to build, but other
+      # compose commands (ps, exec, logs) still work.
+      NBI_CODE_VERSION: ${NBI_CODE_VERSION:-}
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
@@ -22,8 +31,27 @@ x-airflow-common: &airflow-common
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?run make env}
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg://airflow:${AIRFLOW_DB_PASSWORD:?run make env}@airflow-db/airflow
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # Airflow task lineage (OpenLineage provider 2.21.0) as JSON Lines on the
+    # airflow-lineage volume; dbt's lineage goes to the object store (ADR 008).
+    AIRFLOW__OPENLINEAGE__NAMESPACE: northstar
+    AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type": "file", "log_file_path": "/opt/airflow/lineage/airflow.jsonl", "append": true}'
+    # What the northstar CLI in the tasks needs, with in-network addresses.
+    NBI_PG_HOST: warehouse-db
+    NBI_PG_PORT: "5432"
+    NBI_PG_DATABASE: ${NBI_PG_DATABASE:?run make env}
+    NBI_PG_USER: ${NBI_PG_USER:?run make env}
+    NBI_PG_PASSWORD: ${NBI_PG_PASSWORD:?run make env}
+    NBI_S3_ENDPOINT_URL: http://object-store:8333
+    NBI_S3_ACCESS_KEY_ID: ${NBI_S3_ACCESS_KEY_ID:?run make env}
+    NBI_S3_SECRET_ACCESS_KEY: ${NBI_S3_SECRET_ACCESS_KEY:?run make env}
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    NBI_AIRFLOW_RETRIES: ${NBI_AIRFLOW_RETRIES:-2}
+    NBI_AIRFLOW_RETRY_DELAY_SECONDS: ${NBI_AIRFLOW_RETRY_DELAY_SECONDS:-300}
   volumes:
     - airflow-logs:/opt/airflow/logs
+    - airflow-lineage:/opt/airflow/lineage
+    - ../../orchestration/airflow/dags:/opt/airflow/dags:ro
+    - ../../data/generated:/opt/northstar/data/generated:ro
   user: "${AIRFLOW_UID:-50000}:0"
   restart: unless-stopped
   depends_on: &airflow-common-depends-on
@@ -105,7 +133,7 @@ services:
     entrypoint: /bin/bash
     command:
       - -c
-      - chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs && exec /entrypoint airflow version
+      - chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs /opt/airflow/lineage && exec /entrypoint airflow version
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: "true"
@@ -132,9 +160,13 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    # LocalExecutor runs the pipeline's tasks (dbt included) in this container,
+    # so a CLI healthcheck (`airflow jobs check`) can outlast its timeout and
+    # pile up. The scheduler's own health server (enable_health_check above,
+    # default port 8974) answers with a plain HTTP request instead.
     healthcheck:
-      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
-      interval: 10s
+      test: ["CMD", "curl", "--fail", "--max-time", "5", "http://localhost:8974/health"]
+      interval: 30s
       timeout: 10s
       retries: 10
       start_period: 30s
@@ -144,7 +176,7 @@ services:
     command: dag-processor
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
-      interval: 10s
+      interval: 30s
       timeout: 10s
       retries: 10
       start_period: 30s
@@ -153,4 +185,5 @@ volumes:
   warehouse-db-data:
   airflow-db-data:
   airflow-logs:
+  airflow-lineage:
   object-store-data:
