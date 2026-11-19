@@ -58,7 +58,7 @@ make sql-lint           # SQLFluff (needs the running warehouse)
 | Warehouse Postgres | `localhost:5432`, database `northstar` | `NBI_PG_USER` / `NBI_PG_PASSWORD` |
 | S3 endpoint | http://localhost:8333, bucket `northstar-data-local` | `NBI_S3_ACCESS_KEY_ID` / `NBI_S3_SECRET_ACCESS_KEY` |
 
-The ports can be changed in `.env`.
+The ports can be changed in `.env`. The stack also runs an OpenTelemetry Collector (`127.0.0.1:4318`). With `OTEL_EXPORTER_OTLP_ENDPOINT` set in `.env`, the `northstar` command exports traces, metrics, and logs to it. You can see them with `docker compose --env-file .env -f infrastructure/docker/compose.yaml logs otel-collector`. An `.env` created before this was added needs the four `OTEL_*` and `NBI_ENVIRONMENT` lines from `.env.example`.
 
 ### Sprint 1 slice, end to end
 

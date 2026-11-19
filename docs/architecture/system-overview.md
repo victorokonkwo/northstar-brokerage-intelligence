@@ -4,7 +4,7 @@
 |---|---|
 | Status | Approved target architecture (2026-11-18). Partly built: the local stack, CI, and the Sprint 1 slice (`common`, `domain`, `simulation`, `infrastructure`, `application`; dbt staging, core, and one control mart). The roadmap tracks what exists. |
 | Last updated | 2026-11-18 |
-| Decisions | [ADR 001](../adr/001-platform-architecture.md), [ADR 003](../adr/003-batch-first-processing.md), [ADR 005](../adr/005-local-postgres-cloud-redshift.md), [ADR 007](../adr/007-single-owner-for-each-calculation.md), [ADR 008](../adr/008-data-lineage-and-observability.md) |
+| Decisions | [ADR 001](../adr/001-platform-architecture.md), [ADR 003](../adr/003-batch-first-processing.md), [ADR 005](../adr/005-local-postgres-cloud-redshift.md), [ADR 007](../adr/007-single-owner-for-each-calculation.md), [ADR 008](../adr/008-data-lineage-and-observability.md), [ADR 009](../adr/009-local-telemetry-backend.md) |
 
 ## 1. Architecture at a glance
 
@@ -103,7 +103,7 @@ If step 3's integrity tests fail, steps 4–8 do not run for that date.
 
 | Environment | Compute and storage | Purpose |
 |---|---|---|
-| Local | Docker Compose: PostgreSQL, Airflow, an S3-compatible object store (SeaweedFS, chosen in Sprint 1; see roadmap), dev services | development, CI fixtures, demo |
+| Local | Docker Compose: PostgreSQL, Airflow, an S3-compatible object store (SeaweedFS, chosen in Sprint 1; see roadmap), an OpenTelemetry Collector ([ADR 009](../adr/009-local-telemetry-backend.md)) | development, CI fixtures, demo |
 | dev (AWS) | S3, Redshift Serverless, ECR, ECS Fargate, Secrets Manager, CloudWatch, IAM | cloud integration |
 | prod (AWS) | same as dev, separate account or state | portfolio deployment |
 

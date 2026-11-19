@@ -4,15 +4,22 @@
 posts the journal (no database). ``load_slice`` loads both into the warehouse
 in one transaction. ``run_slice`` does both. dbt then builds and tests the
 models (``make e2e``).
+
+Each step emits an OpenTelemetry span, counters for the rows it produced, and
+a structured log line (ADR 008). It uses only the OpenTelemetry API; the
+entry point decides whether anything is exported.
 """
 
 import hashlib
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final
 
 import psycopg
+from opentelemetry import metrics, trace
+from opentelemetry.util.types import AttributeValue
 from psycopg import sql
 
 from northstar.domain.accounting import ChartOfAccounts, JournalBatch, PostingEngine
@@ -32,6 +39,8 @@ from northstar.simulation.scenario import Policies, Scenario, generate_events
 
 LEDGER_CALENDAR_MARKET: Final = "XTSE"
 """The ledger's business calendar is the XTSE CAD settlement calendar (domain model §5)."""
+
+_INSTRUMENTATION: Final = "northstar.application.sprint1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,19 +91,47 @@ def prepare_slice(config_dir: Path, scenario_path: Path, seed: int, out_dir: Pat
         ScenarioError, NotATradingDayError, PolicyNotFoundError: The scenario
             cannot be simulated under the policies.
     """
-    policies, chart = load_policies(config_dir)
-    scenario = load_policy(scenario_path, Scenario)
-    events = generate_events(scenario, seed, policies)
-    events_path = out_dir / scenario.scenario_id / f"seed={seed}" / "events.jsonl"
-    write_events(events_path, events)
-    engine = PostingEngine(chart, policies.calendars[LEDGER_CALENDAR_MARKET])
-    return PreparedSlice(
-        scenario_id=scenario.scenario_id,
-        events=events,
-        events_path=events_path,
-        events_sha256=hashlib.sha256(events_path.read_bytes()).hexdigest(),
-        batches=engine.post_events(events),
-    )
+    tracer = trace.get_tracer(_INSTRUMENTATION)
+    with tracer.start_as_current_span("northstar.prepare_slice") as span:
+        policies, chart = load_policies(config_dir)
+        scenario = load_policy(scenario_path, Scenario)
+        events = generate_events(scenario, seed, policies)
+        events_path = out_dir / scenario.scenario_id / f"seed={seed}" / "events.jsonl"
+        write_events(events_path, events)
+        engine = PostingEngine(chart, policies.calendars[LEDGER_CALENDAR_MARKET])
+        prepared = PreparedSlice(
+            scenario_id=scenario.scenario_id,
+            events=events,
+            events_path=events_path,
+            events_sha256=hashlib.sha256(events_path.read_bytes()).hexdigest(),
+            batches=engine.post_events(events),
+        )
+        attributes: dict[str, AttributeValue] = {
+            "northstar.scenario_id": prepared.scenario_id,
+            "northstar.seed": seed,
+        }
+        span.set_attributes(
+            attributes
+            | {
+                "northstar.events.count": len(prepared.events),
+                "northstar.journal_batches.count": len(prepared.batches),
+                "northstar.events.sha256": prepared.events_sha256,
+            }
+        )
+        meter = metrics.get_meter(_INSTRUMENTATION)
+        meter.create_counter(
+            "northstar.events.generated", unit="{event}", description="Canonical events simulated"
+        ).add(len(prepared.events), attributes)
+        meter.create_counter(
+            "northstar.journal_batches.posted", unit="{batch}", description="Journal batches posted"
+        ).add(len(prepared.batches), attributes)
+        logging.getLogger(__name__).info(
+            "prepared slice: %d events, %d journal batches",
+            len(prepared.events),
+            len(prepared.batches),
+            extra={"job": "run-slice", "scenario_id": prepared.scenario_id, "seed": seed},
+        )
+        return prepared
 
 
 def load_slice(
@@ -109,10 +146,35 @@ def load_slice(
         LoadConflictError: Stored rows disagree with this input. Nothing is
             committed.
     """
-    with conn.transaction():
-        ensure_tables(conn, schemas)
-        events_inserted = load_events(conn, prepared.events, run_id, schemas)
-        lines_inserted = load_journal(conn, prepared.batches, run_id, schemas)
+    tracer = trace.get_tracer(_INSTRUMENTATION)
+    with tracer.start_as_current_span("northstar.load_slice") as span:
+        with conn.transaction():
+            ensure_tables(conn, schemas)
+            events_inserted = load_events(conn, prepared.events, run_id, schemas)
+            lines_inserted = load_journal(conn, prepared.batches, run_id, schemas)
+        span.set_attributes(
+            {
+                "northstar.run_id": run_id,
+                "northstar.events.inserted": events_inserted,
+                "northstar.journal_lines.inserted": lines_inserted,
+            }
+        )
+        meter = metrics.get_meter(_INSTRUMENTATION)
+        attributes: dict[str, AttributeValue] = {"northstar.scenario_id": prepared.scenario_id}
+        meter.create_counter(
+            "northstar.events.loaded", unit="{event}", description="New events inserted"
+        ).add(events_inserted, attributes)
+        meter.create_counter(
+            "northstar.journal_lines.loaded",
+            unit="{line}",
+            description="New journal lines inserted",
+        ).add(lines_inserted, attributes)
+        logging.getLogger(__name__).info(
+            "loaded slice: %d new events, %d new journal lines",
+            events_inserted,
+            lines_inserted,
+            extra={"job": "run-slice", "run_id": run_id, "scenario_id": prepared.scenario_id},
+        )
     return LoadCounts(events_inserted, lines_inserted)
 
 

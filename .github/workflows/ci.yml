@@ -99,6 +99,18 @@ jobs:
           test "$first_journal" = "$(uv run northstar ledger-fingerprint)"
           echo "reproduced: $first_events / $first_journal"
 
+      - name: Telemetry reached the OpenTelemetry Collector
+        # ADR 008/009: the e2e runs export traces, metrics, and logs over OTLP;
+        # the Collector's debug exporter prints them.
+        run: |
+          curl -sf http://127.0.0.1:13133/ > /dev/null
+          docker compose --env-file .env --file infrastructure/docker/compose.yaml \
+            logs --no-color otel-collector > collector.log
+          grep -q "northstar.load_slice" collector.log
+          grep -q "northstar.journal_lines.loaded" collector.log
+          grep -q "loaded slice:" collector.log
+          echo "traces, metrics, and logs received"
+
       - name: Show service status
         if: always()
         run: make ps
