@@ -1,0 +1,12 @@
+# Client FX conversion policy (OQ-01). ILLUSTRATIVE values (owner-approved
+# 2026-11-19). Rates are CAD per 1 USD. The spread moves the client rate
+# against the client on each side of the reference rate, and is revenue at
+# conversion (4200). In Phase 2 the reference rates are a seeded synthetic
+# path; Bank of Canada Valet ingestion comes in Phase 3. When a date has no
+# rate, the most recent prior rate is used (domain model §6, v1).
+version: "2026.1"
+effective_from: 2026-01-01
+illustrative: true
+spread: "0.0150"
+rate_source: synthetic
+fallback: most_recent_prior

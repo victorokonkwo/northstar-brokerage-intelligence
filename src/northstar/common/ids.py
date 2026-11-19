@@ -28,6 +28,7 @@ class EntityType(StrEnum):
     ORDER = "ord"
     EXECUTION = "exe"
     CASH_MOVEMENT = "cm"
+    FX_CONVERSION = "fxc"
     SETTLEMENT = "stl"
     EVENT = "evt"
 

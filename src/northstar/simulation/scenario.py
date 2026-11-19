@@ -351,7 +351,10 @@ def _order_drafts(
         settlement_id, settles_on, fills = obligations[trade_date]
         execution_id = ids.next_id(EntityType.EXECUTION)
         commission = policies.fee_schedule.commission(
-            instrument.market, instrument.currency, trade_date
+            instrument.market, instrument.currency, trade_date, fill.quantity
+        )
+        clearing_fee = policies.fee_schedule.clearing_fee(
+            instrument.market, instrument.currency, trade_date, fill.quantity
         )
         payload = TradeExecutedPayload(
             execution_id=execution_id,
@@ -366,6 +369,7 @@ def _order_drafts(
             multiplier=instrument.multiplier,
             currency=instrument.currency,
             commission=commission.amount,
+            clearing_fee=clearing_fee.amount,
             trade_date=trade_date,
             settlement_date=settles_on,
             settlement_id=settlement_id,

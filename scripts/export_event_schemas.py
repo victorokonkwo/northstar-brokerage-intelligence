@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from northstar.domain.events import EVENT_MODELS, SCHEMA_VERSION
+from northstar.domain.events import EVENT_MODELS
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "contracts" / "events"
 
@@ -19,7 +19,7 @@ DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "contracts" / "events"
 def render_schemas() -> dict[str, str]:
     """Return ``{file name: file content}`` for every event type."""
     return {
-        f"{event_type}.v{SCHEMA_VERSION}.schema.json": json.dumps(
+        f"{event_type}.v{model.model_fields['schema_version'].default}.schema.json": json.dumps(
             model.model_json_schema(mode="validation"), indent=2, sort_keys=True
         )
         + "\n"

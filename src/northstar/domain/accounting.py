@@ -24,12 +24,16 @@ from northstar.common.money import Currency, Money
 from northstar.domain.calendar import MarketCalendar, business_date
 from northstar.domain.events import (
     CashDeposited,
+    CashWithdrawn,
     Event,
     EventType,
+    FxConverted,
+    MarginInterestAccrued,
     Side,
     TradeExecuted,
     TradeSettled,
 )
+from northstar.domain.fx import reference_value_cad, spread_revenue
 from northstar.domain.trading import gross_amount
 
 
@@ -192,24 +196,51 @@ TRADE_BUY: Final = PostingRule("trade_executed.buy", 1)
 TRADE_SELL: Final = PostingRule("trade_executed.sell", 1)
 SETTLE_BUY: Final = PostingRule("trade_settled.buy", 1)
 SETTLE_SELL: Final = PostingRule("trade_settled.sell", 1)
+CASH_WITHDRAWAL: Final = PostingRule("cash_withdrawn", 1)
+FX_BUY_USD: Final = PostingRule("fx_converted.buy_usd", 1)
+FX_BUY_CAD: Final = PostingRule("fx_converted.buy_cad", 1)
+MARGIN_INTEREST: Final = PostingRule("margin_interest_accrued", 1)
 
 CASH: Final = "1000"
 RECEIVABLE_FROM_CLEARING: Final = "1200"
 CLIENT_CASH: Final = "2100"
 PAYABLE_TO_CLEARING: Final = "2200"
+FX_CLEARING: Final = "2300"
 COMMISSION_REVENUE: Final = "4100"
+FX_REVENUE: Final = "4200"
+MARGIN_INTEREST_REVENUE: Final = "4300"
+CLEARING_COSTS: Final = "5100"
 _RULE_ACCOUNTS: Final = (
     CASH,
     RECEIVABLE_FROM_CLEARING,
     CLIENT_CASH,
     PAYABLE_TO_CLEARING,
+    FX_CLEARING,
     COMMISSION_REVENUE,
+    FX_REVENUE,
+    MARGIN_INTEREST_REVENUE,
+    CLEARING_COSTS,
 )
 
-NON_POSTING_EVENTS: Final = frozenset({EventType.ACCOUNT_CREATED, EventType.ORDER_PLACED})
+NON_POSTING_EVENTS: Final = frozenset(
+    {
+        EventType.ACCOUNT_CREATED,
+        EventType.INSTRUMENT_LISTED,
+        EventType.ORDER_PLACED,
+        EventType.ORDER_CANCELLED,
+        EventType.PRICE_UPDATED,
+    }
+)
 """Event types that change no balance and therefore post nothing."""
 
-PostingEvent = CashDeposited | TradeExecuted | TradeSettled
+PostingEvent = (
+    CashDeposited
+    | CashWithdrawn
+    | FxConverted
+    | TradeExecuted
+    | TradeSettled
+    | MarginInterestAccrued
+)
 
 type _LineSpec = tuple[str, str | None, EntrySide, Money]
 
@@ -244,10 +275,16 @@ class PostingEngine:
         match event:
             case CashDeposited():
                 return self._post_deposit(event)
+            case CashWithdrawn():
+                return self._post_withdrawal(event)
+            case FxConverted():
+                return self._post_fx(event)
             case TradeExecuted():
                 return self._post_execution(event)
             case TradeSettled():
                 return self._post_settlement(event)
+            case MarginInterestAccrued():
+                return self._post_interest(event)
 
     def post_events(self, events: Iterable[Event]) -> tuple[JournalBatch, ...]:
         """Post every event that changes a balance, in order.
@@ -260,7 +297,7 @@ class PostingEngine:
         """
         batches = []
         for event in events:
-            if isinstance(event, CashDeposited | TradeExecuted | TradeSettled):
+            if isinstance(event, PostingEvent):
                 batches.append(self.post(event))
             elif event.event_type not in NON_POSTING_EVENTS:
                 msg = f"no posting rule for event type {event.event_type}"
@@ -276,6 +313,66 @@ class PostingEngine:
             [
                 (CASH, None, EntrySide.DEBIT, amount),
                 (CLIENT_CASH, p.account_id, EntrySide.CREDIT, amount),
+            ],
+        )
+
+    def _post_withdrawal(self, event: CashWithdrawn) -> JournalBatch:
+        p = event.payload
+        amount = Money(p.amount, p.currency)
+        return self._batch(
+            event,
+            CASH_WITHDRAWAL,
+            [
+                (CLIENT_CASH, p.account_id, EntrySide.DEBIT, amount),
+                (CASH, None, EntrySide.CREDIT, amount),
+            ],
+        )
+
+    def _post_fx(self, event: FxConverted) -> JournalBatch:
+        """OQ-01: spread revenue at conversion against the reference rate.
+
+        The client's CAD side splits into its value at the reference rate
+        (2300, the firm's FX position) and the spread (4200). The USD side moves
+        between the client and 2300 at face value. Each currency balances.
+        """
+        p = event.payload
+        sell = Money(p.sell_amount, p.sell_currency)
+        buy = Money(p.buy_amount, p.buy_currency)
+        ref_value = reference_value_cad(sell, buy, p.reference_rate)
+        revenue = spread_revenue(sell, buy, p.reference_rate)
+        if buy.currency is Currency.USD:
+            return self._batch(
+                event,
+                FX_BUY_USD,
+                [
+                    (CLIENT_CASH, p.account_id, EntrySide.DEBIT, sell),
+                    (FX_CLEARING, None, EntrySide.CREDIT, ref_value),
+                    (FX_REVENUE, None, EntrySide.CREDIT, revenue),
+                    (FX_CLEARING, None, EntrySide.DEBIT, buy),
+                    (CLIENT_CASH, p.account_id, EntrySide.CREDIT, buy),
+                ],
+            )
+        return self._batch(
+            event,
+            FX_BUY_CAD,
+            [
+                (CLIENT_CASH, p.account_id, EntrySide.DEBIT, sell),
+                (FX_CLEARING, None, EntrySide.CREDIT, sell),
+                (FX_CLEARING, None, EntrySide.DEBIT, ref_value),
+                (CLIENT_CASH, p.account_id, EntrySide.CREDIT, buy),
+                (FX_REVENUE, None, EntrySide.CREDIT, revenue),
+            ],
+        )
+
+    def _post_interest(self, event: MarginInterestAccrued) -> JournalBatch:
+        p = event.payload
+        amount = Money(p.amount, p.currency)
+        return self._batch(
+            event,
+            MARGIN_INTEREST,
+            [
+                (CLIENT_CASH, p.account_id, EntrySide.DEBIT, amount),
+                (MARGIN_INTEREST_REVENUE, None, EntrySide.CREDIT, amount),
             ],
         )
 
@@ -301,6 +398,11 @@ class PostingEngine:
             else:
                 specs.append((CLIENT_CASH, p.account_id, EntrySide.CREDIT, net_to_client))
             specs.append((COMMISSION_REVENUE, None, EntrySide.CREDIT, commission))
+        # The clearing firm's fee is a firm expense owed to clearing. These
+        # lines come last, so an execution without a fee posts exactly as before.
+        clearing_fee = Money(p.clearing_fee, p.currency)
+        specs.append((CLEARING_COSTS, None, EntrySide.DEBIT, clearing_fee))
+        specs.append((PAYABLE_TO_CLEARING, None, EntrySide.CREDIT, clearing_fee))
         return self._batch(event, rule, specs)
 
     def _post_settlement(self, event: TradeSettled) -> JournalBatch:

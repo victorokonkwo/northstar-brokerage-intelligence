@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "AssetClass": {
+      "description": "Asset classes with their own settlement cycles.",
+      "enum": [
+        "EQUITY",
+        "OPTION"
+      ],
+      "title": "AssetClass",
+      "type": "string"
+    },
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "ExerciseStyle": {
+      "description": "When an option may be exercised (exercise itself is Phase 5, OQ-03).",
+      "enum": [
+        "AMERICAN",
+        "EUROPEAN"
+      ],
+      "title": "ExerciseStyle",
+      "type": "string"
+    },
+    "InstrumentListedPayload": {
+      "additionalProperties": false,
+      "description": "Reference data for a synthetic instrument (symbols are invented).\n\nRaises:\n    pydantic.ValidationError: Option terms are missing for an option or\n        present for anything else.",
+      "properties": {
+        "asset_class": {
+          "$ref": "#/$defs/AssetClass"
+        },
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "market": {
+          "title": "Market",
+          "type": "string"
+        },
+        "multiplier": {
+          "minimum": 1,
+          "title": "Multiplier",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "option": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OptionTerms"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "symbol",
+        "name",
+        "market",
+        "asset_class",
+        "currency",
+        "multiplier"
+      ],
+      "title": "InstrumentListedPayload",
+      "type": "object"
+    },
+    "OptionRight": {
+      "description": "Call or put.",
+      "enum": [
+        "CALL",
+        "PUT"
+      ],
+      "title": "OptionRight",
+      "type": "string"
+    },
+    "OptionTerms": {
+      "additionalProperties": false,
+      "description": "Contract terms of a listed equity option.",
+      "properties": {
+        "exercise_style": {
+          "$ref": "#/$defs/ExerciseStyle"
+        },
+        "expiry": {
+          "format": "date",
+          "title": "Expiry",
+          "type": "string"
+        },
+        "right": {
+          "$ref": "#/$defs/OptionRight"
+        },
+        "strike": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 8,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Strike"
+        },
+        "underlying_instrument_id": {
+          "title": "Underlying Instrument Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "underlying_instrument_id",
+        "strike",
+        "expiry",
+        "right",
+        "exercise_style"
+      ],
+      "title": "OptionTerms",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``instrument_listed`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "instrument_listed",
+      "default": "instrument_listed",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/InstrumentListedPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "InstrumentListed",
+  "type": "object"
+}

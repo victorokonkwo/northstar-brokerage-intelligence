@@ -63,6 +63,21 @@
         "asset_class": {
           "$ref": "#/$defs/AssetClass"
         },
+        "clearing_fee": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 2,
+          "default": "0.00",
+          "ge": 0,
+          "max_digits": 18,
+          "title": "Clearing Fee"
+        },
         "commission": {
           "anyOf": [
             {
@@ -173,7 +188,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "``trade_executed`` event.",
+  "description": "``trade_executed`` event, schema version 2 (v1 events stay valid).\n\nRaises:\n    pydantic.ValidationError: A version 1 event carries a clearing fee,\n        which v1 did not have.",
   "properties": {
     "causation_id": {
       "anyOf": [
@@ -215,8 +230,11 @@
       "type": "string"
     },
     "schema_version": {
-      "const": 1,
-      "default": 1,
+      "default": 2,
+      "enum": [
+        1,
+        2
+      ],
       "title": "Schema Version",
       "type": "integer"
     },

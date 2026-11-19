@@ -78,7 +78,7 @@ def test_replaying_a_load_inserts_nothing_and_changes_nothing(
 ) -> None:
     batches = engine().post_events(events)
     assert load_events(conn, events, "run-1", schemas) == 6
-    assert load_journal(conn, batches, "run-1", schemas) == 10
+    assert load_journal(conn, batches, "run-1", schemas) == 14  # includes 2 clearing-fee pairs
     conn.commit()
     first = _rows(conn, schemas)
 
@@ -100,7 +100,7 @@ def test_amounts_round_trip_exactly_as_numeric(
             ).format(sql.Identifier(schemas.ledger, "journal_lines"))
         )
         assert [(c.strip(), str(d), str(cr)) for c, d, cr in cur.fetchall()] == [
-            ("CAD", "35487.10", "35487.10")
+            ("CAD", "35488.10", "35488.10")
         ]
 
 

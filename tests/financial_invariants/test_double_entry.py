@@ -5,7 +5,7 @@ the batches that would violate this; it must be zero.
 """
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -16,6 +16,8 @@ from northstar.common.exceptions import UnbalancedJournalError
 from northstar.common.money import Currency, Money
 from northstar.domain.accounting import EntrySide, JournalBatch
 from northstar.domain.events import Side
+from northstar.domain.fx import quote
+from northstar.domain.interest import daily_interest
 
 from factories import (
     commissions,
@@ -24,11 +26,14 @@ from factories import (
     deposit,
     engine,
     execution,
+    fx_conversion,
+    interest,
     positive_amounts,
     prices,
     quantities,
     settlement,
     sides,
+    withdrawal,
 )
 
 
@@ -116,3 +121,89 @@ def test_zero_value_execution_is_rejected() -> None:
     # no monetary effect, so no batch can be formed.
     with pytest.raises(ValueError, match="at least two lines"):
         engine().post(execution(quantity="1", price="0.004", commission="0.00"))
+
+
+# --- Rules added in Phase 2 -------------------------------------------------
+
+
+@given(amount=positive_amounts, currency=currencies, when=covered_timestamps())
+def test_withdrawals_balance(amount: str, currency: Currency, when: datetime) -> None:
+    assert_balanced(engine().post(withdrawal(amount=amount, currency=currency, when=when)))
+
+
+@given(
+    cents=st.integers(min_value=1000, max_value=10**11),
+    to_usd=st.booleans(),
+    ref=st.decimals(min_value=Decimal("1.2"), max_value=Decimal("1.5"), places=8),
+    when=covered_timestamps(),
+)
+def test_fx_conversions_balance_in_both_currencies(
+    cents: int, to_usd: bool, ref: Decimal, when: datetime
+) -> None:
+    sell_currency = Currency.CAD if to_usd else Currency.USD
+    q = quote(
+        Money(Decimal(cents).scaleb(-2), sell_currency),
+        Currency.USD if to_usd else Currency.CAD,
+        ref,
+        Decimal("0.015"),
+    )
+    event = fx_conversion(
+        str(q.sell.amount),
+        sell_currency,
+        str(q.buy.amount),
+        reference_rate=str(q.reference_rate),
+        client_rate=str(q.client_rate),
+        when=when,
+    )
+    batch = engine().post(event)
+    assert_balanced(batch)
+    assert set(batch.totals()) == {Currency.CAD, Currency.USD}
+
+
+@given(
+    balance_cents=st.integers(min_value=3100, max_value=10**10),
+    currency=currencies,
+    day=st.dates(min_value=date(2026, 1, 1), max_value=date(2026, 12, 23)),
+)
+def test_interest_accruals_balance(balance_cents: int, currency: Currency, day: date) -> None:
+    balance = Money(Decimal(balance_cents).scaleb(-2), currency)
+    amount = daily_interest(balance, Decimal("0.06"))
+    assume(amount.amount > 0)
+    event = interest(
+        amount=str(amount.amount),
+        debit_balance=str(balance.amount),
+        currency=currency,
+        accrual_date=day,
+    )
+    assert_balanced(engine().post(event))
+
+
+@given(
+    side=sides,
+    quantity=quantities,
+    price=prices,
+    commission=commissions,
+    clearing_fee=commissions,
+    currency=currencies,
+)
+def test_executions_with_clearing_fees_balance(
+    side: Side,
+    quantity: str,
+    price: str,
+    commission: str,
+    clearing_fee: str,
+    currency: Currency,
+) -> None:
+    gross = (Decimal(quantity) * Decimal(price)).quantize(Decimal("0.01"))
+    assume(gross != 0 or Decimal(commission) != 0 or Decimal(clearing_fee) != 0)
+    batch = engine().post(
+        execution(
+            side=side,
+            quantity=quantity,
+            price=price,
+            commission=commission,
+            clearing_fee=clearing_fee,
+            currency=currency,
+        )
+    )
+    assert_balanced(batch)

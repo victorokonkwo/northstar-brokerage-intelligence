@@ -1,9 +1,19 @@
-# Client commission schedule. ILLUSTRATIVE: these values are invented for the
-# simulation and are not any real broker's pricing. Commission is charged per
-# execution (OQ-02, owner decision 2026-11-19), so an order filled in two
-# executions pays it twice.
-version: "2026.1"
+# Fee schedule. ILLUSTRATIVE: these values are invented for the simulation and
+# are not any real broker's pricing (owner-approved set, 2026-11-19).
+# - Client commission: per execution for equities (OQ-02), per contract for
+#   options.
+# - Clearing fee: charged to the broker by the clearing firm, per share (a
+#   firm expense, 5100 / 2200). The owner approved 0.01 per share for
+#   equities. No options clearing fee was set, so XCBO is explicitly 0.00 until
+#   one is.
+version: "2026.2"
 effective_from: 2026-01-01
 illustrative: true
 commissions:
-  - {market: XTSE, currency: CAD, per_execution: "4.95"}
+  - {market: XTSE, currency: CAD, basis: PER_EXECUTION, rate: "4.95"}
+  - {market: XNYS, currency: USD, basis: PER_EXECUTION, rate: "4.95"}
+  - {market: XCBO, currency: USD, basis: PER_CONTRACT, rate: "0.75"}
+clearing_fees:
+  - {market: XTSE, currency: CAD, per_unit: "0.01"}
+  - {market: XNYS, currency: USD, per_unit: "0.01"}
+  - {market: XCBO, currency: USD, per_unit: "0.00"}

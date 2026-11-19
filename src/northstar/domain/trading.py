@@ -6,13 +6,14 @@ obligation and the journal lines can never disagree on what a fill is worth.
 
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from northstar.common.exceptions import PolicyNotFoundError
 from northstar.common.money import Currency, Money
-from northstar.domain.events import NonNegativeAmount
+from northstar.domain.events import FeeRate, NonNegativeAmount
 
 
 def gross_amount(quantity: Decimal, price: Decimal, multiplier: int, currency: Currency) -> Money:
@@ -26,24 +27,40 @@ def gross_amount(quantity: Decimal, price: Decimal, multiplier: int, currency: C
     return unrounded.quantize()
 
 
+class CommissionBasis(StrEnum):
+    """How a commission rate is applied to an execution."""
+
+    PER_EXECUTION = "PER_EXECUTION"
+    PER_CONTRACT = "PER_CONTRACT"
+
+
 class CommissionRate(BaseModel):
-    """Client commission charged on each execution in one market and currency."""
+    """Client commission for one market and currency (OQ-02: charged per execution)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     market: str
     currency: Currency
-    per_execution: NonNegativeAmount
+    basis: CommissionBasis
+    rate: NonNegativeAmount
+
+
+class ClearingFeeRate(BaseModel):
+    """Fee the clearing firm charges the broker per unit traded (a firm expense)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    market: str
+    currency: Currency
+    per_unit: FeeRate
 
 
 class FeeSchedule(BaseModel):
-    """Versioned client fee schedule (policy; values are illustrative).
-
-    Commission is charged per execution (OQ-02, owner decision 2026-11-19).
+    """Versioned fee schedule (policy; values are illustrative).
 
     Raises:
         pydantic.ValidationError: On construction, if a market and currency
-            pair has more than one rate.
+            pair has more than one commission or clearing-fee rate.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -52,30 +69,60 @@ class FeeSchedule(BaseModel):
     effective_from: date
     illustrative: bool
     commissions: tuple[CommissionRate, ...]
+    clearing_fees: tuple[ClearingFeeRate, ...]
 
     @model_validator(mode="after")
     def _one_rate_per_market_and_currency(self) -> Self:
-        keys = [(c.market, c.currency) for c in self.commissions]
-        if len(keys) != len(set(keys)):
-            msg = "a market and currency pair has more than one commission rate"
-            raise ValueError(msg)
+        for kind, keys in (
+            ("commission", [(c.market, c.currency) for c in self.commissions]),
+            ("clearing fee", [(c.market, c.currency) for c in self.clearing_fees]),
+        ):
+            if len(keys) != len(set(keys)):
+                msg = f"a market and currency pair has more than one {kind} rate"
+                raise ValueError(msg)
         return self
 
-    def commission(self, market: str, currency: Currency, trade_date: date) -> Money:
-        """Return the commission for one execution.
+    def commission(
+        self, market: str, currency: Currency, trade_date: date, quantity: Decimal
+    ) -> Money:
+        """Return the client commission for one execution of ``quantity`` units.
+
+        Per-contract commissions are ``rate x quantity``, rounded half-even to
+        minor units.
 
         Raises:
-            PolicyNotFoundError: The schedule is not yet effective on
-                ``trade_date``, or it has no rate for the market and currency.
+            PolicyNotFoundError: The schedule is not effective on ``trade_date``
+                or has no commission for the market and currency.
         """
+        self._require_effective(trade_date)
+        for rate in self.commissions:
+            if rate.market == market and rate.currency is currency:
+                if rate.basis is CommissionBasis.PER_EXECUTION:
+                    return Money(rate.rate, currency)
+                return (Money(rate.rate, currency) * quantity).quantize()
+        msg = f"fee schedule {self.version} has no commission for {market} {currency}"
+        raise PolicyNotFoundError(msg)
+
+    def clearing_fee(
+        self, market: str, currency: Currency, trade_date: date, quantity: Decimal
+    ) -> Money:
+        """Return the clearing fee for one execution: ``per_unit x quantity``, rounded.
+
+        Raises:
+            PolicyNotFoundError: The schedule is not effective on ``trade_date``
+                or has no clearing fee for the market and currency.
+        """
+        self._require_effective(trade_date)
+        for rate in self.clearing_fees:
+            if rate.market == market and rate.currency is currency:
+                return (Money(rate.per_unit, currency) * quantity).quantize()
+        msg = f"fee schedule {self.version} has no clearing fee for {market} {currency}"
+        raise PolicyNotFoundError(msg)
+
+    def _require_effective(self, trade_date: date) -> None:
         if trade_date < self.effective_from:
             msg = (
                 f"fee schedule {self.version} is effective from {self.effective_from}, "
                 f"not on trade date {trade_date}"
             )
             raise PolicyNotFoundError(msg)
-        for rate in self.commissions:
-            if rate.market == market and rate.currency is currency:
-                return Money(rate.per_execution, currency)
-        msg = f"fee schedule {self.version} has no commission for {market} {currency}"
-        raise PolicyNotFoundError(msg)

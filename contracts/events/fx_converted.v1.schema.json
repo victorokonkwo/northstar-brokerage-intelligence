@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "FxConvertedPayload": {
+      "additionalProperties": false,
+      "description": "A client conversion between CAD and USD at the client rate.\n\nRates are CAD per 1 USD. ``client_rate`` includes the spread, and\n``reference_rate`` is the rate the spread is measured against (OQ-01).\n\nRaises:\n    pydantic.ValidationError: The currencies are equal or not CAD and USD.",
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "buy_amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 2,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Buy Amount"
+        },
+        "buy_currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "client_rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 10,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Client Rate"
+        },
+        "fx_conversion_id": {
+          "title": "Fx Conversion Id",
+          "type": "string"
+        },
+        "fx_policy_version": {
+          "title": "Fx Policy Version",
+          "type": "string"
+        },
+        "rate_date": {
+          "format": "date",
+          "title": "Rate Date",
+          "type": "string"
+        },
+        "rate_source": {
+          "const": "synthetic",
+          "title": "Rate Source",
+          "type": "string"
+        },
+        "reference_rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 10,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Reference Rate"
+        },
+        "sell_amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 2,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Sell Amount"
+        },
+        "sell_currency": {
+          "$ref": "#/$defs/Currency"
+        }
+      },
+      "required": [
+        "fx_conversion_id",
+        "account_id",
+        "sell_amount",
+        "sell_currency",
+        "buy_amount",
+        "buy_currency",
+        "reference_rate",
+        "client_rate",
+        "rate_date",
+        "rate_source",
+        "fx_policy_version"
+      ],
+      "title": "FxConvertedPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``fx_converted`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "fx_converted",
+      "default": "fx_converted",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/FxConvertedPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "FxConverted",
+  "type": "object"
+}

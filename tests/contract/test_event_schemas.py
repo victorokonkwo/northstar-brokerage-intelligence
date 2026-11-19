@@ -28,5 +28,5 @@ def test_committed_schemas_match_the_models() -> None:
 
 
 def test_schemas_carry_decimals_as_strings() -> None:
-    schema = (SCHEMA_DIR / "trade_executed.v1.schema.json").read_text(encoding="utf-8")
+    schema = (SCHEMA_DIR / "trade_executed.v2.schema.json").read_text(encoding="utf-8")
     assert '"pattern"' in schema or '"string"' in schema

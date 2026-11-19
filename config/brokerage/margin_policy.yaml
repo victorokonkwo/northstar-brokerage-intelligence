@@ -1,0 +1,11 @@
+# Margin lending policy. ILLUSTRATIVE values (owner-approved 2026-11-19).
+# MARGIN accounts may carry a debit (loan) balance. Interest accrues daily,
+# ACT/365, on each currency's end-of-day debit balance (domain.interest).
+# max_debit_balance is a SIMULATOR GUARD on loan size, NOT a margin
+# requirement. Margin requirements and calls are Phase 5.
+version: "2026.1"
+effective_from: 2026-01-01
+illustrative: true
+annual_rate: "0.0600"
+day_count: ACT/365
+max_debit_balance: {amount: "50000.00", currency: CAD}
