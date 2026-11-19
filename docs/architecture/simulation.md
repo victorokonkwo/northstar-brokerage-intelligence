@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Implemented (Phase 2C): the engine, scripted scenarios, and the seeded generator. External records and defect injection follow in Phase 2D. |
+| Status | Implemented: the engine, scripted scenarios, and the seeded generator (Phase 2C); external records and defect injection (Phase 2D). |
 | Last updated | 2026-11-19 |
 | Related | [Domain model](domain-model.md) §4, §9; [requirements](../business/requirements.md) FR-SIM-01, FR-SIM-05; [roadmap](../project/roadmap.md) |
 
@@ -16,7 +16,9 @@ All simulated data is **synthetic**. Instruments, prices, FX rates, and client b
 | `northstar.simulation.scenario` | Scripted scenarios (YAML): one account and exactly what it does. Used for golden tests: `sprint1_scenario.yaml` and `flagship_phase2.yaml` (charter §4, steps 1–5). |
 | `northstar.simulation.generator` | The seeded random generator. It reads a dataset config (`config/simulation/datasets/dev.yaml`) and drives the engine day by day. |
 | `northstar.simulation.market` | Synthetic closes and USD/CAD reference rates (a log-normal walk). |
-| `northstar.application.simulate` | `northstar simulate` / `make simulate`. It writes `data/generated/<dataset>/seed=<n>/canonical/events.jsonl`. |
+| `northstar.simulation.external` | Derives the outside parties' records from the canonical events only (FR-SIM-02). |
+| `northstar.simulation.defects` | Injects labelled defects into those records and writes the manifest (FR-SIM-03). |
+| `northstar.application.simulate` | `northstar simulate` / `make simulate`. It writes `data/generated/<dataset>/seed=<n>/` with `canonical/events.jsonl`, `external/<set>.jsonl`, and `defects/manifest.jsonl`. |
 
 ## What the engine does for each action
 
@@ -61,6 +63,48 @@ Note that the event IDs come from global sequences. Adding an account therefore 
 ### The dev dataset (seed 42)
 
 `make simulate` produces 4,979 events. All 11 event types appear, along with partial fills, cancellations, sells, CAD and USD trades, options, clearing fees, FX conversions, withdrawals, and margin interest. The events file's SHA-256 is printed by the command, and CI regenerates and compares it (Phase 2E).
+
+## External records (FR-SIM-02)
+
+External records are derived **from the canonical events only**, never from ledger lines or warehouse tables, so reconciliation compares two independently produced sources (risk R-04). Schemas are in `contracts/external/`.
+
+| Set | One per | Broker reference | Reconciliation (domain model §7.1) |
+|---|---|---|---|
+| `clearing_confirmations` | execution | `execution_id` | executions |
+| `settlement_confirmations` | settlement (contractual and actual dates) | `settlement_id` | settlements |
+| `bank_statement_lines` | deposit, withdrawal, and settlement cash flow (signed from the bank's view, on the value date) | `cash_movement_id` / `settlement_id` | cash (GL 1000) |
+| `custody_snapshots` | account × instrument × ledger business day with a settled position | — | positions |
+| `fee_records` | execution with a clearing fee | `execution_id` | fees (GL 5100) |
+| `fx_confirmations` | conversion | `fx_conversion_id` | FX |
+| `price_feed` | instrument × price date | — | stale-price checks (INV-08) |
+
+With no defects, the bank statement equals GL 1000 per currency, and the last custody snapshot equals the settled positions. Both are tested.
+
+## Defects and the manifest (FR-SIM-03)
+
+`config/simulation/defects/dev.yaml` sets a per-record rate for each defect (illustrative). Defects are drawn from their own stream, `SeedSequence([seed, 2])`, so changing defect rates never changes the canonical events. A record gets at most one defect.
+
+| Defect | Change | Expected exception (§7.2) | Impact |
+|---|---|---|---|
+| `DROPPED_RECORD`, clearing confirmation | removed | `MISSING_EXTERNAL` | gross amount of the execution |
+| `DROPPED_RECORD`, settlement confirmation | removed | `MISSING_EXTERNAL` | settlement amount |
+| `DROPPED_RECORD`, bank statement line | removed | `CASH_BREAK` | absolute amount |
+| `DUPLICATE_CLEARING_MESSAGE` | sent twice (new record ID, same broker reference) | `DUPLICATE_EXTERNAL` | gross amount |
+| `WRONG_FEE` | fee × `wrong_fee_factor` | `FEE_MISMATCH` | fee difference |
+| `DELAYED_SETTLEMENT` | actual date and bank value date + 1–3 ledger business days | `SETTLEMENT_LATE` | settlement amount |
+| `WRONG_FX_CONVERSION` | buy amount × (1 − shift) | `FX_MISMATCH` | buy-amount difference |
+| `STALE_PRICE` | previous close repeated | `STALE_PRICE` (INV-08) | price difference **per unit** |
+
+Each manifest line (`contracts/external/defect_manifest.v1.schema.json`) records:
+- the defect ID, type, and record set
+- the affected record IDs and the broker reference
+- the expected exception
+- the impact (amount, currency, basis)
+- the defect-config version
+
+Tests prove the manifest is **exact**. Every changed, dropped, or added record appears in exactly one entry, every entry corresponds to a change, and each impact is recomputed independently.
+
+The dev dataset with seed 42 has 71 defects: 17 dropped, 8 duplicates, 22 wrong fees, 12 delayed settlements, 1 wrong FX conversion, and 11 stale prices.
 
 ## Simplifications (†)
 

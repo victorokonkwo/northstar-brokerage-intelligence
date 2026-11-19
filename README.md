@@ -47,7 +47,7 @@ make ps      # service status
 make down    # stop (data volumes are kept)
 make reset   # stop and DELETE the data volumes; needed if .env is regenerated
 
-make simulate           # seeded dev dataset (50 accounts, Q1 2026) -> data/generated/
+make simulate           # seeded dev dataset (50 accounts, Q1 2026): events, external records, defects
 make test-integration   # loader tests against the running warehouse
 make dbt-build          # build and test the dbt models
 make sql-lint           # SQLFluff (needs the running warehouse)

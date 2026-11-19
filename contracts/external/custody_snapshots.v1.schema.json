@@ -1,0 +1,52 @@
+{
+  "additionalProperties": false,
+  "description": "The custodian's end-of-day settled holding for an account and instrument.",
+  "properties": {
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "instrument_id": {
+      "title": "Instrument Id",
+      "type": "string"
+    },
+    "record_id": {
+      "title": "Record Id",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "custody_snapshot",
+      "default": "custody_snapshot",
+      "title": "Record Type",
+      "type": "string"
+    },
+    "settled_quantity": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 8,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Settled Quantity"
+    },
+    "snapshot_date": {
+      "format": "date",
+      "title": "Snapshot Date",
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "snapshot_date",
+    "account_id",
+    "instrument_id",
+    "settled_quantity"
+  ],
+  "title": "CustodySnapshot",
+  "type": "object"
+}

@@ -63,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--seed", type=int, required=True, help="dataset seed (non-negative)")
     sim.add_argument("--out", type=Path, required=True, help="output directory")
     sim.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
+    sim.add_argument("--defects", type=Path, help="defect config YAML (omit for exact records)")
     return parser
 
 
@@ -83,14 +84,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _run(args: argparse.Namespace) -> int:
     out = sys.stdout
     if args.command == "simulate":
-        result = simulate_dataset(args.config, args.dataset, args.seed, args.out)
+        result = simulate_dataset(args.config, args.dataset, args.seed, args.out, args.defects)
         out.write(
             f"dataset {result.dataset_id} seed {result.seed}: "
-            f"{sum(result.counts.values())} events\n"
+            f"{sum(result.counts.values())} events under {result.root}\n"
         )
         for event_type, count in result.counts.items():
-            out.write(f"  {event_type} {count}\n")
-        out.write(f"events file {result.events_path} sha256 {result.events_sha256}\n")
+            out.write(f"  event {event_type} {count}\n")
+        for name, count in result.external_counts.items():
+            out.write(f"  external {name} {count}\n")
+        for defect_type, count in result.defect_counts.items():
+            out.write(f"  defect {defect_type} {count}\n")
+        for name, digest in result.file_sha256.items():
+            out.write(f"  sha256 {digest} {name}\n")
         return 0
     settings = PostgresSettings.from_env()
     schemas = WarehouseSchemas()

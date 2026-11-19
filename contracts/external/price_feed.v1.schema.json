@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The price vendor's daily close for an instrument.",
+  "properties": {
+    "close_price": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 8,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Close Price"
+    },
+    "currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "instrument_id": {
+      "title": "Instrument Id",
+      "type": "string"
+    },
+    "price_date": {
+      "format": "date",
+      "title": "Price Date",
+      "type": "string"
+    },
+    "record_id": {
+      "title": "Record Id",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "price_feed_record",
+      "default": "price_feed_record",
+      "title": "Record Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "instrument_id",
+    "price_date",
+    "close_price",
+    "currency"
+  ],
+  "title": "PriceFeedRecord",
+  "type": "object"
+}
