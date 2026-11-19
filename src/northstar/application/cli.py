@@ -8,8 +8,10 @@ Commands:
   any row reports an unbalanced batch, or if the mart is empty.
 - ``ledger-fingerprint``: print a SHA-256 of the stored journal's content,
   to compare two runs.
-- ``simulate``: generate a dataset's canonical events file with the seeded
-  generator (no database needed).
+- ``simulate``: generate a dataset (canonical events, external records, defect
+  manifest) with the seeded generator (no database needed).
+- ``load-dataset``: post a generated events file and load events and journal
+  into dataset-specific schemas.
 
 Connection settings come from the ``NBI_PG_*`` environment variables.
 """
@@ -24,6 +26,7 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+from northstar.application.load_dataset import load_dataset
 from northstar.application.simulate import simulate_dataset
 from northstar.application.sprint1 import (
     journal_fingerprint,
@@ -64,6 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--out", type=Path, required=True, help="output directory")
     sim.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
     sim.add_argument("--defects", type=Path, help="defect config YAML (omit for exact records)")
+
+    load = commands.add_parser("load-dataset", help="post and load a generated events file")
+    load.add_argument("--events", type=Path, required=True, help="canonical events JSONL")
+    load.add_argument("--raw-schema", required=True, help="schema for raw events, e.g. raw_dev")
+    load.add_argument(
+        "--ledger-schema", required=True, help="schema for the journal, e.g. ledger_dev"
+    )
+    load.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
+    load.add_argument("--run-id", help="ingestion run ID (default: generated)")
     return parser
 
 
@@ -100,6 +112,17 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     settings = PostgresSettings.from_env()
     schemas = WarehouseSchemas()
+    if args.command == "load-dataset":
+        dataset_schemas = WarehouseSchemas(raw=args.raw_schema, ledger=args.ledger_schema)
+        run_id = args.run_id or f"dataset-{uuid.uuid4().hex[:12]}"
+        with settings.connect() as conn:
+            loaded = load_dataset(conn, args.config, args.events, run_id, dataset_schemas)
+        out.write(
+            f"read {loaded.events_read} events, posted {loaded.batches_posted} batches; "
+            f"loaded (run {run_id}) into {args.raw_schema}/{args.ledger_schema}: "
+            f"{loaded.events_inserted} new events, {loaded.lines_inserted} new journal lines\n"
+        )
+        return 0
 
     if args.command == "run-slice":
         prepared = prepare_slice(args.config, args.scenario, args.seed, args.out)

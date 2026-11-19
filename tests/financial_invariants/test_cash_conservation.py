@@ -5,7 +5,7 @@ the events themselves, with the gross amount recomputed here.
 """
 
 from collections import defaultdict
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -29,6 +29,7 @@ from factories import (
     deposit,
     engine,
     execution,
+    expected_client_cash,
     fx_conversion,
     interest,
     positive_amounts,
@@ -137,33 +138,6 @@ def client_events(draw: st.DrawFn) -> list[ClientEvent]:
                 )
             )
     return events
-
-
-def expected_client_cash(events: list[ClientEvent]) -> dict[tuple[str, Currency], Decimal]:
-    """Client cash per (account, currency), recomputed from the events alone."""
-    balance: dict[tuple[str, Currency], Decimal] = defaultdict(Decimal)
-    for event in events:
-        match event:
-            case CashDeposited(payload=p):
-                balance[(p.account_id, p.currency)] += p.amount
-            case CashWithdrawn(payload=p):
-                balance[(p.account_id, p.currency)] -= p.amount
-            case FxConverted(payload=p):
-                balance[(p.account_id, p.sell_currency)] -= p.sell_amount
-                balance[(p.account_id, p.buy_currency)] += p.buy_amount
-            case MarginInterestAccrued(payload=p):
-                balance[(p.account_id, p.currency)] -= p.amount
-            case TradeExecuted(payload=p):
-                gross = (p.quantity * p.price * p.multiplier).quantize(
-                    CENT, rounding=ROUND_HALF_EVEN
-                )
-                if p.side is Side.BUY:
-                    balance[(p.account_id, p.currency)] -= gross + p.commission
-                else:
-                    balance[(p.account_id, p.currency)] += gross - p.commission
-            case TradeSettled():
-                pass  # settlement moves firm cash and clearing balances, never client cash
-    return dict(balance)
 
 
 @given(events=client_events())

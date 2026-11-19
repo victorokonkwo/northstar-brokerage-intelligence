@@ -5,7 +5,8 @@ sources:
     description: >
       Canonical brokerage events, loaded append-only and idempotently by
       northstar.infrastructure.postgres.load_events (one row per event_id).
-    schema: raw
+    # The Sprint 1 slice uses raw; a generated dataset is loaded into its own schema.
+    schema: "{{ var('raw_schema', 'raw') }}"
     tables:
       - name: brokerage_events
         description: One row per canonical event. Grain = event_id. Payload is the event body as jsonb.
