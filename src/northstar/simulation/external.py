@@ -31,7 +31,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
@@ -59,6 +59,10 @@ SignedAmount = Annotated[
     PlainSerializer(lambda v: format(v, "f"), return_type=str, when_used="json"),
 ]
 """A signed monetary amount in minor units (bank statement convention)."""
+
+
+EXTERNAL_RECORD_SCHEMA_VERSION: Final = 1
+"""Version of every external record contract (``contracts/external/*.v1.schema.json``)."""
 
 
 class _Frozen(BaseModel):

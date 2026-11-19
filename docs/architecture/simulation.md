@@ -113,7 +113,7 @@ The dev dataset with seed 42 has 76 defects: 20 dropped, 8 duplicates, 19 wrong 
 
 ## Loading a dataset and the Phase 2 gate
 
-`make simulate-load` loads the dev dataset into its own schemas (`raw_dev`, `ledger_dev`), so its IDs never collide with the Sprint 1 slice's, which uses the same seed. It then builds dbt over them (`--vars raw_schema/ledger_schema`, target schema `dbt_dataset`) and prints KPI-01. The gate's checks are listed in the [roadmap](../project/roadmap.md#phase-2-gate-evidence).
+`make simulate-load` ingests the dev dataset into the raw layer and loads it into its own schemas (`raw_dev`, `ledger_dev`), so its IDs never collide with the Sprint 1 slice's, which uses the same seed ([data foundation](data-foundation.md)). It then builds dbt over them (`--vars raw_schema/ledger_schema`, target schema `dbt_dataset`) and prints KPI-01. The gate's checks are listed in the [roadmap](../project/roadmap.md#phase-2-gate-evidence).
 
 ## Simplifications (†)
 

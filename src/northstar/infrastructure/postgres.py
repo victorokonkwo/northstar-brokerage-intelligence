@@ -11,7 +11,7 @@ import json
 import os
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Final
 
 import psycopg
@@ -122,6 +122,28 @@ create table if not exists {ledger}.journal_lines (
 )
 """
 
+_EXTERNAL_DDL: Final = """
+create table if not exists {raw}.external_records (
+    record_id         text        primary key,
+    record_set        text        not null,
+    event_date        date        not null,
+    schema_version    integer     not null,
+    payload           jsonb       not null,
+    _ingestion_run_id text        not null,
+    _ingested_at      timestamptz not null default now()
+)
+"""
+
+_EXTERNAL_COLUMNS: Final = (
+    "record_id",
+    "record_set",
+    "event_date",
+    "schema_version",
+    "payload",
+    "_ingestion_run_id",
+)
+_EXTERNAL_CONTENT: Final = _EXTERNAL_COLUMNS[1:-1]
+
 _EVENT_COLUMNS: Final = (
     "event_id",
     "event_type",
@@ -165,6 +187,7 @@ def ensure_tables(conn: psycopg.Connection[Any], schemas: WarehouseSchemas) -> N
             cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(name)))
         cur.execute(sql.SQL(_EVENTS_DDL).format(raw=sql.Identifier(schemas.raw)))
         cur.execute(sql.SQL(_JOURNAL_DDL).format(ledger=sql.Identifier(schemas.ledger)))
+        cur.execute(sql.SQL(_EXTERNAL_DDL).format(raw=sql.Identifier(schemas.raw)))
 
 
 def load_events(
@@ -241,6 +264,51 @@ def load_journal(
         "journal_line_id",
         _JOURNAL_COLUMNS,
         _JOURNAL_CONTENT,
+        rows,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalRow:
+    """One external record as stored in ``raw.external_records``."""
+
+    record_id: str
+    record_set: str
+    event_date: date
+    schema_version: int
+    payload: str  # the record's JSON, as received
+
+
+def load_external_records(
+    conn: psycopg.Connection[Any],
+    records: Iterable[ExternalRow],
+    run_id: str,
+    schemas: WarehouseSchemas,
+) -> int:
+    """Insert external records that are not already stored; return how many were new.
+
+    Raises:
+        LoadConflictError: A stored record has the same ``record_id`` but
+            different content.
+    """
+    rows = [
+        (
+            r.record_id,
+            r.record_set,
+            r.event_date,
+            r.schema_version,
+            json.dumps(json.loads(r.payload), sort_keys=True, separators=(",", ":")),
+            run_id,
+        )
+        for r in records
+    ]
+    return _insert_new(
+        conn,
+        schemas.raw,
+        "external_records",
+        "record_id",
+        _EXTERNAL_COLUMNS,
+        _EXTERNAL_CONTENT,
         rows,
     )
 

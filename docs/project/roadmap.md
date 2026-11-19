@@ -58,8 +58,9 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 
 | PR | Status |
 |---|---|
-| 3A events for SCD2 and FX | Built (this PR): `account_updated` and `fx_rate_published`, emitted by the engine and generator |
-| 3B–3G | Not started |
+| 3A events for SCD2 and FX | Built, awaiting merge (#20): `account_updated` and `fx_rate_published`, emitted by the engine and generator |
+| 3B ingestion | Built (this PR): validation, quarantine with a threshold, dedup, content-addressed append-only raw layer, run manifests, and the warehouse load from raw ([data foundation](../architecture/data-foundation.md)) |
+| 3C–3G | Not started |
 
 ## Phase 2 (weeks 3–4)
 
