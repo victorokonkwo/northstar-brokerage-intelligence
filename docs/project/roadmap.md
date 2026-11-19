@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Last updated | 2026-11-19 |
-| Current phase | **Phase 2 — Brokerage simulation + accounting (in progress, started 2026-11-19)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. |
+| Current phase | **Phase 3 — Data foundation (not started)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. Phase 2 done 2026-11-19. |
 
 This is the **authoritative status tracker**. Update it in the same change that alters status. Status values are `Not started`, `In progress`, `Done`. "Done" means the exit gate passed, with evidence linked.
 
@@ -32,7 +32,7 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 |---|---|---|---|---|
 | 0 Business architecture | 1 | Charter, requirements, glossary, KPI dictionary, domain model, event contracts, NFRs, ADRs, risk register | **Architecture gate:** every KPI has a decision, an exact definition, an authoritative source, and a verification method; the owner has reviewed the domain model | Done (2026-11-18) |
 | 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, OpenTelemetry foundation, AWS budget alert + Terraform baseline and CloudWatch OTLP export | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | Done (2026-11-19). Gate evidence: [CI run on `main` 3a22ecf](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44592557891). CloudWatch OTLP export deferred to Phase 3 |
-| 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | In progress |
+| 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | Done (2026-11-19). Gate evidence: [CI run on `main` 8895a82](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44608534995) |
 | 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Not started |
 | 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | Not started |
 | 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
@@ -61,8 +61,8 @@ Plan approved by the owner on 2026-11-19, as five PRs: 2A calendars and settleme
 | 2A calendars and settlement rules | Done (#14): XNYS and XCBO calendars, US equity and option T+1 cycles, `AssetClass.OPTION` |
 | 2B domain: events, posting rules, positions | Done (#15): 6 new event types, `trade_executed` v2, FX/interest/withdrawal/clearing-fee rules, policies (FX, margin, fee schedule 2026.2), `PositionBook` (INV-03/04) |
 | 2C generators | Done (#16): simulation engine, scripted scenarios (Sprint 1, flagship steps 1–5), seeded generator with the FR-SIM-05 patterns, `northstar simulate` ([simulation.md](../architecture/simulation.md)) |
-| 2D external records and defects | Built, awaiting merge (PR #17): seven external record sets derived from canonical events only; all six FR-SIM-03 defects with an exact manifest; schemas in `contracts/external/` |
-| 2E gate | Built (this PR): dataset invariant suite, `make simulate-load`, CI reproducibility and warehouse checks |
+| 2D external records and defects | Done (#17): seven external record sets derived from canonical events only; all six FR-SIM-03 defects with an exact manifest; schemas in `contracts/external/` |
+| 2E gate | Done (#18): dataset invariant suite, `make simulate-load`, CI reproducibility and warehouse checks |
 
 ### Phase 2 gate evidence
 
@@ -71,7 +71,7 @@ Plan approved by the owner on 2026-11-19, as five PRs: 2A calendars and settleme
 - `make simulate-load`: 4,979 events and 10,247 journal lines load into `raw_dev`/`ledger_dev`, dbt passes 35/35, and KPI-01 passes. A replayed load inserts 0 rows
 - CI: two simulations give byte-identical canonical, external, and defect files (9 SHA-256s)
 
-**Awaiting owner approval** to mark the gate passed.
+**Passed** (owner approval 2026-11-19).
 
 ## Sprint 1 (weeks 1–2)
 

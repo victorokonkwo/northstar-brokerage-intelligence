@@ -2,7 +2,7 @@
 
 This repository is meant to become a single, auditable finance and market-risk analytics platform for a simulated Canadian online brokerage. The goal is to trace one client trade from ingestion through the accounting ledger, reconciliation, margin and portfolio risk, the treasury liquidity forecast, and profitability reporting.
 
-> **Status: Phase 1 (engineering foundation) complete; Phase 2 (brokerage simulation and accounting) is next.** The Sprint 1 slice runs end to end (`make e2e`): a client deposit and trade, the double-entry ledger, the warehouse load, dbt models and tests, and the KPI-01 control. It runs on a local stack with CI and an AWS bootstrap. See [`docs/project/roadmap.md`](docs/project/roadmap.md) for what exists and what is planned.
+> **Status: Phase 2 (brokerage simulation and accounting) complete; Phase 3 (data foundation) is next.** A seeded simulator produces a CAD/USD brokerage dataset: equities, options, FX, margin loans and interest, settlements, external records from clearing, bank and custody, and labelled defects. The double-entry ledger balances across all of it, in Python and in dbt. Everything runs on a local stack with CI and an AWS bootstrap. See [`docs/project/roadmap.md`](docs/project/roadmap.md) for what exists and what is planned.
 
 > **Disclaimer.** This is an independent portfolio project and is not affiliated with Wealthsimple or any other firm. All client and transaction data is synthetic. Margin calculations and regulatory reports are illustrative simulations, not compliance calculations, and must not be used for real financial decisions or regulatory submissions.
 
