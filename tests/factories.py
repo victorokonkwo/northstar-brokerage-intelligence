@@ -7,6 +7,7 @@ from pathlib import Path
 
 from hypothesis import strategies as st
 
+from northstar.application.policies import load_policies
 from northstar.common.money import Currency
 from northstar.domain.accounting import ChartOfAccounts, PostingEngine
 from northstar.domain.calendar import BUSINESS_TIMEZONE, MarketCalendar
@@ -26,10 +27,9 @@ from northstar.domain.events import (
     TradeSettled,
     TradeSettledPayload,
 )
-from northstar.domain.settlement import AssetClass, SettlementRules
-from northstar.domain.trading import FeeSchedule
+from northstar.domain.settlement import AssetClass
 from northstar.infrastructure.config_loader import load_policy
-from northstar.simulation.scenario import Policies
+from northstar.simulation.engine import Policies
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG = REPO_ROOT / "config"
@@ -47,13 +47,7 @@ def chart() -> ChartOfAccounts:
 
 @cache
 def policies() -> Policies:
-    return Policies(
-        calendars={"XTSE": xtse()},
-        settlement_rules=load_policy(
-            CONFIG / "brokerage" / "settlement_rules.yaml", SettlementRules
-        ),
-        fee_schedule=load_policy(CONFIG / "brokerage" / "fee_schedule.yaml", FeeSchedule),
-    )
+    return load_policies(CONFIG)
 
 
 @cache

@@ -16,7 +16,7 @@ SCENARIO = CONFIG / "simulation" / "sprint1_scenario.yaml"
 def test_prepare_slice_writes_the_events_file_and_posts_the_journal(tmp_path: Path) -> None:
     prepared = prepare_slice(CONFIG, SCENARIO, 42, tmp_path)
     assert prepared.events_path == tmp_path / "sprint1-cad-buy" / "seed=42" / "events.jsonl"
-    assert len(prepared.events) == 6
+    assert len(prepared.events) == 7  # instrument_listed + the 6 slice events
     assert len(prepared.batches) == 4
     assert prepared.events_sha256 == hashlib.sha256(prepared.events_path.read_bytes()).hexdigest()
 

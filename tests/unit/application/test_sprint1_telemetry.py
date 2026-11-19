@@ -40,7 +40,7 @@ def test_prepare_slice_emits_a_span_and_counters(
     assert span.attributes is not None
     assert span.attributes["northstar.scenario_id"] == "sprint1-cad-buy"
     assert span.attributes["northstar.seed"] == 42
-    assert span.attributes["northstar.events.count"] == 6
+    assert span.attributes["northstar.events.count"] == 7
     assert span.attributes["northstar.events.sha256"] == prepared.events_sha256
-    assert _counter(reader, "northstar.events.generated") - generated_before == 6
+    assert _counter(reader, "northstar.events.generated") - generated_before == 7
     assert _counter(reader, "northstar.journal_batches.posted") - posted_before == 4

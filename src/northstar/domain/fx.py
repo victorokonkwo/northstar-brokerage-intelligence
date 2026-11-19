@@ -13,6 +13,8 @@ uses it to price a conversion, and the posting rule uses it to split the CAD
 side into the reference value and the spread revenue (ADR 007).
 """
 
+from bisect import bisect_right
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -20,7 +22,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from northstar.common.exceptions import NorthstarError
+from northstar.common.exceptions import NorthstarError, PolicyNotFoundError
 from northstar.common.money import MONEY_CONTEXT, Currency, Money
 from northstar.domain.events import FxRate
 
@@ -126,3 +128,22 @@ def quote(sell: Money, buy_currency: Currency, reference_rate: FxRate, spread: D
         reference_value_cad=reference_value_cad(sell, buy, reference_rate),
         spread_revenue=spread_revenue(sell, buy, reference_rate),
     )
+
+
+def reference_rate_on(day: date, rates: Mapping[date, Decimal]) -> tuple[Decimal, date]:
+    """Return the reference rate for ``day`` and the date it was published.
+
+    Fallback policy v1 (domain model §6): when ``day`` has no rate (a weekend or
+    a holiday), the most recent prior rate applies, and its date is returned
+    so the event records which rate was used.
+
+    Raises:
+        PolicyNotFoundError: No rate exists on or before ``day``.
+    """
+    dates = sorted(rates)
+    index = bisect_right(dates, day)
+    if index == 0:
+        msg = f"no reference rate on or before {day}"
+        raise PolicyNotFoundError(msg)
+    rate_date = dates[index - 1]
+    return rates[rate_date], rate_date

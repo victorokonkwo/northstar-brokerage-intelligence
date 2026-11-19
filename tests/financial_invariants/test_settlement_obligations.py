@@ -27,14 +27,24 @@ TRADING_DAYS = [
 
 @st.composite
 def scenarios(draw: st.DrawFn) -> Scenario:
+    """Orders one after another in time, each filled over one or more trading days."""
     orders = []
+    cursor = 0  # index into TRADING_DAYS that the next order may start from
+    minute = 0  # a global clock so that no two actions overlap
     for _ in range(draw(st.integers(min_value=1, max_value=4))):
-        days = sorted(draw(st.lists(st.sampled_from(TRADING_DAYS), min_size=1, max_size=4)))
+        if cursor >= len(TRADING_DAYS):
+            break
+        days = sorted(
+            draw(st.lists(st.sampled_from(TRADING_DAYS[cursor:]), min_size=1, max_size=4))
+        )
+        cursor = TRADING_DAYS.index(days[-1])
         fills: list[dict[str, Any]] = []
-        for n, day in enumerate(days):
+        start_minute = minute
+        for day in days:
+            minute += 1
             at = datetime.combine(day, time(10, 0), tzinfo=BUSINESS_TIMEZONE).astimezone(
                 UTC
-            ) + timedelta(minutes=n)
+            ) + timedelta(minutes=minute)
             fills.append(
                 {
                     "at": at,
@@ -48,11 +58,14 @@ def scenarios(draw: st.DrawFn) -> Scenario:
                 }
             )
         total = sum(Decimal(f["quantity"]) for f in fills)
+        first = datetime.combine(days[0], time(10, 0), tzinfo=BUSINESS_TIMEZONE).astimezone(UTC)
         orders.append(
             {
-                "at": fills[0]["at"] - timedelta(seconds=1),
+                "at": first + timedelta(minutes=start_minute, seconds=30),
                 "instrument": "SYNA",
-                "side": draw(st.sampled_from(["BUY", "SELL"])),
+                # Buys only: the engine refuses short sales, and sells are
+                # covered by the INV-03/INV-04 stream tests.
+                "side": "BUY",
                 "order_type": "MARKET",
                 "quantity": str(total),
                 "fills": fills,
@@ -79,7 +92,14 @@ def scenarios(draw: st.DrawFn) -> Scenario:
                     "currency": "CAD",
                 }
             ],
-            "deposits": [],
+            # Enough cash that no generated buy overdraws the CASH account.
+            "deposits": [
+                {
+                    "at": datetime(2026, 3, 2, 14, 0, tzinfo=UTC),
+                    "amount": "999999999.00",
+                    "currency": "CAD",
+                }
+            ],
             "orders": orders,
         }
     )

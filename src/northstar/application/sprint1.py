@@ -22,11 +22,9 @@ from opentelemetry import metrics, trace
 from opentelemetry.util.types import AttributeValue
 from psycopg import sql
 
-from northstar.domain.accounting import ChartOfAccounts, JournalBatch, PostingEngine
-from northstar.domain.calendar import MarketCalendar
+from northstar.application.policies import load_policies
+from northstar.domain.accounting import JournalBatch, PostingEngine
 from northstar.domain.events import Event
-from northstar.domain.settlement import SettlementRules
-from northstar.domain.trading import FeeSchedule
 from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.event_files import write_events
 from northstar.infrastructure.postgres import (
@@ -35,7 +33,7 @@ from northstar.infrastructure.postgres import (
     load_events,
     load_journal,
 )
-from northstar.simulation.scenario import Policies, Scenario, generate_events
+from northstar.simulation.scenario import Scenario, generate_events
 
 LEDGER_CALENDAR_MARKET: Final = "XTSE"
 """The ledger's business calendar is the XTSE CAD settlement calendar (domain model §5)."""
@@ -62,24 +60,6 @@ class LoadCounts:
     lines_inserted: int
 
 
-def load_policies(config_dir: Path) -> tuple[Policies, ChartOfAccounts]:
-    """Load every policy the slice needs from ``config_dir``.
-
-    Raises:
-        ConfigurationError: A policy file is missing or invalid.
-    """
-    calendar = load_policy(config_dir / "calendars" / "xtse.yaml", MarketCalendar)
-    policies = Policies(
-        calendars={calendar.market: calendar},
-        settlement_rules=load_policy(
-            config_dir / "brokerage" / "settlement_rules.yaml", SettlementRules
-        ),
-        fee_schedule=load_policy(config_dir / "brokerage" / "fee_schedule.yaml", FeeSchedule),
-    )
-    chart = load_policy(config_dir / "accounting" / "chart_of_accounts.yaml", ChartOfAccounts)
-    return policies, chart
-
-
 def prepare_slice(config_dir: Path, scenario_path: Path, seed: int, out_dir: Path) -> PreparedSlice:
     """Simulate the scenario, write its events file, and post the journal.
 
@@ -93,12 +73,12 @@ def prepare_slice(config_dir: Path, scenario_path: Path, seed: int, out_dir: Pat
     """
     tracer = trace.get_tracer(_INSTRUMENTATION)
     with tracer.start_as_current_span("northstar.prepare_slice") as span:
-        policies, chart = load_policies(config_dir)
+        policies = load_policies(config_dir)
         scenario = load_policy(scenario_path, Scenario)
         events = generate_events(scenario, seed, policies)
         events_path = out_dir / scenario.scenario_id / f"seed={seed}" / "events.jsonl"
         write_events(events_path, events)
-        engine = PostingEngine(chart, policies.calendars[LEDGER_CALENDAR_MARKET])
+        engine = PostingEngine(policies.chart, policies.calendars[LEDGER_CALENDAR_MARKET])
         prepared = PreparedSlice(
             scenario_id=scenario.scenario_id,
             events=events,

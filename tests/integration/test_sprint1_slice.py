@@ -43,7 +43,7 @@ def test_rerunning_the_slice_is_a_no_op_with_the_same_fingerprint(
     first = load_slice(conn, prepare_slice(CONFIG, SCENARIO, 42, tmp_path), "run-1", schemas)
     fingerprint = journal_fingerprint(conn, schemas)
     second = load_slice(conn, prepare_slice(CONFIG, SCENARIO, 42, tmp_path), "run-2", schemas)
-    assert (first.events_inserted, first.lines_inserted) == (6, 14)
+    assert (first.events_inserted, first.lines_inserted) == (7, 14)
     assert (second.events_inserted, second.lines_inserted) == (0, 0)
     assert journal_fingerprint(conn, schemas) == fingerprint
 
