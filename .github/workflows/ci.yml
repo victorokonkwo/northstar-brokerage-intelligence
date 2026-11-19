@@ -1,0 +1,96 @@
+# Continuous integration: runs on every pull request and every push to main.
+# Third-party actions are pinned to full commit SHAs (tag in the comment).
+# Secret scanning of pull requests is done by the GitGuardian GitHub app.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.13.7"
+  UV_LOCKED: "1" # every uv command fails instead of changing uv.lock
+  HYPOTHESIS_PROFILE: ci # derandomized property tests (CONTRIBUTING.md W4)
+
+jobs:
+  checks:
+    name: Lint, types, tests, dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync
+
+      - name: Lint, import contracts, mypy, tests
+        run: make check
+
+      - name: Repository hygiene hooks
+        # The Python tools already ran in `make check`. no-commit-to-branch
+        # would fail on pushes to main, where merges legitimately land.
+        env:
+          SKIP: no-commit-to-branch,ruff-check,ruff-format,mypy,import-linter
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+      - name: Audit locked dependencies for known vulnerabilities (OSV)
+        run: uv audit --preview-features audit-command
+
+  stack:
+    name: Local stack from a fresh checkout
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Generate .env and mask its secrets
+        run: |
+          make env
+          grep -E '^[A-Z_]*(PASSWORD|SECRET|KEY)[A-Z_]*=' .env | cut -d= -f2- |
+            while read -r value; do echo "::add-mask::${value}"; done
+
+      - name: Start the stack and wait until every service is healthy
+        run: make up
+
+      - name: dbt connects to the warehouse and parses the project
+        run: |
+          mkdir -p "${RUNNER_TEMP}/dbt"
+          cp warehouse/dbt/profiles.yml.example "${RUNNER_TEMP}/dbt/profiles.yml"
+          export DBT_PROFILES_DIR="${RUNNER_TEMP}/dbt"
+          set -a; . ./.env; set +a
+          (cd warehouse/dbt && uv run dbt debug)
+          make dbt-parse
+
+      - name: Show service status
+        if: always()
+        run: make ps
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose --env-file .env --file infrastructure/docker/compose.yaml logs --no-color --tail 200
+
+      - name: Remove the stack and its volumes
+        if: always()
+        run: make reset
