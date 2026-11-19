@@ -175,7 +175,7 @@ stateDiagram-v2
 
 ## 8. Financial invariants
 
-Each invariant must be an executable test. **Implemented:** the Python tests for INV-01, INV-03, INV-04, INV-05 and INV-06 (`tests/financial_invariants/`), and the dbt test `assert_balanced_journals.sql` for INV-01. For INV-02, the loader refuses duplicate or conflicting events (`tests/integration/test_warehouse_load.py`). The other paths below are planned and do not exist yet.
+Each invariant must be an executable test. **Implemented:** the Python tests for INV-01, INV-03, INV-04, INV-05 and INV-06 (`tests/financial_invariants/`), and the dbt test `assert_balanced_journals.sql` for INV-01. For INV-02, ingestion stores an exact duplicate once and quarantines conflicting copies (`tests/unit/ingestion/`), and the loader refuses duplicate or conflicting events (`tests/integration/test_warehouse_load.py`, `tests/integration/test_ingestion.py`). The other paths below are planned and do not exist yet.
 
 | ID | Invariant | Enforced by (planned) |
 |---|---|---|

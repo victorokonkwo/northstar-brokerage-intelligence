@@ -10,10 +10,13 @@ Commands:
   to compare two runs.
 - ``simulate``: generate a dataset (canonical events, external records, defect
   manifest) with the seeded generator (no database needed).
-- ``load-dataset``: post a generated events file and load events and journal
-  into dataset-specific schemas.
+- ``ingest``: validate a generated dataset into the object store's raw layer
+  and write the run manifest (needs ``make up``).
+- ``load-run``: load an ingestion run's raw objects into dataset-specific
+  warehouse schemas, posting the events (needs ``make up``).
 
-Connection settings come from the ``NBI_PG_*`` environment variables.
+Connection settings come from the ``NBI_PG_*`` and ``NBI_S3_*`` environment
+variables.
 """
 
 import argparse
@@ -26,7 +29,7 @@ from pathlib import Path
 
 from opentelemetry import trace
 
-from northstar.application.load_dataset import load_dataset
+from northstar.application.ingest import ingest_dataset, load_run
 from northstar.application.simulate import simulate_dataset
 from northstar.application.sprint1 import (
     journal_fingerprint,
@@ -34,6 +37,8 @@ from northstar.application.sprint1 import (
     prepare_slice,
     read_ledger_controls,
 )
+from northstar.infrastructure.build_info import code_version
+from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectStore
 from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
 
@@ -68,14 +73,18 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
     sim.add_argument("--defects", type=Path, help="defect config YAML (omit for exact records)")
 
-    load = commands.add_parser("load-dataset", help="post and load a generated events file")
-    load.add_argument("--events", type=Path, required=True, help="canonical events JSONL")
-    load.add_argument("--raw-schema", required=True, help="schema for raw events, e.g. raw_dev")
+    ing = commands.add_parser("ingest", help="validate a dataset into the raw layer")
+    ing.add_argument("--dataset-dir", type=Path, required=True, help="a simulate output root")
+    ing.add_argument("--run-id", required=True, help="ingestion run ID (unique per run)")
+    ing.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
+
+    load = commands.add_parser("load-run", help="load an ingestion run into the warehouse")
+    load.add_argument("--run-id", required=True, help="a successful ingestion run ID")
+    load.add_argument("--raw-schema", required=True, help="schema for raw data, e.g. raw_dev")
     load.add_argument(
         "--ledger-schema", required=True, help="schema for the journal, e.g. ledger_dev"
     )
     load.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
-    load.add_argument("--run-id", help="ingestion run ID (default: generated)")
     return parser
 
 
@@ -110,17 +119,31 @@ def _run(args: argparse.Namespace) -> int:
         for name, digest in result.file_sha256.items():
             out.write(f"  sha256 {digest} {name}\n")
         return 0
+    if args.command == "ingest":
+        store = S3ObjectStore(ObjectStoreSettings.from_env())
+        manifest = ingest_dataset(store, args.config, args.dataset_dir, args.run_id, code_version())
+        raw = manifest.raw_objects()
+        out.write(
+            f"run {manifest.run_id} {manifest.status}: "
+            f"{sum(f.accepted for f in manifest.files)} accepted, "
+            f"{sum(f.duplicates for f in manifest.files)} duplicate, "
+            f"{sum(f.quarantined for f in manifest.files)} quarantined lines; "
+            f"{len(raw)} raw objects ({sum(o.written for o in raw)} new)\n"
+        )
+        return 0
     settings = PostgresSettings.from_env()
     schemas = WarehouseSchemas()
-    if args.command == "load-dataset":
+    if args.command == "load-run":
+        store = S3ObjectStore(ObjectStoreSettings.from_env())
         dataset_schemas = WarehouseSchemas(raw=args.raw_schema, ledger=args.ledger_schema)
-        run_id = args.run_id or f"dataset-{uuid.uuid4().hex[:12]}"
         with settings.connect() as conn:
-            loaded = load_dataset(conn, args.config, args.events, run_id, dataset_schemas)
+            loaded = load_run(conn, store, args.config, args.run_id, dataset_schemas)
         out.write(
-            f"read {loaded.events_read} events, posted {loaded.batches_posted} batches; "
-            f"loaded (run {run_id}) into {args.raw_schema}/{args.ledger_schema}: "
-            f"{loaded.events_inserted} new events, {loaded.lines_inserted} new journal lines\n"
+            f"run {args.run_id}: read {loaded.events_read} events and {loaded.records_read} "
+            f"external records, posted {loaded.batches_posted} batches; loaded into "
+            f"{args.raw_schema}/{args.ledger_schema}: {loaded.events_inserted} new events, "
+            f"{loaded.lines_inserted} new journal lines, "
+            f"{loaded.records_inserted} new external records\n"
         )
         return 0
 

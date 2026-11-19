@@ -116,20 +116,23 @@ jobs:
           test "$first_journal" = "$(uv run northstar ledger-fingerprint)"
           echo "reproduced: $first_events / $first_journal"
 
-      - name: Phase 2 gate, the generated dataset is repeatable and balances in the warehouse
+      - name: Generated dataset is repeatable, ingests idempotently, and balances in the warehouse
         # Two simulations must produce byte-identical canonical, external, and
-        # defect files. Loading the dataset and building dbt must pass KPI-01,
-        # and a replayed load must insert nothing.
+        # defect files. Ingesting, loading, and building dbt must pass KPI-01.
+        # Replaying the ingestion must write no raw objects, and loading the
+        # replayed run must insert nothing (FR-M1-03).
         run: |
           make simulate | grep ' sha256 ' > first.txt
           make simulate | grep ' sha256 ' > second.txt
           diff first.txt second.txt
           test "$(wc -l < first.txt)" -eq 9
-          make simulate-load
+          make simulate-load RUN_ID=ci-first
+          make ingest RUN_ID=ci-replay | tee replay-ingest.txt
+          grep -q "(0 new)" replay-ingest.txt
           set -a && . ./.env && set +a
-          uv run northstar load-dataset --events "data/generated/dev/seed=42/canonical/events.jsonl" \
-            --raw-schema raw_dev --ledger-schema ledger_dev | tee replay.txt
-          grep -q "0 new events, 0 new journal lines" replay.txt
+          uv run northstar load-run --run-id ci-replay --raw-schema raw_dev --ledger-schema ledger_dev \
+            | tee replay.txt
+          grep -q "0 new events, 0 new journal lines, 0 new external records" replay.txt
           echo "dataset reproduced: $(head -1 first.txt)"
 
       - name: Telemetry reached the OpenTelemetry Collector

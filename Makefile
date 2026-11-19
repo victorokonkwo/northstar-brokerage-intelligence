@@ -3,9 +3,13 @@
 COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.yaml
 WITH_ENV := set -a && . ./.env && set +a &&
 TF_BOOTSTRAP := infrastructure/terraform/bootstrap
-DEV_EVENTS := data/generated/dev/seed=42/canonical/events.jsonl
+DEV_DATASET := data/generated/dev/seed=42
+# One run ID per make invocation, shared by ingest and load (override with RUN_ID=...).
+ifndef RUN_ID
+RUN_ID := dev-$(shell date -u +%Y%m%dT%H%M%SZ)
+endif
 DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev"}'
-.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate simulate-load tf-validate tf-init-bootstrap tf-plan-bootstrap
+.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load tf-validate tf-init-bootstrap tf-plan-bootstrap
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -85,7 +89,10 @@ simulate: ## Generate the dev dataset (seed 42): canonical events, external reco
 	uv run northstar simulate --dataset config/simulation/datasets/dev.yaml --seed 42 \
 		--defects config/simulation/defects/dev.yaml --out data/generated
 
-simulate-load: | .env ## Load the dev dataset into raw_dev/ledger_dev, dbt build it, print KPI-01 (needs make up, make simulate)
-	$(WITH_ENV) uv run northstar load-dataset --events $(DEV_EVENTS) --raw-schema raw_dev --ledger-schema ledger_dev
+ingest: | .env ## Validate the dev dataset into the raw layer and write a manifest (needs make up, make simulate)
+	$(WITH_ENV) uv run northstar ingest --dataset-dir $(DEV_DATASET) --run-id $(RUN_ID)
+
+simulate-load: ingest ## Ingest the dev dataset, load it into raw_dev/ledger_dev, dbt build, print KPI-01
+	$(WITH_ENV) uv run northstar load-run --run-id $(RUN_ID) --raw-schema raw_dev --ledger-schema ledger_dev
 	$(WITH_ENV) export NBI_DBT_SCHEMA=dbt_dataset && cd warehouse/dbt && uv run dbt build --vars $(DATASET_VARS)
 	$(WITH_ENV) uv run northstar ledger-summary --dbt-schema dbt_dataset

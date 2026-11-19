@@ -1,0 +1,6 @@
+# Ingestion quarantine threshold (FR-M1-02; owner decision 2026-11-19).
+# ILLUSTRATIVE. A load fails when more than this share of its lines is
+# quarantined. Quarantined lines are always kept and counted, whatever the rate.
+version: "2026.1"
+illustrative: true
+max_quarantine_rate: "0.005"
