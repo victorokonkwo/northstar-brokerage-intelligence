@@ -1,0 +1,78 @@
+# Phase 2 flagship scenario (project charter §4, steps 1-5). ILLUSTRATIVE:
+# instruments, prices, and reference rates are invented. "SYNB" and "SYNB-C"
+# are synthetic symbols, not real securities. Timestamps are UTC
+# (March 2026 is EST, UTC-5, until 2026-03-08).
+#
+# 1. A MARGIN account opens and deposits CAD 25,000.
+# 2. The client converts CAD 10,000 to USD.
+# 3. It buys 100 SYNB (XNYS) in two partial fills; T+1 settlement follows.
+# 4. It buys 200 more on margin, creating a USD debit (loan) balance that
+#    accrues daily interest.
+# 5. It buys 5 SYNB call contracts (XCBO, premium x 100).
+scenario_id: flagship-phase2
+description: Margin client converts CAD, buys a US stock in partial fills, borrows, and buys calls
+illustrative: true
+settlement_time_local: "12:00:00"
+interest_until: 2026-03-10
+
+account:
+  account_type: MARGIN
+  base_currency: CAD
+  opened_at: 2026-03-02T13:00:00Z
+
+instruments:
+  - key: SYNB
+    symbol: SYNB
+    name: Synthetic Beta Inc.
+    market: XNYS
+    asset_class: EQUITY
+    currency: USD
+  - key: SYNB-C
+    symbol: SYNB-C-20260918-65
+    name: Synthetic Beta Inc. call, 65.00, 2026-09-18
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNB, strike: "65.00", expiry: 2026-09-18, right: CALL, exercise_style: AMERICAN}
+
+# Synthetic reference rates, CAD per USD (not Bank of Canada data).
+fx_rates:
+  - {date: 2026-03-02, rate: "1.3700000000"}
+  - {date: 2026-03-03, rate: "1.3712000000"}
+  - {date: 2026-03-04, rate: "1.3695000000"}
+  - {date: 2026-03-05, rate: "1.3720000000"}
+  - {date: 2026-03-06, rate: "1.3708000000"}
+  - {date: 2026-03-09, rate: "1.3716000000"}
+  - {date: 2026-03-10, rate: "1.3701000000"}
+
+deposits:
+  - {at: 2026-03-02T14:00:00Z, amount: "25000.00", currency: CAD}
+
+conversions:
+  - {at: 2026-03-02T15:00:00Z, sell_amount: "10000.00", sell_currency: CAD}
+
+orders:
+  - at: 2026-03-03T14:40:00Z
+    instrument: SYNB
+    side: BUY
+    order_type: MARKET
+    quantity: "100"
+    fills:
+      - {at: 2026-03-03T14:40:03Z, quantity: "60", price: "61.20"}
+      - {at: 2026-03-03T14:40:11Z, quantity: "40", price: "61.25"}
+  - at: 2026-03-04T15:00:00Z
+    instrument: SYNB
+    side: BUY
+    order_type: MARKET
+    quantity: "200"
+    fills:
+      - {at: 2026-03-04T15:00:02Z, quantity: "200", price: "61.40"}
+  - at: 2026-03-05T15:30:00Z
+    instrument: SYNB-C
+    side: BUY
+    order_type: LIMIT
+    limit_price: "2.15"
+    quantity: "5"
+    fills:
+      - {at: 2026-03-05T15:30:04Z, quantity: "5", price: "2.15"}

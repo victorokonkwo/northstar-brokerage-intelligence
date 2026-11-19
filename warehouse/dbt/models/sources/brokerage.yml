@@ -17,4 +17,15 @@ sources:
               - not_null
               - accepted_values:
                   arguments:
-                    values: [account_created, cash_deposited, order_placed, trade_executed, trade_settled]
+                    values:
+                      - account_created
+                      - instrument_listed
+                      - cash_deposited
+                      - cash_withdrawn
+                      - fx_converted
+                      - order_placed
+                      - order_cancelled
+                      - trade_executed
+                      - trade_settled
+                      - price_updated
+                      - margin_interest_accrued

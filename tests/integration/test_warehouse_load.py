@@ -13,7 +13,7 @@ import pytest
 from psycopg import sql
 
 from northstar.common.money import Currency
-from northstar.domain.events import Event
+from northstar.domain.events import CashDeposited, Event
 from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.postgres import (
     LoadConflictError,
@@ -77,7 +77,7 @@ def test_replaying_a_load_inserts_nothing_and_changes_nothing(
     conn: psycopg.Connection[Any], schemas: WarehouseSchemas, events: tuple[Event, ...]
 ) -> None:
     batches = engine().post_events(events)
-    assert load_events(conn, events, "run-1", schemas) == 6
+    assert load_events(conn, events, "run-1", schemas) == 7
     assert load_journal(conn, batches, "run-1", schemas) == 14  # includes 2 clearing-fee pairs
     conn.commit()
     first = _rows(conn, schemas)
@@ -109,8 +109,9 @@ def test_a_replay_with_different_content_is_refused(
 ) -> None:
     load_events(conn, events, "run-1", schemas)
     conn.commit()
-    tampered = events[1].model_copy(
-        update={"payload": events[1].payload.model_copy(update={"currency": Currency.USD})}
+    deposit = next(e for e in events if isinstance(e, CashDeposited))
+    tampered = deposit.model_copy(
+        update={"payload": deposit.payload.model_copy(update={"currency": Currency.USD})}
     )
     with pytest.raises(LoadConflictError, match="stored rows differ"):
         load_events(conn, [tampered], "run-2", schemas)
@@ -119,9 +120,10 @@ def test_a_replay_with_different_content_is_refused(
 def test_conflicting_duplicates_within_one_input_are_refused(
     conn: psycopg.Connection[Any], schemas: WarehouseSchemas, events: tuple[Event, ...]
 ) -> None:
-    tampered = events[1].model_copy(update={"correlation_id": "something-else"})
+    deposit = next(e for e in events if isinstance(e, CashDeposited))
+    tampered = deposit.model_copy(update={"correlation_id": "something-else"})
     with pytest.raises(LoadConflictError, match="repeats event_id"):
-        load_events(conn, [events[1], tampered], "run-1", schemas)
+        load_events(conn, [deposit, tampered], "run-1", schemas)
 
 
 def test_database_constraints_reject_a_non_positive_amount(

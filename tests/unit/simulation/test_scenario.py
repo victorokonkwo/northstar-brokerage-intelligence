@@ -8,18 +8,19 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from northstar.common.exceptions import NotATradingDayError, ScenarioError
+from northstar.common.exceptions import NotATradingDayError, PolicyNotFoundError, ScenarioError
 from northstar.domain.events import (
     AccountCreated,
     CashDeposited,
     EventType,
+    InstrumentListed,
     OrderPlaced,
     TradeExecuted,
     TradeSettled,
 )
 from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.event_files import write_events
-from northstar.simulation.scenario import Policies, Scenario, generate_events
+from northstar.simulation.scenario import Scenario, generate_events
 
 from factories import CONFIG, engine, policies
 
@@ -35,6 +36,7 @@ class TestSprint1Scenario:
     def test_event_sequence(self, sprint1: Scenario) -> None:
         events = generate_events(sprint1, 42, policies())
         assert [e.event_type for e in events] == [
+            EventType.INSTRUMENT_LISTED,
             EventType.ACCOUNT_CREATED,
             EventType.CASH_DEPOSITED,
             EventType.ORDER_PLACED,
@@ -42,10 +44,14 @@ class TestSprint1Scenario:
             EventType.TRADE_EXECUTED,
             EventType.TRADE_SETTLED,
         ]
-        assert [e.event_id for e in events] == [f"evt_s42_{n:06d}" for n in range(1, 7)]
+        assert [e.event_id for e in events] == [f"evt_s42_{n:06d}" for n in range(1, 8)]
 
     def test_values(self, sprint1: Scenario) -> None:
-        account, dep, order, fill_1, fill_2, settled = generate_events(sprint1, 42, policies())
+        listed, account, dep, order, fill_1, fill_2, settled = generate_events(
+            sprint1, 42, policies()
+        )
+        assert isinstance(listed, InstrumentListed)
+        assert listed.payload.symbol == "SYNA"
         assert isinstance(account, AccountCreated)
         assert isinstance(dep, CashDeposited)
         assert isinstance(order, OrderPlaced)
@@ -90,6 +96,10 @@ def _scenario(**overrides: Any) -> dict[str, Any]:
 class TestRejectedScenarios:
     def test_fill_on_a_market_holiday(self) -> None:
         raw = _scenario()
+        raw["account"] = raw["account"] | {"opened_at": datetime(2026, 2, 2, 14, 0, tzinfo=UTC)}
+        raw["deposits"] = [
+            d | {"at": datetime(2026, 2, 2, 15, 0, tzinfo=UTC)} for d in raw["deposits"]
+        ]
         holiday = datetime(2026, 2, 16, 15, 0, tzinfo=UTC)  # Family Day
         raw["orders"][0] = raw["orders"][0] | {
             "at": holiday,
@@ -99,20 +109,25 @@ class TestRejectedScenarios:
         with pytest.raises(NotATradingDayError, match="2026-02-16"):
             generate_events(Scenario.model_validate(raw), 1, policies())
 
-    def test_currency_needing_fx(self) -> None:
-        raw = _scenario()
-        raw["deposits"][0] = raw["deposits"][0] | {"currency": "USD"}
-        with pytest.raises(ScenarioError, match="OQ-01"):
+    def test_conversion_without_a_reference_rate(self) -> None:
+        # A conversion needs a reference rate; this scenario provides none.
+        raw = _scenario() | {
+            "conversions": [
+                {
+                    "at": datetime(2026, 3, 2, 16, 0, tzinfo=UTC),
+                    "sell_amount": "100.00",
+                    "sell_currency": "CAD",
+                }
+            ]
+        }
+        with pytest.raises(PolicyNotFoundError, match="no reference rate"):
             generate_events(Scenario.model_validate(raw), 1, policies())
 
     def test_market_without_a_calendar(self) -> None:
-        no_calendars = Policies(
-            calendars={},
-            settlement_rules=policies().settlement_rules,
-            fee_schedule=policies().fee_schedule,
-        )
-        with pytest.raises(ScenarioError, match="no calendar for market XTSE"):
-            generate_events(load_policy(SPRINT1, Scenario), 1, no_calendars)
+        raw = _scenario()
+        raw["instruments"][0] = raw["instruments"][0] | {"market": "XLON"}
+        with pytest.raises(ScenarioError, match="no calendar for market XLON"):
+            generate_events(Scenario.model_validate(raw), 1, policies())
 
     def test_fills_exceeding_the_order(self) -> None:
         raw = _scenario()

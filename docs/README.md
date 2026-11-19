@@ -16,6 +16,7 @@ Every document states whether it describes something **implemented** or **planne
 | Document | Purpose |
 |---|---|
 | [system-overview.md](architecture/system-overview.md) | Layers, components, data flow, environments, storage and repository layout |
+| [architecture/simulation.md](architecture/simulation.md) | Simulation engine, scripted scenarios, and the seeded generator |
 | [domain-model.md](architecture/domain-model.md) | Canonical entities, identifiers, event envelope, accounting model, financial invariants, time semantics |
 | [non-functional-requirements.md](architecture/non-functional-requirements.md) | Accuracy, reproducibility, scale, freshness, security, and operability targets |
 | [adr/](adr/) | Architecture decision records |

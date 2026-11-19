@@ -8,6 +8,8 @@ Commands:
   any row reports an unbalanced batch, or if the mart is empty.
 - ``ledger-fingerprint``: print a SHA-256 of the stored journal's content,
   to compare two runs.
+- ``simulate``: generate a dataset's canonical events file with the seeded
+  generator (no database needed).
 
 Connection settings come from the ``NBI_PG_*`` environment variables.
 """
@@ -22,6 +24,7 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+from northstar.application.simulate import simulate_dataset
 from northstar.application.sprint1 import (
     journal_fingerprint,
     load_slice,
@@ -52,6 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     commands.add_parser("ledger-fingerprint", help="print a SHA-256 of the stored journal")
+
+    sim = commands.add_parser(
+        "simulate", help="generate a dataset's canonical events (no database)"
+    )
+    sim.add_argument("--dataset", type=Path, required=True, help="dataset config YAML")
+    sim.add_argument("--seed", type=int, required=True, help="dataset seed (non-negative)")
+    sim.add_argument("--out", type=Path, required=True, help="output directory")
+    sim.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
     return parser
 
 
@@ -70,9 +81,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
+    out = sys.stdout
+    if args.command == "simulate":
+        result = simulate_dataset(args.config, args.dataset, args.seed, args.out)
+        out.write(
+            f"dataset {result.dataset_id} seed {result.seed}: "
+            f"{sum(result.counts.values())} events\n"
+        )
+        for event_type, count in result.counts.items():
+            out.write(f"  {event_type} {count}\n")
+        out.write(f"events file {result.events_path} sha256 {result.events_sha256}\n")
+        return 0
     settings = PostgresSettings.from_env()
     schemas = WarehouseSchemas()
-    out = sys.stdout
 
     if args.command == "run-slice":
         prepared = prepare_slice(args.config, args.scenario, args.seed, args.out)
