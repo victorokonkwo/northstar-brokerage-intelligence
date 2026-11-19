@@ -1,0 +1,23 @@
+# SQLFluff for the dbt project (engineering standards §3.1). Run `make sql-lint`.
+[sqlfluff]
+templater = dbt
+dialect = postgres
+max_line_length = 100
+# All rules are on. The dbt templater renders ref() and source() through dbt
+# itself, so the lint sees the real compiled SQL.
+
+[sqlfluff:templater:dbt]
+project_dir = .
+profiles_dir = .
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower

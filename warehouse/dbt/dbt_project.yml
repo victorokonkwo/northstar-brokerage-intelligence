@@ -21,3 +21,16 @@ snapshot-paths: ["snapshots"]
 clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
+
+# No anonymous usage statistics are sent to dbt Labs.
+flags:
+  send_anonymous_usage_stats: false
+
+# Layer defaults (engineering standards §3.2). Core models also enforce
+# contracts, set per model in its YAML.
+models:
+  northstar:
+    staging:
+      +materialized: view
+    core:
+      +materialized: table

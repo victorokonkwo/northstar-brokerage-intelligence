@@ -51,7 +51,7 @@ Goal: by the end of the sprint, one command creates a client, deposits cash, exe
 | 6 | Initialize Git, Python project, Docker Compose, CI | Done: Git, dbt scaffold, Python project, local stack, CI |
 | 7 | Account, instrument, and deposit event generators | Done: scenario-driven simulator (`northstar.simulation.scenario`, `config/simulation/sprint1_scenario.yaml`). Random generation at scale is Phase 2 |
 | 8 | Order/execution simulation and double-entry journal postings | Done: XTSE calendar, settlement rules, per-execution commission, v1 posting rules; INV-01/05/06 property tests |
-| 9 | Initial SQL models and financial integrity tests | Not started |
+| 9 | Initial SQL models and financial integrity tests | Done: idempotent Postgres loader (conflicting replays refused), dbt sources, staging, contracted core (`fct_journal_lines`, `fct_executions`), `assert_balanced_journals` (INV-01/KPI-01), SQLFluff |
 | 10 | Demonstrate one deposit → trade → ledger workflow end to end | Not started |
 
 ### Sprint 1 decisions

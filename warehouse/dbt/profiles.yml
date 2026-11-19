@@ -1,6 +1,7 @@
-# Template for ~/.dbt/profiles.yml (or pass --profiles-dir).
-# Copy this file, do not commit the copy. Credentials come from environment
-# variables only; see .env.example at the repository root once it exists.
+# dbt profile, committed on purpose: it contains no credentials. Every value
+# comes from an environment variable set in the git-ignored root .env file
+# (`make env`). dbt finds this file because it runs from warehouse/dbt/.
+# Never put a literal host, user, or password here.
 #
 # Only the local PostgreSQL target is defined. A Redshift target will be added
 # in Phase 3 together with the dbt-redshift adapter (see docs/adr/005).

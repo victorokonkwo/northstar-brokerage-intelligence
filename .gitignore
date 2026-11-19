@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 profiles.yml
+# warehouse/dbt/profiles.yml uses env_var() only, with no credentials (see its header).
+!warehouse/dbt/profiles.yml
 *.pem
 *.key
 .claude/settings.local.json

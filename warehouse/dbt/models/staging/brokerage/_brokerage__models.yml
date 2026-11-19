@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: stg_brokerage__cash_deposited
+    description: One row per cash deposit. Grain and primary key = cash_movement_id.
+    columns:
+      - name: cash_movement_id
+        data_tests: [unique, not_null]
+      - name: amount
+        data_tests: [not_null]
+      - name: currency
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [CAD, USD]
+
+  - name: stg_brokerage__trade_executed
+    description: One row per execution (fill). Grain and primary key = execution_id.
+    columns:
+      - name: execution_id
+        data_tests: [unique, not_null]
+      - name: side
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [BUY, SELL]
+      - name: currency
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [CAD, USD]

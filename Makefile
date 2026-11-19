@@ -1,7 +1,8 @@
 # Developer interface. Every target runs tools pinned in uv.lock.
 .DEFAULT_GOAL := help
 COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.yaml
-.PHONY: help setup lint format typecheck test check dbt-parse env up down ps logs reset
+WITH_ENV := set -a && . ./.env && set +a &&
+.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -22,13 +23,22 @@ format: ## Apply Ruff fixes and formatting
 typecheck: ## mypy --strict over src/ and tests/
 	uv run mypy
 
-test: ## Unit and property tests
+test: ## Unit, property, and contract tests (no database needed)
 	uv run pytest
+
+test-integration: ## Integration tests against the running local stack
+	$(WITH_ENV) uv run pytest -m integration
 
 check: lint typecheck test ## Everything CI runs on Python code
 
-dbt-parse: ## Parse the dbt project (needs a profile: warehouse/dbt/README.md)
-	cd warehouse/dbt && uv run dbt parse
+dbt-parse: ## Parse the dbt project
+	$(WITH_ENV) cd warehouse/dbt && uv run dbt parse
+
+dbt-build: ## Build and test the dbt models against the local warehouse
+	$(WITH_ENV) cd warehouse/dbt && uv run dbt build
+
+sql-lint: ## Lint the dbt SQL with SQLFluff (dbt templater)
+	$(WITH_ENV) cd warehouse/dbt && uv run sqlfluff lint models tests
 
 env: ## Create .env with generated local secrets (never overwrites)
 	uv run python scripts/create_local_env.py

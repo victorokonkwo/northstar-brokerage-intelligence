@@ -28,7 +28,7 @@ These are the first 20 KPIs. Each entry states the decision it supports, its exa
 - **Grain:** business date. **Unit:** count.
 - **Owner:** AE. **Calculation owner:** dbt (singular test plus control mart).
 - **Source:** `fct_journal_lines`.
-- **Verification:** the dbt test `assert_balanced_journals` (planned, Sprint 1 Day 9), plus the Python property test `tests/financial_invariants/test_double_entry.py`, which shows every posting rule produces balanced batches for generated inputs (implemented).
+- **Verification:** the dbt test `warehouse/dbt/tests/assert_balanced_journals.sql` (implemented), plus the Python property test `tests/financial_invariants/test_double_entry.py`, which shows every posting rule produces balanced batches for generated inputs (implemented).
 
 ### KPI-02 Execution match rate
 - **Decision supported:** whether internal trade records can be trusted for the day, and how much exception workload to expect.

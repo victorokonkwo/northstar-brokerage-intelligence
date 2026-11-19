@@ -1,0 +1,80 @@
+version: 2
+
+models:
+  - name: fct_journal_lines
+    description: >
+      One row per posted journal line (grain). Primary key journal_line_id.
+      Amounts are numeric(18, 2) in the line's original currency (ADR 004).
+      Exactly one of debit_amount and credit_amount is positive.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: journal_line_id, data_type: uuid, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: journal_batch_id, data_type: uuid, constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: line_number, data_type: integer, constraints: [{type: not_null}]}
+      - {name: gl_account, data_type: text, constraints: [{type: not_null}]}
+      - {name: client_account_id, data_type: text}
+      - {name: debit_amount, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: credit_amount, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [CAD, USD]
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: posting_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: posting_rule_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: posting_rule_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: chart_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: ledger_calendar_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: source_event_type, data_type: text, constraints: [{type: not_null}]}
+      - name: _source_event_id
+        data_type: text
+        constraints: [{type: not_null}]
+        description: Lineage to the canonical event that was posted (INV-10).
+        data_tests:
+          - relationships:
+              arguments:
+                to: source('brokerage', 'brokerage_events')
+                field: event_id
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_executions
+    description: One row per execution (fill), the grain. Primary key execution_id.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: execution_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: order_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: instrument_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - {name: asset_class, data_type: text, constraints: [{type: not_null}]}
+      - {name: side, data_type: text, constraints: [{type: not_null}]}
+      - {name: quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: price, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: multiplier, data_type: integer, constraints: [{type: not_null}]}
+      - {name: currency, data_type: text, constraints: [{type: not_null}]}
+      - {name: commission, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: trade_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: settlement_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: settlement_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: fee_schedule_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: settlement_rules_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: calendar_version, data_type: text, constraints: [{type: not_null}]}
+      - name: _source_event_id
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments:
+                to: source('brokerage', 'brokerage_events')
+                field: event_id
+      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}

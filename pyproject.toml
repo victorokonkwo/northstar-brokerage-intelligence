@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Finance and market-risk analytics for a simulated Canadian online brokerage (synthetic data only)"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "psycopg[binary]>=3.3.9",
     "pydantic>=2.14.3",
     "pyyaml>=6.0.3",
 ]
@@ -16,6 +17,8 @@ build-backend = "uv_build"
 dbt = [
     "dbt-core>=1.12.7,<1.13",
     "dbt-postgres>=1.11.0,<1.12",
+    "sqlfluff>=4.5.0",
+    "sqlfluff-templater-dbt>=4.5.0",
 ]
 dev = [
     "hypothesis>=6.170.15",
@@ -78,7 +81,17 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
-addopts = ["--strict-markers", "--strict-config", "--import-mode=importlib", "-ra"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+    "-ra",
+    "-m",
+    "not integration",  # `make test-integration` selects them (needs `make up`)
+]
+markers = [
+    "integration: needs the local stack (`make up`) and the NBI_PG_* variables",
+]
 xfail_strict = true
 filterwarnings = ["error"]
 

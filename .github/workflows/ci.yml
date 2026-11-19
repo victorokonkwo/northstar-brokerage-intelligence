@@ -74,14 +74,15 @@ jobs:
       - name: Start the stack and wait until every service is healthy
         run: make up
 
-      - name: dbt connects to the warehouse and parses the project
+      - name: Integration tests against the warehouse
+        run: make test-integration
+
+      - name: dbt connects and parses, and SQLFluff lints the SQL
+        # SQLFluff's dbt templater needs a live connection, so it runs here.
         run: |
-          mkdir -p "${RUNNER_TEMP}/dbt"
-          cp warehouse/dbt/profiles.yml.example "${RUNNER_TEMP}/dbt/profiles.yml"
-          export DBT_PROFILES_DIR="${RUNNER_TEMP}/dbt"
-          set -a; . ./.env; set +a
-          (cd warehouse/dbt && uv run dbt debug)
+          (set -a && . ./.env && set +a && cd warehouse/dbt && uv run dbt debug)
           make dbt-parse
+          make sql-lint
 
       - name: Show service status
         if: always()

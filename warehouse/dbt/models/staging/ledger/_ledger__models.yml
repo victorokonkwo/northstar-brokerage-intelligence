@@ -1,0 +1,13 @@
+version: 2
+
+models:
+  - name: stg_ledger__journal_lines
+    description: One row per journal line. Grain and primary key = journal_line_id.
+    columns:
+      - name: journal_line_id
+        data_tests: [unique, not_null]
+      - name: entry_side
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [DEBIT, CREDIT]

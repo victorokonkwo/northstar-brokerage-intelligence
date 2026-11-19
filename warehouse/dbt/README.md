@@ -2,7 +2,7 @@
 
 This is the warehouse transformation layer for Northstar Brokerage Intelligence (module M1, Data Foundation).
 
-**Status:** I scaffolded the folders with `dbt init` and haven't written any models yet. I deleted the starter example models that `dbt init` generates, because they were placeholders.
+**Status:** created with `dbt init` (the generated example models were deleted). The first real models exist: sources for the raw events and the ledger, three staging models, and two core models with enforced contracts (`fct_journal_lines`, `fct_executions`), plus the INV-01 test `tests/assert_balanced_journals.sql`.
 
 ## How this project was created
 
@@ -29,10 +29,18 @@ dbt is now pinned in the `dbt` dependency group of the root `pyproject.toml` and
 
 ## Profile setup
 
-1. Copy `profiles.yml.example` to `~/.dbt/profiles.yml`, or point `--profiles-dir` at a private directory.
-2. Start the local stack with `make up` (from the repository root). It provides the warehouse Postgres server.
-3. Load the `NBI_PG_*` variables from the root `.env` into your shell: `set -a; . ./.env; set +a`.
-4. Run `uv run dbt debug` from `warehouse/dbt/` to check the connection.
+`profiles.yml` in this folder is committed. It contains no credentials: every value is an `env_var()` read from the root `.env` (`make env`). dbt finds it because it runs from `warehouse/dbt/`.
+
+From the repository root:
+
+| Command | What it does |
+|---|---|
+| `make up` | starts the warehouse Postgres (and the rest of the local stack) |
+| `make dbt-parse` | parses the project (no database needed) |
+| `make dbt-build` | builds and tests every model against the local warehouse |
+| `make sql-lint` | SQLFluff with the dbt templater. It needs the running database, because the templater compiles through dbt |
+
+The raw and ledger tables are created and filled by the Python loader (`northstar.infrastructure.postgres`).
 
 ## Layout rules
 
