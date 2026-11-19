@@ -1,0 +1,1 @@
+{"causation_id":null,"correlation_id":"acc_s42_000001","event_id":"evt_late_000001","event_timestamp":"2026-03-02T15:00:00Z","event_type":"cash_deposited","payload":{"account_id":"acc_s42_000001","amount":"1500.00","cash_movement_id":"cm_late_000001","currency":"CAD"},"recorded_at":"2026-04-02T12:00:00Z","schema_version":1,"source_system":"brokerage_simulator"}

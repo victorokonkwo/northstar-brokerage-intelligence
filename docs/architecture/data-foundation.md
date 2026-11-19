@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Status | Partly implemented (Phase 3): ingestion and the warehouse load (3B); dbt staging, dimensions, and core trading facts (3C); daily facts and the gate marts (3D). Published snapshots and orchestration follow in 3E–3G ([roadmap](../project/roadmap.md#phase-3-weeks-57)). |
-| Requirements | FR-M1-01 to FR-M1-05 ([requirements](../business/requirements.md)) |
+| Status | Partly implemented (Phase 3): ingestion and the warehouse load (3B); dbt staging, dimensions, and core trading facts (3C); daily facts and the gate marts (3D); published snapshots and restatements (3E). Orchestration and the load test follow in 3F–3G ([roadmap](../project/roadmap.md#phase-3-weeks-57)). |
+| Requirements | FR-M1-01 to FR-M1-06 ([requirements](../business/requirements.md)) |
 
 ## Ingestion (FR-M1-01 to FR-M1-03)
 
@@ -159,3 +159,25 @@ Daily models are reported for **reporting dates**: every ledger business day (an
 - 8,739 daily positions
 - 5,426 client cash rows, with 45 account-currency loans on the last date and no CASH account ever negative
 - 128 execution-mart rows covering all 784 executions
+
+## Published snapshots and restatements (ADR 006, FR-M1-06)
+
+`northstar publish` (`make publish`) turns each reporting date's gate marts into a versioned snapshot in a published schema (`published_dev` for the dev dataset). It copies dbt's rows and never recomputes them (ADR 007).
+
+**Versions are content-addressed.** For a date, the publisher hashes the rows of the four gate marts (every column except `_dbt_invocation_id`, which identifies the dbt run, not the data) together with that date's KPI-01. Then:
+- **Same hash as the latest version:** nothing is created. Rerunning with identical inputs and code gives identical results (INV-09).
+- **Different hash, or no version yet:** version n+1 is created. Version 1 has no restatement reason. Every later version does, naming the marts that changed and any operator note (`--note`). For example: `restates v1: mart_daily_client_cash changed; late deposit cm_late_000001`.
+
+**The publication gate.** A new version starts as `DRAFT` and becomes `PUBLISHED` only if KPI-01 = 0 for the date (domain model §7.4). At the same instant, the previously published version becomes `SUPERSEDED`. A failing gate leaves the draft recorded, keeps the last publication in force, and exits with an error. The second gate condition, no blocking reconciliation exception, is added in Phase 4 when exceptions exist.
+
+**Everything is append-only.**
+- `snapshot_versions` holds one immutable row per version: hashes per mart and overall, KPI-01, reason, run ID, code version, source schema, and creation time.
+- `snapshot_status_log` records each status change with its time. Status is an event, never an updated column.
+- Each mart's copy carries a `snapshot_version`.
+- Triggers refuse `UPDATE`, `DELETE`, and `TRUNCATE` on all of them. A superseded version's rows stay exactly as published.
+
+**Point in time.** The view `snapshot_timeline` gives each version's status, `published_at`, and `superseded_at`. The version in force at time T is the one with `published_at <= T` and no `superseded_at` at or before T (`read_as_published`). `northstar snapshot-history --business-date D` prints a date's versions.
+
+**Late-arriving data, end to end.** `tests/fixtures/late_deposit` holds one synthetic deposit for 2026-03-02, recorded a month later. CI ingests it after the dev dataset has been published, then loads it, rebuilds dbt, and publishes again.
+- **What changes:** 2026-03-02 and every later reporting date get a v2, since a deposit changes that account's closing balance from then on, and each v2 names `mart_daily_client_cash`. Earlier dates are unchanged, and so is `mart_daily_finance`, because a deposit is not revenue.
+- **Reproducible:** in two independent local runs on the dev dataset, the 2026-03-02 hashes were identical: v1 `afa6bfb51973…` and v2 `b30adb209b5c…`.
