@@ -1,0 +1,37 @@
+# Cboe US options (XCBO): trading days and settlement days for listed US
+# equity options, whose premium settles T+1 at OCC.
+#
+# Coverage is deliberately short (owner decision 2026-11-19). OCC's own 2026
+# holiday memo (Info Memo 57897) could not be retrieved, because the site
+# refuses automated access. Whether OCC settles on the bank-only holidays
+# (Columbus Day, Veterans Day) is therefore unverified. Inside this window the
+# only closures are days on which Cboe options are closed AND DTC lists the
+# day as closed. Extend the window once the OCC memo is read. Evidence:
+# docs/sources.md → Calendars.
+market: XCBO
+settlement_currency: USD
+version: "2026.1"
+effective_from: 2026-11-19
+coverage:
+  start: 2026-01-01
+  end: 2026-04-02
+
+sources:
+  cboe_options_holidays:
+    title: "Cboe: U.S. Options Hours & Holidays (2026 Options Holiday Schedule)"
+    url: https://www.cboe.com/about/hours/us-options/
+    retrieved: 2026-11-19
+  dtc_2026:
+    title: "DTC Important Notice 23036-25: DTC Settlement, Anticipated Holiday Schedule 2026 (PDF)"
+    url: https://www.dtcc.com/-/media/Files/pdf/2025/10/15/23036-25.pdf
+    retrieved: 2026-11-19
+
+trading_holidays:
+  - {date: 2026-01-01, name: "New Year's Day", source: cboe_options_holidays}
+  - {date: 2026-01-19, name: "Martin Luther King, Jr. Day", source: cboe_options_holidays}
+  - {date: 2026-02-16, name: "Presidents' Day", source: cboe_options_holidays}
+
+settlement_holidays:
+  - {date: 2026-01-01, name: "New Year's Day (options closed; DTC closed)", source: dtc_2026}
+  - {date: 2026-01-19, name: "Martin Luther King, Jr. Day (options closed; DTC closed)", source: dtc_2026}
+  - {date: 2026-02-16, name: "Presidents' Day (options closed; DTC closed)", source: dtc_2026}

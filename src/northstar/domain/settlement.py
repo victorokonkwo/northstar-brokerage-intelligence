@@ -21,6 +21,7 @@ class AssetClass(StrEnum):
     """Asset classes with their own settlement cycles."""
 
     EQUITY = "EQUITY"
+    OPTION = "OPTION"
 
 
 class SettlementCycle(BaseModel):

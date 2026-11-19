@@ -2,7 +2,7 @@
 # after its effective_from. Only verified cycles are listed: the T+2 cycle used
 # before 2024-05-27 is not yet verified against a primary source, so a trade
 # date before then raises PolicyNotFoundError instead of guessing.
-version: "2026.1"
+version: "2026.2"
 effective_from: 2026-11-19
 cycles:
   - market: XTSE
@@ -10,3 +10,16 @@ cycles:
     business_days: 1
     effective_from: 2024-05-27
     source: "CDS: T+1 (https://www.cds.ca/solutions/cds-key-initiatives/t-1), retrieved 2026-11-19"
+  - market: XNYS
+    asset_classes: [EQUITY]
+    business_days: 1
+    effective_from: 2024-05-28
+    source: "SEC Rule 15c6-1 amendment, compliance date 2024-05-28 (https://www.sec.gov/newsroom/press-releases/2023-29), retrieved 2026-11-19"
+  # US listed options premium settles T+1 at OCC. The cycle long predates the
+  # simulated window; earlier history is not modelled, so this starts at the
+  # window. Trade dates before it raise PolicyNotFoundError.
+  - market: XCBO
+    asset_classes: [OPTION]
+    business_days: 1
+    effective_from: 2026-01-01
+    source: "OCC equity options specifications (https://www.theocc.com/clearing/clearing-services/specifications-equity-options.jsp), via search 2026-11-19"
