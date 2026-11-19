@@ -12,5 +12,6 @@ An ADR records one significant decision: its context, the options considered, th
 | [006](006-bitemporal-records-and-restatements.md) | Bitemporal records and versioned restatements | Accepted |
 | [007](007-single-owner-for-each-calculation.md) | Single owner for each calculation | Accepted |
 | [008](008-data-lineage-and-observability.md) | OpenLineage and OpenTelemetry for lineage and observability | Accepted |
+| [009](009-local-telemetry-backend.md) | Local telemetry backend: OpenTelemetry Collector with the debug exporter | Accepted |
 
 New ADRs copy [template.md](template.md) and take the next number.

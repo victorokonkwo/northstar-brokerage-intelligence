@@ -1,6 +1,6 @@
-# Local stack: warehouse Postgres, Airflow 3.4.0 (LocalExecutor) and a
-# SeaweedFS S3-compatible object store. Run it through the Makefile
-# (`make env`, then `make up`), which passes the repository-root .env file.
+# Local stack: warehouse Postgres, Airflow 3.4.0 (LocalExecutor), a SeaweedFS
+# S3-compatible object store, and an OpenTelemetry Collector. Run it through
+# the Makefile (`make env`, then `make up`), which passes the root .env file.
 #
 # The Airflow services are adapted from the official 3.4.0 docker-compose.yaml
 # (https://airflow.apache.org/docs/apache-airflow/3.4.0/docker-compose.yaml):
@@ -67,6 +67,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    # Receives OTLP over HTTP and prints it (debug exporter, ADR 008). The
+    # image has no shell, so there is no in-container healthcheck: `make up`
+    # waits for it to be running, and the health_check extension answers on
+    # 127.0.0.1:13133 (CI checks it).
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:${OTEL_COLLECTOR_HTTP_PORT:-4318}:4318"
+      - "127.0.0.1:${OTEL_COLLECTOR_HEALTH_PORT:-13133}:13133"
     restart: unless-stopped
 
   airflow-db:

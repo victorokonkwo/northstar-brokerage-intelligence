@@ -17,7 +17,10 @@ import os
 import sys
 import uuid
 from collections.abc import Sequence
+from importlib.metadata import version
 from pathlib import Path
+
+from opentelemetry import trace
 
 from northstar.application.sprint1 import (
     journal_fingerprint,
@@ -26,6 +29,7 @@ from northstar.application.sprint1 import (
     read_ledger_controls,
 )
 from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas
+from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,8 +56,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run a command and return the process exit code."""
+    """Run a command and return the process exit code.
+
+    Telemetry is configured for the whole command and flushed before exit.
+    """
     args = build_parser().parse_args(argv)
+    telemetry = configure_telemetry(TelemetrySettings.from_env(), version("northstar"))
+    try:
+        with trace.get_tracer(__name__).start_as_current_span(f"northstar.{args.command}"):
+            return _run(args)
+    finally:
+        telemetry.shutdown()
+
+
+def _run(args: argparse.Namespace) -> int:
     settings = PostgresSettings.from_env()
     schemas = WarehouseSchemas()
     out = sys.stdout
