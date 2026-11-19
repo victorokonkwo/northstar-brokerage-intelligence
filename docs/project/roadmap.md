@@ -58,8 +58,9 @@ Plan approved by the owner on 2026-11-19, as five PRs: 2A calendars and settleme
 
 | PR | Status |
 |---|---|
-| 2A calendars and settlement rules | In progress: XNYS and XCBO calendars, US equity and option T+1 cycles, `AssetClass.OPTION` |
-| 2B–2E | Not started |
+| 2A calendars and settlement rules | Done (#14): XNYS and XCBO calendars, US equity and option T+1 cycles, `AssetClass.OPTION` |
+| 2B domain: events, posting rules, positions | In progress: 6 new event types, `trade_executed` v2, FX/interest/withdrawal/clearing-fee rules, policies (FX, margin, fee schedule 2026.2), `PositionBook` (INV-03/04) |
+| 2C–2E | Not started |
 
 ## Sprint 1 (weeks 1–2)
 

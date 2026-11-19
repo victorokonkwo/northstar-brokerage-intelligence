@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "PriceUpdatedPayload": {
+      "additionalProperties": false,
+      "description": "A daily closing price for an instrument (synthetic in Phase 2).",
+      "properties": {
+        "close_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 8,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Close Price"
+        },
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "price_date": {
+          "format": "date",
+          "title": "Price Date",
+          "type": "string"
+        },
+        "source": {
+          "const": "synthetic",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instrument_id",
+        "price_date",
+        "close_price",
+        "currency",
+        "source"
+      ],
+      "title": "PriceUpdatedPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``price_updated`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "price_updated",
+      "default": "price_updated",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/PriceUpdatedPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "PriceUpdated",
+  "type": "object"
+}

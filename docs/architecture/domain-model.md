@@ -79,7 +79,7 @@ Surrogate keys (`*_sk`) are dbt-generated hashes of the natural key plus the ver
 
 ### 4.2 Event envelope
 
-Every source event has this envelope. Payload fields depend on `event_type`. The JSON Schemas are generated from the pydantic models in `northstar.domain.events` into `contracts/events/<type>.v<N>.schema.json` (`scripts/export_event_schemas.py`), and a contract test fails if they drift. Implemented so far: `account_created`, `cash_deposited`, `order_placed`, `trade_executed`, `trade_settled`.
+Every source event has this envelope. Payload fields depend on `event_type`. The JSON Schemas are generated from the pydantic models in `northstar.domain.events` into `contracts/events/<type>.v<N>.schema.json` (`scripts/export_event_schemas.py`), and a contract test fails if they drift. Implemented: `account_created`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `order_placed`, `order_cancelled`, `trade_executed` (**v2**: adds an optional `clearing_fee`; v1 events stay valid but may not carry a fee), `trade_settled`, `price_updated`, and `margin_interest_accrued`. Each type keeps its own `schema_version`.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -175,7 +175,7 @@ stateDiagram-v2
 
 ## 8. Financial invariants
 
-Each invariant must be an executable test. **Implemented:** the Python tests for INV-01, INV-05 and INV-06, and the dbt test `assert_balanced_journals.sql` for INV-01. For INV-02, the loader refuses duplicate or conflicting events (`tests/integration/test_warehouse_load.py`). The other paths below are planned and do not exist yet.
+Each invariant must be an executable test. **Implemented:** the Python tests for INV-01, INV-03, INV-04, INV-05 and INV-06 (`tests/financial_invariants/`), and the dbt test `assert_balanced_journals.sql` for INV-01. For INV-02, the loader refuses duplicate or conflicting events (`tests/integration/test_warehouse_load.py`). The other paths below are planned and do not exist yet.
 
 | ID | Invariant | Enforced by (planned) |
 |---|---|---|
@@ -226,7 +226,9 @@ G = gross trade amount (quantity × price × multiplier), and c = client commiss
 | `trade_executed` SELL | 1200 Receivable from clearing — G | 2100 Client cash (acct) — G − c; 4100 Commission revenue — c |
 | `trade_settled` BUY | 2200 Payable to clearing — G | 1000 Cash — G |
 | `trade_settled` SELL | 1000 Cash — G | 1200 Receivable from clearing — G |
-| clearing fee incurred | 5100 Clearing costs — fee | 2200 Payable to clearing — fee |
+| clearing fee incurred (lines on the `trade_executed` batch) | 5100 Clearing costs — fee | 2200 Payable to clearing — fee |
+| `fx_converted`, client buys USD (`fx_converted.buy_usd`) | CAD: 2100 Client cash (acct) — CAD sold. USD: 2300 FX clearing — USD bought | CAD: 2300 FX clearing — reference value; 4200 FX revenue — spread. USD: 2100 Client cash (acct) — USD bought |
+| `fx_converted`, client buys CAD (`fx_converted.buy_cad`) | USD: 2100 Client cash (acct) — USD sold. CAD: 2300 FX clearing — reference value | USD: 2300 FX clearing — USD sold. CAD: 2100 Client cash (acct) — CAD bought; 4200 FX revenue — spread |
 | `margin_interest_accrued` | 2100 Client cash (acct) — interest | 4300 Margin interest revenue — interest |
 | funding cost accrued | 5200 Funding cost — cost | 2400 Interest payable — cost |
 
@@ -239,6 +241,10 @@ Implementation details of the v1 rules (`northstar.domain.accounting`; rule IDs 
 - If a SELL's commission exceeds its proceeds (G − c < 0), the client line becomes a **debit** of c − G, and the batch still balances.
 - A settlement obligation is one per **(order, trade date)**, and its amount is the sum of its executions' rounded G (INV-06).
 - Line IDs are UUIDv5 over (event, rule, version, line number), so re-posting reproduces them.
+- **Clearing fees** (fee schedule 2026.2) are posted as the last two lines of the trade batch, so an execution without a fee posts exactly as it did before fees existed (same rule version, same line IDs). The fee stays in 2200 until it is paid. † Paying clearing-fee invoices is not simulated in Phase 2.
+- **FX** (OQ-01): `northstar.domain.fx` computes the reference value and the spread with half-even rounding, once. The spread is always in CAD and never negative: `quote` refuses an amount so small that rounding would beat the reference rate. 2300 holds the firm's open position per currency. † Covering trades are out of scope.
+- **Margin interest** (`northstar.domain.interest`): accrues every calendar day on each currency's end-of-day 2100 debit balance, at the policy rate, ACT/365, rounded half-even per day. † The balance is trade-date based, not settled.
+- **Options** use the same trade rules: G = contracts × premium × multiplier (100). Commission is per contract.
 
 ### 9.3 Worked example (illustrative numbers)
 
@@ -261,6 +267,8 @@ Settlement date T+1:
 | 2 | 1000 Cash — settlement bank | | 2,500.00 |
 
 Stock record (quantities): on T, the client gains ownership of +10 and the location "pending receipt from clearing" holds 10. On T+1, the 10 moves from "pending receipt" to "depository". Ownership and location total equally at every step (INV-04).
+
+For a sale, the ownership side gains "clearing: pending delivery" on T, and on settlement both pending delivery and the depository fall by the quantity sold. `northstar.domain.positions.PositionBook` implements both directions, and it refuses a sale larger than the trade-date position (long only).
 
 ### 9.4 Positions and cost
 

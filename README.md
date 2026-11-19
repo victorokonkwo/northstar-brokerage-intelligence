@@ -68,12 +68,12 @@ With the stack up (`make up`), one command simulates a client depositing cash an
 make e2e
 ```
 
-Output on the committed scenario (seed 42; illustrative values; produced by `make e2e`, 2026-11-19):
+Output on the committed scenario (seed 42; illustrative values; produced by `make e2e` with fee schedule 2026.2, which adds clearing fees, 2026-11-19):
 
 ```
 business_date currency batches lines total_debit total_credit unbalanced(KPI-01)
 2026-03-02 CAD 1 2 25000.00 25000.00 0
-2026-03-03 CAD 2 6 5248.50 5248.50 0
+2026-03-03 CAD 2 10 5249.50 5249.50 0
 2026-03-04 CAD 1 2 5238.60 5238.60 0
 KPI-01 passed: every journal batch balances
 ```

@@ -11,6 +11,8 @@ from northstar.domain.events import (
     CashDeposited,
     CashDepositedPayload,
     Event,
+    FxConvertedPayload,
+    InstrumentListedPayload,
     OrderPlacedPayload,
 )
 from northstar.infrastructure.event_files import serialize_event
@@ -133,3 +135,60 @@ class TestOrders:
             OrderPlacedPayload.model_validate(
                 self.BASE | {"order_type": "MARKET", "limit_price": "52.40"}
             )
+
+
+class TestPhase2Events:
+    def test_options_need_terms_and_others_must_not_have_them(self) -> None:
+        base = {
+            "instrument_id": "ins_1",
+            "symbol": "SYNC",
+            "name": "Synthetic Call",
+            "market": "XCBO",
+            "currency": "USD",
+            "multiplier": 100,
+        }
+        terms = {
+            "underlying_instrument_id": "ins_2",
+            "strike": "50.00",
+            "expiry": "2026-06-19",
+            "right": "CALL",
+            "exercise_style": "AMERICAN",
+        }
+        InstrumentListedPayload.model_validate(base | {"asset_class": "OPTION", "option": terms})
+        with pytest.raises(ValidationError, match="option terms"):
+            InstrumentListedPayload.model_validate(base | {"asset_class": "OPTION"})
+        with pytest.raises(ValidationError, match="option terms"):
+            InstrumentListedPayload.model_validate(
+                base | {"asset_class": "EQUITY", "option": terms}
+            )
+
+    def test_fx_must_be_between_cad_and_usd(self) -> None:
+        good = {
+            "fx_conversion_id": "fxc_1",
+            "account_id": "acc_1",
+            "sell_amount": "100.00",
+            "sell_currency": "CAD",
+            "buy_amount": "71.91",
+            "buy_currency": "USD",
+            "reference_rate": "1.3700000000",
+            "client_rate": "1.3905500000",
+            "rate_date": "2026-03-03",
+            "rate_source": "synthetic",
+            "fx_policy_version": "1",
+        }
+        FxConvertedPayload.model_validate(good)
+        with pytest.raises(ValidationError, match="between CAD and USD"):
+            FxConvertedPayload.model_validate(good | {"buy_currency": "CAD"})
+        with pytest.raises(ValidationError):
+            FxConvertedPayload.model_validate(good | {"reference_rate": "1.37000000001"})  # 11 dp
+
+    def test_trade_executed_v1_cannot_carry_a_clearing_fee(self) -> None:
+        v2 = execution(clearing_fee="0.50")
+        assert v2.schema_version == 2
+        raw = serialize_event(v2).replace('"schema_version":2', '"schema_version":1')
+        with pytest.raises(ValidationError, match="v1 has no clearing_fee"):
+            ADAPTER.validate_json(raw)
+        v1_without_fee = serialize_event(execution()).replace(
+            '"schema_version":2', '"schema_version":1'
+        )
+        assert ADAPTER.validate_json(v1_without_fee).schema_version == 1

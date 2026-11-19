@@ -13,6 +13,12 @@ from northstar.domain.calendar import BUSINESS_TIMEZONE, MarketCalendar
 from northstar.domain.events import (
     CashDeposited,
     CashDepositedPayload,
+    CashWithdrawn,
+    CashWithdrawnPayload,
+    FxConverted,
+    FxConvertedPayload,
+    MarginInterestAccrued,
+    MarginInterestAccruedPayload,
     PolicyVersions,
     Side,
     TradeExecuted,
@@ -90,6 +96,7 @@ def execution(
     quantity: str = "10",
     price: str = "250.00",
     commission: str = "1.00",
+    clearing_fee: str = "0.00",
     currency: Currency = Currency.USD,
     account_id: str = "acc_s1_000001",
     when: datetime | None = None,
@@ -116,6 +123,7 @@ def execution(
             multiplier=1,
             currency=currency,
             commission=Decimal(commission),
+            clearing_fee=Decimal(clearing_fee),
             trade_date=trade_date,
             settlement_date=trade_date + timedelta(days=1),
             settlement_id="stl_s1_000001",
@@ -149,6 +157,88 @@ def settlement(
             amount=Decimal(amount),
             currency=currency,
             execution_ids=("exe_s1_000001",),
+        ),
+    )
+
+
+def withdrawal(
+    amount: str = "100.00",
+    currency: Currency = Currency.CAD,
+    account_id: str = "acc_s1_000001",
+    when: datetime | None = None,
+    event_id: str = "evt_s1_000004",
+) -> CashWithdrawn:
+    ts = when or at_toronto(date(2026, 3, 5))
+    return CashWithdrawn(
+        event_id=event_id,
+        event_timestamp=ts,
+        recorded_at=ts,
+        correlation_id=account_id,
+        payload=CashWithdrawnPayload(
+            cash_movement_id="cm_s1_000002",
+            account_id=account_id,
+            amount=Decimal(amount),
+            currency=currency,
+        ),
+    )
+
+
+def fx_conversion(
+    sell_amount: str,
+    sell_currency: Currency,
+    buy_amount: str,
+    reference_rate: str = "1.3700000000",
+    client_rate: str = "1.3905500000",
+    account_id: str = "acc_s1_000001",
+    when: datetime | None = None,
+    event_id: str = "evt_s1_000005",
+) -> FxConverted:
+    ts = when or at_toronto(date(2026, 3, 3))
+    buy_currency = Currency.USD if sell_currency is Currency.CAD else Currency.CAD
+    return FxConverted(
+        event_id=event_id,
+        event_timestamp=ts,
+        recorded_at=ts,
+        correlation_id=account_id,
+        payload=FxConvertedPayload(
+            fx_conversion_id="fxc_s1_000001",
+            account_id=account_id,
+            sell_amount=Decimal(sell_amount),
+            sell_currency=sell_currency,
+            buy_amount=Decimal(buy_amount),
+            buy_currency=buy_currency,
+            reference_rate=Decimal(reference_rate),
+            client_rate=Decimal(client_rate),
+            rate_date=ts.astimezone(BUSINESS_TIMEZONE).date(),
+            rate_source="synthetic",
+            fx_policy_version="test",
+        ),
+    )
+
+
+def interest(
+    amount: str = "1.64",
+    debit_balance: str = "10000.00",
+    currency: Currency = Currency.CAD,
+    account_id: str = "acc_s1_000001",
+    accrual_date: date = date(2026, 3, 3),
+    event_id: str = "evt_s1_000006",
+) -> MarginInterestAccrued:
+    ts = at_toronto(accrual_date, 23, 59)
+    return MarginInterestAccrued(
+        event_id=event_id,
+        event_timestamp=ts,
+        recorded_at=ts,
+        correlation_id=account_id,
+        payload=MarginInterestAccruedPayload(
+            account_id=account_id,
+            accrual_date=accrual_date,
+            currency=currency,
+            debit_balance=Decimal(debit_balance),
+            annual_rate=Decimal("0.06"),
+            day_count="ACT/365",
+            amount=Decimal(amount),
+            margin_policy_version="test",
         ),
     )
 

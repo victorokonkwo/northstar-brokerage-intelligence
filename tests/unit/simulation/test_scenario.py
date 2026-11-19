@@ -156,6 +156,8 @@ def test_sprint1_scenario_posts_the_expected_journal(sprint1: Scenario) -> None:
                 ("2100", "DEBIT", "3147.15"),
                 ("2200", "CREDIT", "3142.20"),
                 ("4100", "CREDIT", "4.95"),
+                ("5100", "DEBIT", "0.60"),  # clearing fee: 60 shares x 0.01
+                ("2200", "CREDIT", "0.60"),
             ],
         ),
         (
@@ -165,6 +167,8 @@ def test_sprint1_scenario_posts_the_expected_journal(sprint1: Scenario) -> None:
                 ("2100", "DEBIT", "2101.35"),
                 ("2200", "CREDIT", "2096.40"),
                 ("4100", "CREDIT", "4.95"),
+                ("5100", "DEBIT", "0.40"),  # clearing fee: 40 shares x 0.01
+                ("2200", "CREDIT", "0.40"),
             ],
         ),
         (

@@ -10,9 +10,18 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from hypothesis import given
 from hypothesis import strategies as st
 
-from northstar.common.money import Currency
+from northstar.common.money import Currency, Money
 from northstar.domain.accounting import CLIENT_CASH, EntrySide
-from northstar.domain.events import CashDeposited, Side, TradeExecuted, TradeSettled
+from northstar.domain.events import (
+    CashDeposited,
+    CashWithdrawn,
+    FxConverted,
+    MarginInterestAccrued,
+    Side,
+    TradeExecuted,
+    TradeSettled,
+)
+from northstar.domain.fx import quote
 
 from factories import (
     commissions,
@@ -20,8 +29,20 @@ from factories import (
     deposit,
     engine,
     execution,
+    fx_conversion,
+    interest,
     positive_amounts,
     settlement,
+    withdrawal,
+)
+
+type ClientEvent = (
+    CashDeposited
+    | CashWithdrawn
+    | FxConverted
+    | MarginInterestAccrued
+    | TradeExecuted
+    | TradeSettled
 )
 
 ACCOUNTS = ("acc_s1_000001", "acc_s1_000002", "acc_s1_000003")
@@ -29,13 +50,15 @@ CENT = Decimal("0.01")
 
 
 @st.composite
-def client_events(draw: st.DrawFn) -> list[CashDeposited | TradeExecuted | TradeSettled]:
-    events: list[CashDeposited | TradeExecuted | TradeSettled] = []
+def client_events(draw: st.DrawFn) -> list[ClientEvent]:
+    events: list[ClientEvent] = []
     for n in range(draw(st.integers(min_value=1, max_value=25))):
         account = draw(st.sampled_from(ACCOUNTS))
         when = draw(covered_timestamps())
         event_id = f"evt_s1_{n + 1:06d}"
-        kind = draw(st.sampled_from(("deposit", "buy", "sell", "settle")))
+        kind = draw(
+            st.sampled_from(("deposit", "withdraw", "fx", "interest", "buy", "sell", "settle"))
+        )
         if kind == "deposit":
             events.append(
                 deposit(
@@ -43,6 +66,46 @@ def client_events(draw: st.DrawFn) -> list[CashDeposited | TradeExecuted | Trade
                     currency=Currency.CAD,
                     account_id=account,
                     when=when,
+                    event_id=event_id,
+                )
+            )
+        elif kind == "withdraw":
+            events.append(
+                withdrawal(
+                    amount=draw(positive_amounts),
+                    currency=draw(st.sampled_from(Currency)),
+                    account_id=account,
+                    when=when,
+                    event_id=event_id,
+                )
+            )
+        elif kind == "fx":
+            to_usd = draw(st.booleans())
+            sell_ccy = Currency.CAD if to_usd else Currency.USD
+            q = quote(
+                Money(Decimal(draw(st.integers(1000, 10**9))).scaleb(-2), sell_ccy),
+                Currency.USD if to_usd else Currency.CAD,
+                Decimal(draw(st.sampled_from(["1.3512340000", "1.3700000000", "1.4021000000"]))),
+                Decimal("0.015"),
+            )
+            events.append(
+                fx_conversion(
+                    str(q.sell.amount),
+                    sell_ccy,
+                    str(q.buy.amount),
+                    reference_rate=str(q.reference_rate),
+                    client_rate=str(q.client_rate),
+                    account_id=account,
+                    when=when,
+                    event_id=event_id,
+                )
+            )
+        elif kind == "interest":
+            events.append(
+                interest(
+                    amount=draw(st.sampled_from(["0.01", "1.64", "8.22"])),
+                    currency=draw(st.sampled_from(Currency)),
+                    account_id=account,
                     event_id=event_id,
                 )
             )
@@ -76,22 +139,28 @@ def client_events(draw: st.DrawFn) -> list[CashDeposited | TradeExecuted | Trade
     return events
 
 
-def expected_client_cash(
-    events: list[CashDeposited | TradeExecuted | TradeSettled],
-) -> dict[str, Decimal]:
-    balance: dict[str, Decimal] = defaultdict(Decimal)
+def expected_client_cash(events: list[ClientEvent]) -> dict[tuple[str, Currency], Decimal]:
+    """Client cash per (account, currency), recomputed from the events alone."""
+    balance: dict[tuple[str, Currency], Decimal] = defaultdict(Decimal)
     for event in events:
         match event:
             case CashDeposited(payload=p):
-                balance[p.account_id] += p.amount
+                balance[(p.account_id, p.currency)] += p.amount
+            case CashWithdrawn(payload=p):
+                balance[(p.account_id, p.currency)] -= p.amount
+            case FxConverted(payload=p):
+                balance[(p.account_id, p.sell_currency)] -= p.sell_amount
+                balance[(p.account_id, p.buy_currency)] += p.buy_amount
+            case MarginInterestAccrued(payload=p):
+                balance[(p.account_id, p.currency)] -= p.amount
             case TradeExecuted(payload=p):
                 gross = (p.quantity * p.price * p.multiplier).quantize(
                     CENT, rounding=ROUND_HALF_EVEN
                 )
                 if p.side is Side.BUY:
-                    balance[p.account_id] -= gross + p.commission
+                    balance[(p.account_id, p.currency)] -= gross + p.commission
                 else:
-                    balance[p.account_id] += gross - p.commission
+                    balance[(p.account_id, p.currency)] += gross - p.commission
             case TradeSettled():
                 pass  # settlement moves firm cash and clearing balances, never client cash
     return dict(balance)
@@ -99,9 +168,9 @@ def expected_client_cash(
 
 @given(events=client_events())
 def test_client_cash_equals_the_2100_subledger(
-    events: list[CashDeposited | TradeExecuted | TradeSettled],
+    events: list[ClientEvent],
 ) -> None:
-    ledger: dict[str, Decimal] = defaultdict(Decimal)
+    ledger: dict[tuple[str, Currency], Decimal] = defaultdict(Decimal)
     for event in events:
         for line in engine().post(event).lines:
             if line.gl_account == CLIENT_CASH:
@@ -109,7 +178,8 @@ def test_client_cash_equals_the_2100_subledger(
                 signed = (
                     line.amount.amount if line.side is EntrySide.CREDIT else -line.amount.amount
                 )
-                ledger[line.client_account_id] += signed  # 2100 is a liability: credit = money held
+                # 2100 is a liability: a credit is money held, a debit balance is a loan.
+                ledger[(line.client_account_id, line.amount.currency)] += signed
     expected = expected_client_cash(events)
-    for account in ACCOUNTS:
-        assert ledger.get(account, Decimal(0)) == expected.get(account, Decimal(0))
+    for key in set(ledger) | set(expected):
+        assert ledger.get(key, Decimal(0)) == expected.get(key, Decimal(0)), key
