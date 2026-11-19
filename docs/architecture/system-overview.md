@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Approved target architecture (2026-11-18). Only `warehouse/dbt/` (an empty `dbt init` scaffold) exists. |
+| Status | Approved target architecture (2026-11-18). Partly built: the local stack, CI, and the Sprint 1 slice (`common`, `domain`, `simulation`, `infrastructure`, `application`; dbt staging, core, and one control mart). The roadmap tracks what exists. |
 | Last updated | 2026-11-18 |
 | Decisions | [ADR 001](../adr/001-platform-architecture.md), [ADR 003](../adr/003-batch-first-processing.md), [ADR 005](../adr/005-local-postgres-cloud-redshift.md), [ADR 007](../adr/007-single-owner-for-each-calculation.md), [ADR 008](../adr/008-data-lineage-and-observability.md) |
 

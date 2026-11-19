@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.yaml
 WITH_ENV := set -a && . ./.env && set +a &&
-.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset
+.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -60,3 +60,8 @@ logs: ## Follow the local stack logs
 
 reset: ## Stop the local stack and DELETE its data volumes (needed after regenerating .env)
 	$(COMPOSE) down --volumes
+
+e2e: | .env ## Sprint 1 slice: simulate, post, load, dbt build, KPI-01 summary (needs make up)
+	$(WITH_ENV) uv run northstar run-slice --scenario config/simulation/sprint1_scenario.yaml --seed 42 --out data/generated
+	$(MAKE) dbt-build
+	$(WITH_ENV) uv run northstar ledger-summary

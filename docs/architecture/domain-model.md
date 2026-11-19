@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Approved design (Phase 0, 2026-11-18). **Not implemented.** Open questions in §10 are resolved in the phases listed there. |
+| Status | Approved design (Phase 0, 2026-11-18). **Partly implemented (Sprint 1):** the events in §4.2, the v1 posting rules in §9.2 for deposits, trades, and settlements, the XTSE calendar, and INV-01, INV-05 and INV-06. Everything else is designed, not built. Open questions in §10 are resolved in the phases listed there. |
 | Last updated | 2026-11-18 |
 | Decisions | [ADR 002](../adr/002-ledger-system-of-record.md), [ADR 004](../adr/004-fixed-precision-money.md), [ADR 006](../adr/006-bitemporal-records-and-restatements.md) |
 

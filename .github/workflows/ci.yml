@@ -84,6 +84,21 @@ jobs:
           make dbt-parse
           make sql-lint
 
+      - name: Sprint 1 slice end to end, twice, with identical results
+        # Phase 1 gate: a fresh clone runs a sample pipeline and reproduces the
+        # same result. The second run must load nothing new and leave the
+        # events file and the stored journal byte-for-byte identical.
+        run: |
+          make e2e
+          set -a && . ./.env && set +a
+          first_events=$(sha256sum data/generated/sprint1-cad-buy/seed=42/events.jsonl)
+          first_journal=$(uv run northstar ledger-fingerprint)
+          make e2e | tee second-run.txt
+          grep -q "0 new events, 0 new journal lines" second-run.txt
+          test "$first_events" = "$(sha256sum data/generated/sprint1-cad-buy/seed=42/events.jsonl)"
+          test "$first_journal" = "$(uv run northstar ledger-fingerprint)"
+          echo "reproduced: $first_events / $first_journal"
+
       - name: Show service status
         if: always()
         run: make ps

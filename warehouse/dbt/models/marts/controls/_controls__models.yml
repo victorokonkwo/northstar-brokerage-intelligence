@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: mart_ledger_balance_controls
+    description: >
+      Ledger balance controls. Grain: one row per business_date x currency.
+      unbalanced_batch_count is KPI-01 (target exactly 0; any other value
+      blocks publication). Aggregates are unconstrained numeric, as ADR 004
+      allows for sums. Snapshot versions arrive with ADR 006 in Phase 3.
+    config:
+      materialized: table
+      contract: {enforced: true}
+    columns:
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: currency, data_type: text, constraints: [{type: not_null}]}
+      - {name: batch_count, data_type: bigint, constraints: [{type: not_null}]}
+      - {name: line_count, data_type: bigint, constraints: [{type: not_null}]}
+      - {name: total_debit, data_type: numeric, constraints: [{type: not_null}]}
+      - {name: total_credit, data_type: numeric, constraints: [{type: not_null}]}
+      - {name: unbalanced_batch_count, data_type: bigint, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}

@@ -60,6 +60,26 @@ make sql-lint           # SQLFluff (needs the running warehouse)
 
 The ports can be changed in `.env`.
 
+### Sprint 1 slice, end to end
+
+With the stack up (`make up`), one command simulates a client depositing cash and buying a synthetic TSX stock, posts the double-entry journal, loads it into the warehouse, builds and tests the dbt models, and prints the KPI-01 ledger control:
+
+```bash
+make e2e
+```
+
+Output on the committed scenario (seed 42; illustrative values; produced by `make e2e`, 2026-11-19):
+
+```
+business_date currency batches lines total_debit total_credit unbalanced(KPI-01)
+2026-03-02 CAD 1 2 25000.00 25000.00 0
+2026-03-03 CAD 2 6 5248.50 5248.50 0
+2026-03-04 CAD 1 2 5238.60 5238.60 0
+KPI-01 passed: every journal batch balances
+```
+
+Running it again loads nothing new and leaves the results unchanged. CI checks that on every pull request.
+
 ### Continuous integration
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and every push to `main`. It runs `make check`, the repository hygiene hooks, a dependency vulnerability audit (`uv audit`), and a full local-stack start from a fresh checkout, with `dbt debug` and `dbt parse` run against it.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and every push to `main`. It runs `make check`, the repository hygiene hooks, and a dependency vulnerability audit (`uv audit`). It then starts the local stack from a fresh checkout and runs the integration tests, `dbt debug`, `dbt parse`, SQLFluff, and `make e2e` twice, checking that the results are identical.
