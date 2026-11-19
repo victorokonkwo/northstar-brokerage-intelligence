@@ -1,0 +1,122 @@
+{
+  "$defs": {
+    "FxRatePublishedPayload": {
+      "additionalProperties": false,
+      "description": "The day's USD/CAD reference rate (CAD per 1 USD), as published by its source.\n\nIt is the rate client conversions are priced against (OQ-01) and the rate\nthe warehouse translates USD amounts to CAD with (INV-07). The source is\nthe simulator's synthetic path, not Bank of Canada data.\n\nRaises:\n    pydantic.ValidationError: The pair is not USD/CAD.",
+      "properties": {
+        "base_currency": {
+          "const": "USD",
+          "title": "Base Currency",
+          "type": "string"
+        },
+        "fx_policy_version": {
+          "title": "Fx Policy Version",
+          "type": "string"
+        },
+        "quote_currency": {
+          "const": "CAD",
+          "title": "Quote Currency",
+          "type": "string"
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 10,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Rate"
+        },
+        "rate_date": {
+          "format": "date",
+          "title": "Rate Date",
+          "type": "string"
+        },
+        "rate_source": {
+          "const": "synthetic",
+          "title": "Rate Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "base_currency",
+        "quote_currency",
+        "rate_date",
+        "rate",
+        "rate_source",
+        "fx_policy_version"
+      ],
+      "title": "FxRatePublishedPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``fx_rate_published`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "fx_rate_published",
+      "default": "fx_rate_published",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/FxRatePublishedPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "FxRatePublished",
+  "type": "object"
+}

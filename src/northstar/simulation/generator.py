@@ -7,7 +7,10 @@ universe, and activity parameters. ``generate_dataset`` drives the
 - **Market data:** synthetic closes per instrument trading day, and a
   synthetic USD/CAD reference rate per ledger business day (``market.py``).
 - **Accounts** open during the first ten business days with an initial
-  deposit. A configured share are MARGIN accounts.
+  deposit. A configured share are MARGIN accounts. Later, some CASH accounts
+  are approved for margin, and some accounts are restricted from trading for
+  a few business days (``account_updated``, the SCD2 history of FR-M1-05).
+  Updates are processed at 08:00 local, before the market opens.
 - **Treasury patterns (FR-SIM-05):** deposit probability scales by month
   (seasonality); withdrawal probability rises over the last business days of
   each month; order intensity rises with the day's average absolute price
@@ -19,9 +22,11 @@ universe, and activity parameters. ``generate_dataset`` drives the
   enough USD first converts CAD.
 
 Determinism: one ``numpy.random.SeedSequence(seed)`` is split into a market
-stream and one stream per account. Every arithmetic step after the random
-draw is ``Decimal``. Actions are generated in one global time order per day,
-so the same seed and config always give byte-identical events.
+stream and one stream per account. Each account's lifecycle plan is drawn
+from a child of its stream, so planning consumes none of its activity draws.
+Every arithmetic step after the random draw is ``Decimal``. Actions are
+generated in one global time order per day, so the same seed and config
+always give byte-identical events.
 """
 
 from dataclasses import dataclass
@@ -34,7 +39,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from northstar.common.money import Currency, Money
 from northstar.domain.calendar import BUSINESS_TIMEZONE, MarketCalendar
-from northstar.domain.events import AccountType, Event, OrderType, Side
+from northstar.domain.events import (
+    AccountStatus,
+    AccountType,
+    AccountUpdateReason,
+    Event,
+    OrderType,
+    Side,
+)
 from northstar.domain.settlement import AssetClass
 from northstar.simulation.engine import (
     LEDGER_CALENDAR_MARKET,
@@ -47,6 +59,7 @@ from northstar.simulation.engine import (
     PlaceOrder,
     Policies,
     SimulationEngine,
+    UpdateAccount,
     Withdraw,
 )
 from northstar.simulation.market import PRICE_TICK, RATE_PLACES, absolute_returns, log_normal_path
@@ -85,6 +98,17 @@ class FxPath(_Frozen):
 
     start_rate: Decimal = Field(gt=0)
     daily_vol: Decimal = Field(gt=0, lt=1)
+
+
+class AccountLifecycle(_Frozen):
+    """Account changes after opening (each probability is per account, over the window)."""
+
+    margin_approval_probability: Probability
+    """Chance that a CASH account is approved for margin on a later business day."""
+    restriction_probability: Probability
+    """Chance that an account is restricted from trading on a later business day."""
+    restriction_business_days: Annotated[int, Field(ge=1)]
+    """Ledger business days until the restriction is lifted (if within the window)."""
 
 
 class DepositActivity(_Frozen):
@@ -135,6 +159,7 @@ class DatasetConfig(_Frozen):
     window: Window
     settlement_time_local: time
     accounts: AccountMix
+    lifecycle: AccountLifecycle
     fx: FxPath
     instruments: tuple[GeneratedInstrument, ...]
     deposits: DepositActivity
@@ -219,6 +244,10 @@ def _month_end_days(config: DatasetConfig, ledger: MarketCalendar) -> set[date]:
     return {d for days in by_month.values() for d in days[-config.withdrawals.month_end_days :]}
 
 
+_BACK_OFFICE_TIME = time(8, 0)
+"""When account updates are processed (simulation convention, before the open)."""
+
+
 class _Clock:
     """One global time order for the day's actions (the engine requires it)."""
 
@@ -266,14 +295,34 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
         d for d in _days(config.window.start, config.window.end) if ledger.is_settlement_day(d)
     ]
     accounts = []
-    for index, rng in enumerate(rngs):
+    changes: dict[date, list[tuple[str, _Change]]] = {}
+    for index, (rng, sequence) in enumerate(zip(rngs, streams[1:], strict=True)):
+        key = f"a{index:04d}"
         is_margin = _uniform(rng) < config.accounts.margin_share
         opens_on = business_days[int(rng.integers(0, min(10, len(business_days))))]
-        accounts.append(
-            (f"a{index:04d}", AccountType.MARGIN if is_margin else AccountType.CASH, opens_on, rng)
-        )
+        account_type = AccountType.MARGIN if is_margin else AccountType.CASH
+        life = np.random.Generator(np.random.PCG64(sequence.spawn(1)[0]))
+        for change_day, change in _lifecycle(config, account_type, opens_on, business_days, life):
+            changes.setdefault(change_day, []).append((key, change))
+        accounts.append((key, account_type, opens_on, rng))
 
     for day in _days(config.window.start, config.window.end):
+        # Back-office updates first, one second apart, without moving the day's clock.
+        for n, (key, change) in enumerate(changes.get(day, [])):
+            current = (
+                AccountStatus.TRADING_RESTRICTED
+                if engine.trading_restricted(key)
+                else AccountStatus.ACTIVE
+            )
+            engine.submit(
+                UpdateAccount(
+                    _local(day, _BACK_OFFICE_TIME) + timedelta(seconds=n),
+                    key,
+                    change.account_type or engine.account_type(key),
+                    change.status or current,
+                    change.reason,
+                )
+            )
         clock = _Clock(day)
         for key, account_type, opens_on, rng in accounts:
             if day < opens_on:
@@ -286,14 +335,70 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
                     rng, config.deposits.initial_mean_amount, config.deposits.min_amount
                 )
                 engine.submit(Deposit(clock.step(rng), key, Money(amount, Currency.CAD)))
-            _day_activity(
-                config, policies, engine, market, key, account_type, rng, day, clock, month_ends
-            )
+            _day_activity(config, policies, engine, market, key, rng, day, clock, month_ends)
         for spec in config.instruments:  # closes after the market, in config order
             close = market.closes[spec.key].get(day)
             if close is not None:
                 engine.submit(ClosePrice(_local(day, time(16, 30)), spec.key, day, close))
     return engine.finish(config.window.end)
+
+
+@dataclass(frozen=True, slots=True)
+class _Change:
+    """A planned account update.
+
+    A field left as None keeps its value at that time, so a margin approval
+    during a restriction doesn't lift the restriction.
+    """
+
+    reason: AccountUpdateReason
+    account_type: AccountType | None = None
+    status: AccountStatus | None = None
+
+
+def _lifecycle(
+    config: DatasetConfig,
+    account_type: AccountType,
+    opens_on: date,
+    business_days: list[date],
+    rng: np.random.Generator,
+) -> list[tuple[date, _Change]]:
+    """Plan the account's updates from its lifecycle stream (always the same draws)."""
+    life = config.lifecycle
+    later = [d for d in business_days if d > opens_on]
+    approve = _uniform(rng) < life.margin_approval_probability
+    approve_index = int(rng.integers(0, len(later))) if later else 0
+    restrict = _uniform(rng) < life.restriction_probability
+    restrict_index = int(rng.integers(0, len(later))) if later else 0
+    planned: list[tuple[date, _Change]] = []
+    if not later:
+        return planned
+    if approve and account_type is AccountType.CASH:
+        planned.append(
+            (
+                later[approve_index],
+                _Change(AccountUpdateReason.MARGIN_APPROVED, account_type=AccountType.MARGIN),
+            )
+        )
+    if restrict:
+        start = restrict_index
+        planned.append(
+            (
+                later[start],
+                _Change(
+                    AccountUpdateReason.TRADING_RESTRICTED, status=AccountStatus.TRADING_RESTRICTED
+                ),
+            )
+        )
+        lift = start + life.restriction_business_days
+        if lift < len(later):
+            planned.append(
+                (
+                    later[lift],
+                    _Change(AccountUpdateReason.RESTRICTION_LIFTED, status=AccountStatus.ACTIVE),
+                )
+            )
+    return sorted(planned, key=lambda p: p[0])
 
 
 def _amount(rng: np.random.Generator, mean: Decimal, minimum: Decimal) -> Decimal:
@@ -309,7 +414,6 @@ def _day_activity(
     engine: SimulationEngine,
     market: MarketData,
     key: str,
-    account_type: AccountType,
     rng: np.random.Generator,
     day: date,
     clock: _Clock,
@@ -335,6 +439,9 @@ def _day_activity(
                         clock.step(rng), key, Money(amount.quantize(Decimal("0.01")), Currency.CAD)
                     )
                 )
+    if engine.trading_restricted(key):
+        return
+    account_type = engine.account_type(key)
     activity = market.activity.get(day, market.mean_activity)
     lam = orders.daily_rate * (
         1 + orders.volatility_sensitivity * (activity / market.mean_activity - 1)

@@ -30,3 +30,5 @@ sources:
                       - trade_settled
                       - price_updated
                       - margin_interest_accrued
+                      - account_updated
+                      - fx_rate_published

@@ -10,7 +10,17 @@ import pytest
 from pydantic import ValidationError
 
 from northstar.domain.calendar import business_date
-from northstar.domain.events import Event, EventType, TradeExecuted
+from northstar.domain.events import (
+    AccountCreated,
+    AccountStatus,
+    AccountType,
+    AccountUpdated,
+    AccountUpdateReason,
+    Event,
+    EventType,
+    OrderPlaced,
+    TradeExecuted,
+)
 from northstar.domain.positions import PositionBook
 from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.event_files import write_events
@@ -148,3 +158,94 @@ class TestConfigValidation:
         raw["orders"]["budget_min"] = "0.5"
         with pytest.raises(ValidationError, match="budget_min exceeds budget_max"):
             DatasetConfig.model_validate(raw)
+
+
+class TestAccountLifecycle:
+    def test_approvals_and_restrictions_occur(self, dataset: tuple[Event, ...]) -> None:
+        reasons = {e.payload.reason for e in dataset if isinstance(e, AccountUpdated)}
+        assert {
+            AccountUpdateReason.MARGIN_APPROVED,
+            AccountUpdateReason.TRADING_RESTRICTED,
+        } <= reasons
+
+    def test_a_restriction_lasts_the_configured_business_days(self, config: DatasetConfig) -> None:
+        always = config.model_copy(
+            update={
+                "lifecycle": config.lifecycle.model_copy(
+                    update={"restriction_probability": Decimal(1)}
+                )
+            }
+        )
+        events = generate_dataset(always, 42, policies())
+        ledger = policies().calendars["XTSE"]
+        starts: dict[str, date] = {}
+        lifted = 0
+        for e in events:
+            if not isinstance(e, AccountUpdated):
+                continue
+            day = business_date(e.event_timestamp)
+            if e.payload.reason is AccountUpdateReason.TRADING_RESTRICTED:
+                starts[e.payload.account_id] = day
+            elif e.payload.reason is AccountUpdateReason.RESTRICTION_LIFTED:
+                start = starts.pop(e.payload.account_id)
+                assert (
+                    ledger.add_settlement_days(start, always.lifecycle.restriction_business_days)
+                    == day
+                )
+                lifted += 1
+        assert lifted > 0
+        assert len({e.payload.account_id for e in events if isinstance(e, AccountCreated)}) == 50
+
+    def test_accounts_trade_only_while_active_and_borrow_only_while_margin(
+        self, dataset: tuple[Event, ...]
+    ) -> None:
+        # Replay each account's attributes from its events and check every order.
+        state: dict[str, tuple[AccountType, AccountStatus]] = {}
+        for e in dataset:
+            if isinstance(e, AccountCreated):
+                state[e.payload.account_id] = (e.payload.account_type, AccountStatus.ACTIVE)
+            elif isinstance(e, AccountUpdated):
+                assert state[e.payload.account_id] != (e.payload.account_type, e.payload.status)
+                state[e.payload.account_id] = (e.payload.account_type, e.payload.status)
+            elif isinstance(e, OrderPlaced):
+                assert state[e.payload.account_id][1] is AccountStatus.ACTIVE
+        cash_after_approval = {
+            e.payload.account_id
+            for e in dataset
+            if isinstance(e, AccountUpdated)
+            and e.payload.reason is AccountUpdateReason.MARGIN_APPROVED
+        }
+        created_cash = {
+            e.payload.account_id
+            for e in dataset
+            if isinstance(e, AccountCreated) and e.payload.account_type is AccountType.CASH
+        }
+        assert cash_after_approval <= created_cash
+
+    def test_an_update_changes_only_what_its_reason_names(self, config: DatasetConfig) -> None:
+        # Every account is approved and restricted, so approvals land inside restrictions.
+        busy = config.model_copy(
+            update={
+                "lifecycle": config.lifecycle.model_copy(
+                    update={
+                        "margin_approval_probability": Decimal(1),
+                        "restriction_probability": Decimal(1),
+                        "restriction_business_days": 20,
+                    }
+                )
+            }
+        )
+        state: dict[str, tuple[AccountType, AccountStatus]] = {}
+        approvals_while_restricted = 0
+        for e in generate_dataset(busy, 42, policies()):
+            if isinstance(e, AccountCreated):
+                state[e.payload.account_id] = (e.payload.account_type, AccountStatus.ACTIVE)
+            elif isinstance(e, AccountUpdated):
+                before_type, before_status = state[e.payload.account_id]
+                if e.payload.reason is AccountUpdateReason.MARGIN_APPROVED:
+                    assert e.payload.status is before_status
+                    approvals_while_restricted += before_status is AccountStatus.TRADING_RESTRICTED
+                else:
+                    assert e.payload.account_type is before_type
+                state[e.payload.account_id] = (e.payload.account_type, e.payload.status)
+        assert approvals_while_restricted > 0

@@ -95,7 +95,7 @@ Every source event has this envelope. Payload fields depend on `event_type`. The
 
 **Monetary and quantity values are serialized as decimal strings** (`"250.00"`), never JSON numbers, so that no precision is lost.
 
-The initial event types are `account_created`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `order_placed`, `order_cancelled`, `trade_executed`, `trade_settled`, `price_updated`, `margin_interest_accrued`. More are added only when a module needs them, each with its own schema.
+The event types are `account_created`, `account_updated`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `fx_rate_published`, `order_placed`, `order_cancelled`, `trade_executed`, `trade_settled`, `price_updated`, `margin_interest_accrued`. More are added only when a module needs them, each with its own schema. `account_updated` carries an account's full new state (type, trading status, reason) and drives the SCD2 history of `dim_account` (FR-M1-05).
 
 **Schema evolution.** Additive optional fields bump `schema_version` and remain backward compatible. Any breaking change gets a new `event_type` version and parallel support during migration. Consumers reject unknown major versions to quarantine rather than guessing.
 
@@ -122,7 +122,7 @@ The initial event types are `account_created`, `cash_deposited`, `cash_withdrawn
 - **Representation** ([ADR 004](../adr/004-fixed-precision-money.md)): Python `Decimal` with an explicit currency, and SQL `numeric`. The precisions are fixed in ADR 004.
 - **Currencies:** CAD (reporting currency) and USD. Every amount column has an adjacent currency column. No amount column is implicitly CAD.
 - **Original vs. reporting:** journal lines are booked in the original currency. Translation to CAD happens at reporting time in marts, and both values are kept.
-- **FX reference rate:** the Bank of Canada daily exchange rate (Valet series `FXUSDCAD`). These rates are published only on Bank of Canada business days and are indicative, not transactional ([sources](../sources.md)).
+- **FX reference rate:** the target source is the Bank of Canada daily exchange rate (Valet series `FXUSDCAD`). These rates are published only on Bank of Canada business days and are indicative, not transactional ([sources](../sources.md)). **Current implementation (owner decision, 2026-11-19):** the simulator's synthetic USD/CAD path, published daily as `fx_rate_published`. Client conversions and CAD translation use the same published rates. Bank of Canada ingestion is deferred to a later phase.
 - **Missing rate on a business date** (e.g., a US trading day that is a Canadian holiday): the versioned `fx_rate_fallback` policy (v1: use the most recent prior published rate) applies. The output row records both `fx_rate_date` and `fx_policy_version`. Having no prior rate at all is an error.
 - **Client conversion rate (simulation):** reference rate ± a configured spread. The spread is FX revenue (see the open question in §10 on how it is recognized).
 

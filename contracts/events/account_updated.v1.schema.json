@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "AccountStatus": {
+      "description": "Whether an account may trade. A new account is ``ACTIVE``.",
+      "enum": [
+        "ACTIVE",
+        "TRADING_RESTRICTED"
+      ],
+      "title": "AccountStatus",
+      "type": "string"
+    },
+    "AccountType": {
+      "description": "Client account types (domain model \u00a71).",
+      "enum": [
+        "CASH",
+        "MARGIN"
+      ],
+      "title": "AccountType",
+      "type": "string"
+    },
+    "AccountUpdateReason": {
+      "description": "Why an account's attributes changed.",
+      "enum": [
+        "MARGIN_APPROVED",
+        "TRADING_RESTRICTED",
+        "RESTRICTION_LIFTED"
+      ],
+      "title": "AccountUpdateReason",
+      "type": "string"
+    },
+    "AccountUpdatedPayload": {
+      "additionalProperties": false,
+      "description": "An account's attributes changed. The payload carries the full new state.\n\nEach update starts a new version of the account in ``dim_account`` (SCD2,\nFR-M1-05), valid from the event timestamp.",
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "account_type": {
+          "$ref": "#/$defs/AccountType"
+        },
+        "reason": {
+          "$ref": "#/$defs/AccountUpdateReason"
+        },
+        "status": {
+          "$ref": "#/$defs/AccountStatus"
+        }
+      },
+      "required": [
+        "account_id",
+        "account_type",
+        "status",
+        "reason"
+      ],
+      "title": "AccountUpdatedPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``account_updated`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "account_updated",
+      "default": "account_updated",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/AccountUpdatedPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "AccountUpdated",
+  "type": "object"
+}

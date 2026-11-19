@@ -327,7 +327,7 @@ def derive_external_records(
                     )
                 )
             case _:
-                pass  # account, instrument, order, and interest events have no external record
+                pass  # account, instrument, order, interest, and FX rate events have none
 
     if events and settled_by_day:
         start = min(settled_by_day)

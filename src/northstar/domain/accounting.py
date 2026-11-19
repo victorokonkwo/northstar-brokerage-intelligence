@@ -225,6 +225,8 @@ _RULE_ACCOUNTS: Final = (
 NON_POSTING_EVENTS: Final = frozenset(
     {
         EventType.ACCOUNT_CREATED,
+        EventType.ACCOUNT_UPDATED,
+        EventType.FX_RATE_PUBLISHED,
         EventType.INSTRUMENT_LISTED,
         EventType.ORDER_PLACED,
         EventType.ORDER_CANCELLED,

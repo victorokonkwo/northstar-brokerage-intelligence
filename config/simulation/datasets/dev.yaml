@@ -9,6 +9,13 @@ settlement_time_local: "12:00:00"
 
 accounts: {count: 50, margin_share: "0.40", base_currency: CAD}
 
+# Account changes after opening (FR-M1-05 SCD2 history): margin approvals of
+# CASH accounts, and short trading restrictions.
+lifecycle:
+  margin_approval_probability: "0.25"
+  restriction_probability: "0.06"
+  restriction_business_days: 5
+
 # Synthetic USD/CAD reference rate (CAD per USD), not Bank of Canada data.
 fx: {start_rate: "1.3700", daily_vol: "0.0040"}
 

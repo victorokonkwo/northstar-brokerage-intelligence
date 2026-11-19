@@ -123,6 +123,8 @@ class EventType(StrEnum):
     TRADE_SETTLED = "trade_settled"
     PRICE_UPDATED = "price_updated"
     MARGIN_INTEREST_ACCRUED = "margin_interest_accrued"
+    ACCOUNT_UPDATED = "account_updated"
+    FX_RATE_PUBLISHED = "fx_rate_published"
 
 
 class AccountType(StrEnum):
@@ -130,6 +132,22 @@ class AccountType(StrEnum):
 
     CASH = "CASH"
     MARGIN = "MARGIN"
+
+
+class AccountStatus(StrEnum):
+    """Whether an account may trade. A new account is ``ACTIVE``."""
+
+    ACTIVE = "ACTIVE"
+    TRADING_RESTRICTED = "TRADING_RESTRICTED"
+    """No new orders. Cash movements, settlement, and interest continue."""
+
+
+class AccountUpdateReason(StrEnum):
+    """Why an account's attributes changed."""
+
+    MARGIN_APPROVED = "MARGIN_APPROVED"
+    TRADING_RESTRICTED = "TRADING_RESTRICTED"
+    RESTRICTION_LIFTED = "RESTRICTION_LIFTED"
 
 
 class Side(StrEnum):
@@ -178,6 +196,38 @@ class AccountCreatedPayload(_Frozen):
     account_id: str
     account_type: AccountType
     base_currency: Currency
+
+
+class AccountUpdatedPayload(_Frozen):
+    """An account's attributes changed. The payload carries the full new state.
+
+    Each update starts a new version of the account in ``dim_account`` (SCD2,
+    FR-M1-05), valid from the event timestamp.
+    """
+
+    account_id: str
+    account_type: AccountType
+    status: AccountStatus
+    reason: AccountUpdateReason
+
+
+class FxRatePublishedPayload(_Frozen):
+    """The day's USD/CAD reference rate (CAD per 1 USD), as published by its source.
+
+    It is the rate client conversions are priced against (OQ-01) and the rate
+    the warehouse translates USD amounts to CAD with (INV-07). The source is
+    the simulator's synthetic path, not Bank of Canada data.
+
+    Raises:
+        pydantic.ValidationError: The pair is not USD/CAD.
+    """
+
+    base_currency: Literal[Currency.USD]
+    quote_currency: Literal[Currency.CAD]
+    rate_date: date
+    rate: FxRate
+    rate_source: Literal["synthetic"]
+    fx_policy_version: str
 
 
 class CashDepositedPayload(_Frozen):
@@ -379,6 +429,20 @@ class _Envelope(_Frozen):
         return self
 
 
+class AccountUpdated(_Envelope):
+    """``account_updated`` event."""
+
+    event_type: Literal[EventType.ACCOUNT_UPDATED] = EventType.ACCOUNT_UPDATED
+    payload: AccountUpdatedPayload
+
+
+class FxRatePublished(_Envelope):
+    """``fx_rate_published`` event."""
+
+    event_type: Literal[EventType.FX_RATE_PUBLISHED] = EventType.FX_RATE_PUBLISHED
+    payload: FxRatePublishedPayload
+
+
 class AccountCreated(_Envelope):
     """``account_created`` event."""
 
@@ -480,7 +544,9 @@ Event = Annotated[
     | TradeExecuted
     | TradeSettled
     | PriceUpdated
-    | MarginInterestAccrued,
+    | MarginInterestAccrued
+    | AccountUpdated
+    | FxRatePublished,
     Field(discriminator="event_type"),
 ]
 """Any canonical event, discriminated by ``event_type``."""
@@ -497,5 +563,7 @@ EVENT_MODELS: dict[EventType, type[_Envelope]] = {
     EventType.TRADE_SETTLED: TradeSettled,
     EventType.PRICE_UPDATED: PriceUpdated,
     EventType.MARGIN_INTEREST_ACCRUED: MarginInterestAccrued,
+    EventType.ACCOUNT_UPDATED: AccountUpdated,
+    EventType.FX_RATE_PUBLISHED: FxRatePublished,
 }
 """Event model per type, used to export the JSON Schemas."""
