@@ -1,0 +1,12 @@
+# Settlement cycles (domain model §5). Each cycle applies to trade dates on or
+# after its effective_from. Only verified cycles are listed: the T+2 cycle used
+# before 2024-05-27 is not yet verified against a primary source, so a trade
+# date before then raises PolicyNotFoundError instead of guessing.
+version: "2026.1"
+effective_from: 2026-11-19
+cycles:
+  - market: XTSE
+    asset_classes: [EQUITY]
+    business_days: 1
+    effective_from: 2024-05-27
+    source: "CDS: T+1 (https://www.cds.ca/solutions/cds-key-initiatives/t-1), retrieved 2026-11-19"

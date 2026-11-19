@@ -50,7 +50,7 @@ Goal: by the end of the sprint, one command creates a client, deposits cash, exe
 | 5 | System architecture and ADRs | Done |
 | 6 | Initialize Git, Python project, Docker Compose, CI | Done: Git, dbt scaffold, Python project, local stack, CI |
 | 7 | Account, instrument, and deposit event generators | Not started |
-| 8 | Order/execution simulation and double-entry journal postings | Not started |
+| 8 | Order/execution simulation and double-entry journal postings | In progress: XTSE calendar, effective-dated settlement rules and policy loading done |
 | 9 | Initial SQL models and financial integrity tests | Not started |
 | 10 | Demonstrate one deposit → trade → ledger workflow end to end | Not started |
 
@@ -63,5 +63,5 @@ The evidence for each decision is in [sources.md → Tooling](../sources.md#tool
 | Python version pin | **3.13** (owner decision 2026-11-18) | The data stack installs and imports on 3.12.16 and 3.13.18 with identical results. 3.13 is supported until 2029-10-31, a year longer than 3.12. |
 | Airflow major version | **3.x, pinned to 3.4.0** (owner decision 2026-11-18) | Images `apache/airflow:3.4.0-python3.13` and the 3.4.0 constraint files exist. The constraints pin the Postgres and Amazon providers. The latest 2.x release is 2.11.2 (2026-03-14). |
 | Local S3-compatible store | **SeaweedFS 4.54** (owner decision 2026-11-18) | Apache-2.0, official image `chrislusf/seaweedfs:4.54`. MinIO was rejected because its repository is archived and its free images are discontinued. LocalStack was rejected because it requires an auth token, which a fresh clone would not have. |
-| Calendar source (OQ-04) | **Deferred to Sprint 1 Day 8** (owner decision 2026-11-18) | `exchange_calendars` covers trading days only, over a rolling window. US settlement holidays may differ from NYSE trading holidays, which is unverified. |
+| Calendar source (OQ-04) | **Versioned YAML** (owner decision 2026-11-19) | `config/calendars/xtse.yaml`, verified against TSX and TMX primary sources. `exchange_calendars` was rejected: it models trading days only, over a rolling window. |
 | Import boundary enforcement | **`import-linter` 2.17** (owner approval 2026-11-18) | BSD-2-Clause, requires Python ≥ 3.11. It makes the module boundaries in ADR 001 testable in CI. |
