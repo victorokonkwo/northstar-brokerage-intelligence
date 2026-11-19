@@ -38,3 +38,14 @@ class CalendarCoverageError(NorthstarError, ValueError):
 
 class NotATradingDayError(NorthstarError, ValueError):
     """Raised when a trade date is not a trading day of the instrument's market."""
+
+
+class UnbalancedJournalError(NorthstarError, ValueError):
+    """Raised when a journal batch's debits and credits differ in a currency (INV-01).
+
+    An unbalanced batch is rejected. It is never dropped silently or posted.
+    """
+
+
+class ScenarioError(NorthstarError, ValueError):
+    """Raised when a simulation scenario describes something the platform cannot do."""

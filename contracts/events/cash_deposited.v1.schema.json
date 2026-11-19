@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "CashDepositedPayload": {
+      "additionalProperties": false,
+      "description": "Client cash arrived in the account's currency.",
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 2,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Amount"
+        },
+        "cash_movement_id": {
+          "title": "Cash Movement Id",
+          "type": "string"
+        },
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        }
+      },
+      "required": [
+        "cash_movement_id",
+        "account_id",
+        "amount",
+        "currency"
+      ],
+      "title": "CashDepositedPayload",
+      "type": "object"
+    },
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``cash_deposited`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "cash_deposited",
+      "default": "cash_deposited",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/CashDepositedPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "CashDeposited",
+  "type": "object"
+}

@@ -1,0 +1,9 @@
+# Client commission schedule. ILLUSTRATIVE: these values are invented for the
+# simulation and are not any real broker's pricing. Commission is charged per
+# execution (OQ-02, owner decision 2026-11-19), so an order filled in two
+# executions pays it twice.
+version: "2026.1"
+effective_from: 2026-01-01
+illustrative: true
+commissions:
+  - {market: XTSE, currency: CAD, per_execution: "4.95"}

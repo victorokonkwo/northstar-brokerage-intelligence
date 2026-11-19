@@ -1,0 +1,175 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "Side": {
+      "description": "Order and trade direction. Long only: a SELL reduces an existing holding.",
+      "enum": [
+        "BUY",
+        "SELL"
+      ],
+      "title": "Side",
+      "type": "string"
+    },
+    "TradeSettledPayload": {
+      "additionalProperties": false,
+      "description": "A settlement obligation settled: one order's executions on one trade date.\n\n``amount`` is the sum of the executions' gross amounts, each rounded to the\ncurrency's minor unit at posting (INV-06).",
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 2,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Amount"
+        },
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "execution_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Execution Ids",
+          "type": "array"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 8,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Quantity"
+        },
+        "settlement_date": {
+          "format": "date",
+          "title": "Settlement Date",
+          "type": "string"
+        },
+        "settlement_id": {
+          "title": "Settlement Id",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/Side"
+        },
+        "trade_date": {
+          "format": "date",
+          "title": "Trade Date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "settlement_id",
+        "order_id",
+        "account_id",
+        "instrument_id",
+        "side",
+        "trade_date",
+        "settlement_date",
+        "quantity",
+        "amount",
+        "currency",
+        "execution_ids"
+      ],
+      "title": "TradeSettledPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``trade_settled`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "trade_settled",
+      "default": "trade_settled",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/TradeSettledPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "TradeSettled",
+  "type": "object"
+}

@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "AccountCreatedPayload": {
+      "additionalProperties": false,
+      "description": "A client account was opened.",
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "account_type": {
+          "$ref": "#/$defs/AccountType"
+        },
+        "base_currency": {
+          "$ref": "#/$defs/Currency"
+        }
+      },
+      "required": [
+        "account_id",
+        "account_type",
+        "base_currency"
+      ],
+      "title": "AccountCreatedPayload",
+      "type": "object"
+    },
+    "AccountType": {
+      "description": "Client account types (domain model \u00a71).",
+      "enum": [
+        "CASH",
+        "MARGIN"
+      ],
+      "title": "AccountType",
+      "type": "string"
+    },
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``account_created`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "account_created",
+      "default": "account_created",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/AccountCreatedPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "AccountCreated",
+  "type": "object"
+}
