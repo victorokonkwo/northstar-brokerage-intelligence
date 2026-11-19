@@ -2,7 +2,8 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.yaml
 WITH_ENV := set -a && . ./.env && set +a &&
-.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e
+TF_BOOTSTRAP := infrastructure/terraform/bootstrap
+.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e tf-validate tf-plan-bootstrap
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -65,3 +66,12 @@ e2e: | .env ## Sprint 1 slice: simulate, post, load, dbt build, KPI-01 summary (
 	$(WITH_ENV) uv run northstar run-slice --scenario config/simulation/sprint1_scenario.yaml --seed 42 --out data/generated
 	$(MAKE) dbt-build
 	$(WITH_ENV) uv run northstar ledger-summary
+
+tf-validate: ## Terraform format check and validation (no AWS access)
+	terraform -chdir=$(TF_BOOTSTRAP) fmt -check -recursive
+	terraform -chdir=$(TF_BOOTSTRAP) init -backend=false -input=false
+	terraform -chdir=$(TF_BOOTSTRAP) validate
+
+tf-plan-bootstrap: ## Plan the AWS bootstrap; never applies (needs AWS login, see its README)
+	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) init -input=false
+	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) plan -input=false -out=bootstrap.tfplan

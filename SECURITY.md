@@ -15,7 +15,8 @@ This project processes **synthetic data only**. Real customer, account, or trans
 
 ## Cloud resources
 
-- Every AWS resource is defined in Terraform. Nothing is created by hand in the console.
+- Every AWS resource is defined in Terraform. Nothing is created by hand in the console. Plans (`*.tfplan`), state, and tfvars are git-ignored. The budget alert address lives only in the local `.env` (`TF_VAR_budget_alert_email`).
+- Terraform is applied only by a person, after reviewing the plan. CI only validates it.
 - Budget alerts must exist before any billable resource is created.
 - S3 buckets block public access, enforce encryption at rest, and have lifecycle policies defined in Terraform.
 
