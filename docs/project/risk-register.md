@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Last updated | 2026-11-18 |
+| Last updated | 2026-11-19 |
 
 Likelihood (L) and impact (I) are rated 1 (low) to 3 (high). Review the register at every phase gate.
 
@@ -24,3 +24,4 @@ Likelihood (L) and impact (I) are rated 1 (low) to 3 (high). Review the register
 | R-14 | **Decimal performance** in bulk Python processing. | 2 | 1 | Aggregate in SQL. Benchmark in Phase 3. ADR 004 allows float for analytics with an explicit boundary. | Open |
 | R-15 | **Settlement and calendar facts wrong**, e.g., T+1 effective dates or holidays. | 1 | 2 | Effective-dated settlement config. Facts recorded and verified in sources.md. | Open |
 | R-16 | **Secrets leak** into the repository. | 1 | 3 | `.gitignore`, a pre-commit secret scan, and a CI scan (Phase 1). SECURITY.md procedure. | Open |
+| R-17 | **Root credentials used for infrastructure.** The Terraform bootstrap was applied with the AWS account's root user (owner decision, 2026-11-19). Root can't be limited by IAM, so a leaked or misused session affects the whole account. | 2 | 3 | Root MFA. Create an IAM Identity Center admin and use it for all further Terraform. Keep root for account-level tasks only. Short-lived `aws login` sessions, no long-lived root keys. | Open |

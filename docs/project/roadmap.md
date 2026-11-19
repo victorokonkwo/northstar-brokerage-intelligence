@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Last updated | 2026-11-18 |
-| Current phase | **Phase 1 — Engineering foundation (in progress, started 2026-11-18)**. Phase 0 done 2026-11-18. |
+| Current phase | **Phase 1 — Engineering foundation**: every scope item is delivered or deferred by the owner (CloudWatch OTLP export → Phase 3), and the gate evidence is in CI. **Awaiting owner approval to mark the gate passed.** Phase 0 done 2026-11-18. |
 
 This is the **authoritative status tracker**. Update it in the same change that alters status. Status values are `Not started`, `In progress`, `Done`. "Done" means the exit gate passed, with evidence linked.
 
@@ -22,7 +22,7 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | CI | `.github/workflows/ci.yml` on every PR and push to `main`. The `checks` job runs `make check`, the repository hygiene hooks, and `uv audit`. The `stack` job brings up the local stack from a fresh checkout, then runs `dbt debug` and `dbt parse` against it. Actions are pinned to commit SHAs; `actionlint` and `zizmor` report no findings. Secret scanning is done by the GitGuardian GitHub app |
 | Sample pipeline (platform gate) | `make e2e` runs the Sprint 1 slice. CI runs it twice from a fresh checkout and asserts 0 new rows on the second run, an identical events-file SHA-256, and an identical journal fingerprint |
 | OpenTelemetry foundation | Done ([ADR 009](../adr/009-local-telemetry-backend.md)): the local Collector in the stack; `northstar` emits traces, metrics, and JSON/OTLP logs with trace correlation; CI checks they arrive. The domain is forbidden from importing I/O and telemetry libraries (import-linter) |
-| Terraform baseline, AWS budget alert | Written and validated (`infrastructure/terraform/bootstrap`: USD 10/month budget with 80% actual and 100% forecast alerts, plus an encrypted, versioned, TLS-only state bucket in `ca-central-1`). **Not applied**: waiting for AWS login and owner approval of the plan. This is the last Phase 1 item |
+| Terraform baseline, AWS budget alert | **Applied 2026-11-19** with owner approval, budget first (W6): USD 10/month budget with 80% actual and 100% forecast alerts, plus an encrypted, versioned, TLS-only state bucket in `ca-central-1` holding the stack's own state. A post-apply `plan` shows no changes. Applied with the account's root credentials (owner decision; see risk R-17) |
 | CloudWatch OTLP export | Deferred to Phase 3 (owner decision 2026-11-19), when the first workload runs in AWS |
 | Git repository | Initialized 2026-11-18 (branch `main`). Remote: [github.com/victorokonkwo/northstar-brokerage-intelligence](https://github.com/victorokonkwo/northstar-brokerage-intelligence) (public). Phase 0 docs submitted as the first PR |
 

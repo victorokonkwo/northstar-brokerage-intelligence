@@ -3,7 +3,7 @@
 COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.yaml
 WITH_ENV := set -a && . ./.env && set +a &&
 TF_BOOTSTRAP := infrastructure/terraform/bootstrap
-.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e tf-validate tf-plan-bootstrap
+.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e tf-validate tf-init-bootstrap tf-plan-bootstrap
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -72,6 +72,9 @@ tf-validate: ## Terraform format check and validation (no AWS access)
 	terraform -chdir=$(TF_BOOTSTRAP) init -backend=false -input=false
 	terraform -chdir=$(TF_BOOTSTRAP) validate
 
-tf-plan-bootstrap: ## Plan the AWS bootstrap; never applies (needs AWS login, see its README)
-	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) init -input=false
+tf-init-bootstrap: ## Initialise the bootstrap stack against its S3 state (needs AWS login)
+	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) init -input=false \
+		-backend-config="bucket=northstar-tfstate-$$(aws sts get-caller-identity --query Account --output text)-ca-central-1"
+
+tf-plan-bootstrap: tf-init-bootstrap ## Plan the AWS bootstrap; never applies (needs AWS login)
 	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) plan -input=false -out=bootstrap.tfplan
