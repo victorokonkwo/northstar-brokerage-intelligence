@@ -28,4 +28,12 @@ Start with [`docs/README.md`](docs/README.md). Contributors should read [`CONTRI
 
 ## Getting started
 
-There is nothing to run yet. Setup instructions will be added here once the Phase 1 engineering foundation (local stack, Makefile, CI) exists.
+Prerequisites: [uv](https://docs.astral.sh/uv/) and `make`. uv installs the pinned Python (3.13) and every tool from `uv.lock`.
+
+```bash
+make setup   # install the locked environment and the git hooks
+make check   # lint, import-layer contracts, mypy --strict, tests
+make help    # list every target
+```
+
+The local stack (Docker Compose) and CI are not built yet. See the [roadmap](docs/project/roadmap.md).

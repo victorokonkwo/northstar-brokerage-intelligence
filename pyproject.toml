@@ -1,0 +1,88 @@
+[project]
+name = "northstar"
+version = "0.1.0"
+description = "Finance and market-risk analytics for a simulated Canadian online brokerage (synthetic data only)"
+requires-python = ">=3.13,<3.14"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dbt = [
+    "dbt-core>=1.12.7,<1.13",
+    "dbt-postgres>=1.11.0,<1.12",
+]
+dev = [
+    "hypothesis>=6.170.15",
+    "import-linter>=2.17",
+    "mypy>=2.4.1",
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+]
+
+[tool.uv]
+default-groups = ["dev", "dbt"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "D",        # pydocstyle
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "S",        # bandit (security)
+    "DTZ",      # naive datetimes (CONTRIBUTING.md W3)
+    "T20",      # print statements
+    "C4", "PIE", "SIM", "RET", "PTH", "PERF", "TRY", "ERA", "PT", "RUF",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "D",     # test names describe the case
+    "S101",  # assert is how pytest checks
+]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+files = ["src", "tests"]
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config", "--import-mode=importlib", "-ra"]
+xfail_strict = true
+filterwarnings = ["error"]
+
+[tool.importlinter]
+root_package = "northstar"
+
+[[tool.importlinter.contracts]]
+# Dependency direction from system overview §3: application at the top, the
+# domain depends only on common, and common depends on nothing. Packages that
+# don't exist yet are optional (in parentheses). The middle layer's members
+# may import each other; their mutual rules are not decided yet. "exhaustive"
+# fails the check when a new northstar subpackage is not placed in a layer.
+name = "Layered architecture (system overview §3)"
+type = "layers"
+containers = ["northstar"]
+exhaustive = true
+layers = [
+    "(application)",
+    "(infrastructure) : (ingestion) : (simulation)",
+    "(domain)",
+    "common",
+]

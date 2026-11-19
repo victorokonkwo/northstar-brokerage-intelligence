@@ -25,7 +25,7 @@ Use the same approach for new dbt projects or packages. Run `dbt init` and keep 
 | dbt-postgres | 1.11.0 | Local development target |
 | dbt-redshift | not installed | Added in Phase 3 |
 
-Once the Python project (`pyproject.toml`) exists, the dbt version will be pinned through `uv` there, not through ad-hoc `uvx` calls.
+dbt is now pinned in the `dbt` dependency group of the root `pyproject.toml` and locked in `uv.lock`. Run it through `uv` from the repository root, for example `make dbt-parse`, rather than through ad-hoc `uvx` calls.
 
 ## Profile setup
 
