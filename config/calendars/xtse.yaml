@@ -1,0 +1,59 @@
+# Toronto Stock Exchange (XTSE): trading days and settlement days for
+# CAD-traded securities. OQ-04 decision (2026-11-19): a maintained, versioned
+# file in which every date cites a primary source. Dates outside `coverage`
+# are refused, not guessed. Evidence and interpretation: docs/sources.md →
+# Calendars. Weekends are never trading or settlement days and are not listed.
+market: XTSE
+settlement_currency: CAD
+version: "2026.1"
+effective_from: 2026-11-19
+coverage:
+  start: 2026-01-01
+  end: 2027-01-31
+
+sources:
+  tsx_calendar:
+    title: "TSX: Calendars & Trading Hours (2026 and 2027 stock market holidays)"
+    url: https://www.tsx.com/trading/calendars-and-trading-hours/calendar
+    retrieved: 2026-11-19
+  tmx_settlement_2026:
+    title: "TMX: Settlement Schedule for 2026 Holidays (PDF)"
+    url: https://www.tsx.com/en/resource/3407/
+    retrieved: 2026-11-19
+  tmx_settlement_2027:
+    title: "TMX: Settlement Schedule for 2027 Holidays (PDF)"
+    url: https://www.tsx.com/en/resource/3591/
+    retrieved: 2026-11-19
+
+# TSX closed. Christmas Eve (2026-12-24) is an early close (1:00 PM), not a
+# closure, so it is a trading day and is not listed.
+trading_holidays:
+  - {date: 2026-01-01, name: "New Year's Day", source: tsx_calendar}
+  - {date: 2026-02-16, name: "Family Day", source: tsx_calendar}
+  - {date: 2026-04-03, name: "Good Friday", source: tsx_calendar}
+  - {date: 2026-05-18, name: "Victoria Day", source: tsx_calendar}
+  - {date: 2026-07-01, name: "Canada Day", source: tsx_calendar}
+  - {date: 2026-08-03, name: "Civic Holiday", source: tsx_calendar}
+  - {date: 2026-09-07, name: "Labour Day", source: tsx_calendar}
+  - {date: 2026-10-12, name: "Thanksgiving Day", source: tsx_calendar}
+  - {date: 2026-12-25, name: "Christmas Day", source: tsx_calendar}
+  - {date: 2026-12-28, name: "In Lieu of Boxing Day", source: tsx_calendar}
+  - {date: 2027-01-01, name: "New Year's Day", source: tsx_calendar}
+
+# No settlement of CAD-traded securities: every stock market holiday plus the
+# two banking holidays, which are trading days. U.S. holidays affect only
+# USD-traded securities and are therefore not listed here.
+settlement_holidays:
+  - {date: 2026-01-01, name: "New Year's Day", source: tmx_settlement_2026}
+  - {date: 2026-02-16, name: "Family Day", source: tmx_settlement_2026}
+  - {date: 2026-04-03, name: "Good Friday", source: tmx_settlement_2026}
+  - {date: 2026-05-18, name: "Victoria Day", source: tmx_settlement_2026}
+  - {date: 2026-07-01, name: "Canada Day", source: tmx_settlement_2026}
+  - {date: 2026-08-03, name: "Civic Holiday", source: tmx_settlement_2026}
+  - {date: 2026-09-07, name: "Labour Day", source: tmx_settlement_2026}
+  - {date: 2026-09-30, name: "National Day for Truth and Reconciliation (banking holiday)", source: tmx_settlement_2026}
+  - {date: 2026-10-12, name: "Thanksgiving Day", source: tmx_settlement_2026}
+  - {date: 2026-11-11, name: "Remembrance Day (banking holiday)", source: tmx_settlement_2026}
+  - {date: 2026-12-25, name: "Christmas Day", source: tmx_settlement_2026}
+  - {date: 2026-12-28, name: "In Lieu of Boxing Day", source: tmx_settlement_2026}
+  - {date: 2027-01-01, name: "New Year's Day", source: tmx_settlement_2027}

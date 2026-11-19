@@ -15,3 +15,26 @@ class CurrencyMismatchError(NorthstarError, ValueError):
     Amounts in different currencies can only be combined after an explicit,
     dated FX conversion (ADR 004, CONTRIBUTING.md W2).
     """
+
+
+class ConfigurationError(NorthstarError, ValueError):
+    """Raised when a configuration or policy file is missing or invalid."""
+
+
+class PolicyNotFoundError(NorthstarError, LookupError):
+    """Raised when no policy version applies to the requested date or key.
+
+    The caller must not fall back to a default (CONTRIBUTING.md W2).
+    """
+
+
+class CalendarCoverageError(NorthstarError, ValueError):
+    """Raised when a date falls outside the period a calendar is verified for.
+
+    Holidays outside the coverage window are unknown, so the calendar refuses
+    to answer rather than guess.
+    """
+
+
+class NotATradingDayError(NorthstarError, ValueError):
+    """Raised when a trade date is not a trading day of the instrument's market."""
