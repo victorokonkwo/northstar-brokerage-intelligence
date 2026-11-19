@@ -54,6 +54,7 @@ When code depends on one of these facts, it references this file, and the fact m
 | The dbt CLI reports that v2 is the default for new installations, with v1 still available. Upgrading requires running cleanly on the latest v1.x first. | dbt CLI output (2026-11-18); [dbt — Upgrading to v2](https://docs.getdbt.com/docs/dbt-versions/dbt-upgrade/upgrading-to-v2) | Verified (CLI); docs seen via search |
 | dbt v2 support for the Postgres and Redshift adapters | — | Unverified |
 | Amazon Redshift `DECIMAL`: maximum precision 38, default 18. Values with ≤ 19 digits of precision are stored as 8-byte integers, and values with 20–38 digits as 16-byte integers. `SUM` of `DEC(p, s)` returns `DEC(38, s)`. `MEDIAN`/`PERCENTILE_CONT` may be inaccurate at maximum precision. | [Redshift numeric types](https://docs.aws.amazon.com/redshift/latest/dg/r_Numeric_types201.html); [Redshift SUM](https://docs.aws.amazon.com/redshift/latest/dg/r_SUM.html); [Redshift MEDIAN](https://docs.aws.amazon.com/redshift/latest/dg/r_WF_MEDIAN.html) | Verified (AWS docs, via search, 2026-11-18) |
+| ISO 4217: CAD (numeric 124) and USD (numeric 840) both have 2 minor-unit decimal places. | [SIX Group ISO 4217 list one (XML)](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml), published 2026-09-17, fetched 2026-11-18 | Verified |
 | Python `decimal` default context: precision 28, rounding `ROUND_HALF_EVEN`. `0.1 + 0.2 == 0.3` is `False` for floats. | Local interpreter check, 2026-11-18 | Verified |
 
 ## Quantitative methods (literature)

@@ -17,7 +17,8 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | Phase 0 gate: KPI completeness | All 20 KPIs have a decision, definition, source, and verification method. Deferred parameters: KPI-09/10 window and quantile method → Phase 5 (OQ-08); KPI-16 `available_liquidity` → Phase 6 (OQ-06, owner decision 2026-11-18). **Complete** |
 | Phase 0 gate: owner review | **Complete.** Domain model (§5 time rules, §7.3 severity, §9 chart of accounts and posting rules) and charter scope approved by owner 2026-11-18 |
 | `warehouse/dbt/` | Scaffolded with `dbt init` (dbt Core 1.12.7, dbt-postgres 1.11.0); example models removed; `dbt parse` passes; **no models** |
-| Python package, tests, CI, Docker Compose, Makefile, Terraform | Not started |
+| Python project | `pyproject.toml` + `uv.lock` (Python 3.13), Ruff, mypy `--strict`, pytest + Hypothesis, import-linter layer contract, pre-commit, Makefile (`setup`, `lint`, `format`, `typecheck`, `test`, `check`, `dbt-parse`). First code: `northstar.common.money` (ADR 004), brought forward from Phase 2 so the toolchain checks real code. SQLFluff is configured with the first SQL model (Day 9) |
+| CI, Docker Compose, Terraform | Not started |
 | Git repository | Initialized 2026-11-18 (branch `main`). Remote: [github.com/victorokonkwo/northstar-brokerage-intelligence](https://github.com/victorokonkwo/northstar-brokerage-intelligence) (public). Phase 0 docs submitted as the first PR |
 
 ## Phases
@@ -45,7 +46,7 @@ Goal: by the end of the sprint, one command creates a client, deposits cash, exe
 | 3 | Conceptual and logical entity models | Done |
 | 4 | Event schemas, identifiers, financial invariants | Envelope, identifiers, and invariants done. JSON Schemas are written with the generators (Days 7–8) |
 | 5 | System architecture and ADRs | Done |
-| 6 | Initialize Git, Python project, Docker Compose, CI | Git initialized, remote created, dbt scaffold done; Python project, Docker Compose, CI not started |
+| 6 | Initialize Git, Python project, Docker Compose, CI | Git, dbt scaffold, and Python project done; Docker Compose and CI not started |
 | 7 | Account, instrument, and deposit event generators | Not started |
 | 8 | Order/execution simulation and double-entry journal postings | Not started |
 | 9 | Initial SQL models and financial integrity tests | Not started |
