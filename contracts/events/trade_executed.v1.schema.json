@@ -3,7 +3,8 @@
     "AssetClass": {
       "description": "Asset classes with their own settlement cycles.",
       "enum": [
-        "EQUITY"
+        "EQUITY",
+        "OPTION"
       ],
       "title": "AssetClass",
       "type": "string"

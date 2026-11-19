@@ -1,0 +1,62 @@
+# New York Stock Exchange (XNYS): trading days and settlement days for US
+# equities, which settle at NSCC/DTC. OQ-04 format (maintained, versioned YAML,
+# every date sourced, explicit coverage). Evidence: docs/sources.md → Calendars.
+# Coverage is calendar 2026 only, so a 2026-12-31 trade (settling in 2027) is
+# refused until the 2027 DTC schedule is added.
+market: XNYS
+settlement_currency: USD
+version: "2026.1"
+effective_from: 2026-11-19
+coverage:
+  start: 2026-01-01
+  end: 2026-12-31
+
+sources:
+  nyse_holidays:
+    title: "NYSE: Holidays & Trading Hours (2026)"
+    url: https://www.nyse.com/markets/hours-calendars
+    retrieved: 2026-11-19
+  dtc_2026:
+    title: "DTC Important Notice 23036-25: DTC Settlement, Anticipated Holiday Schedule 2026 (PDF)"
+    url: https://www.dtcc.com/-/media/Files/pdf/2025/10/15/23036-25.pdf
+    retrieved: 2026-11-19
+  nscc_good_friday_2026:
+    title: "NSCC Important Notice A#9732: Holiday Schedule, Good Friday 2026 (PDF)"
+    url: https://files.dtcc.com/download/assets/a9732/84f27534957911f1b6bb4ec37e043074
+    retrieved: 2026-11-19
+  nscc_independence_day_2026:
+    title: "NSCC Important Notice A#9778: Holiday Schedule, Independence Day 2026 (PDF)"
+    url: https://files.dtcc.com/download/assets/a9778/af4a5e50957911f1ad9bc258faf12821
+    retrieved: 2026-11-19
+
+# NYSE closed. The early closes (2026-11-27 and 2026-12-24, 1:00 p.m.) are
+# trading days and are not listed.
+trading_holidays:
+  - {date: 2026-01-01, name: "New Year's Day", source: nyse_holidays}
+  - {date: 2026-01-19, name: "Martin Luther King, Jr. Day", source: nyse_holidays}
+  - {date: 2026-02-16, name: "Washington's Birthday", source: nyse_holidays}
+  - {date: 2026-04-03, name: "Good Friday", source: nyse_holidays}
+  - {date: 2026-05-25, name: "Memorial Day", source: nyse_holidays}
+  - {date: 2026-06-19, name: "Juneteenth National Independence Day", source: nyse_holidays}
+  - {date: 2026-07-03, name: "Independence Day (observed)", source: nyse_holidays}
+  - {date: 2026-09-07, name: "Labor Day", source: nyse_holidays}
+  - {date: 2026-11-26, name: "Thanksgiving Day", source: nyse_holidays}
+  - {date: 2026-12-25, name: "Christmas Day", source: nyse_holidays}
+
+# No US equity settlement. DTC is closed on most NYSE holidays. On Good Friday
+# and 2026-07-03 DTC is "open for limited settlement services", but NSCC is
+# closed and no CNS settlement occurs. On Columbus Day and Veterans Day the
+# NYSE trades, but DTC "will not provide settlement services".
+settlement_holidays:
+  - {date: 2026-01-01, name: "New Year's Day", source: dtc_2026}
+  - {date: 2026-01-19, name: "Martin Luther King, Jr. Day", source: dtc_2026}
+  - {date: 2026-02-16, name: "Presidents' Day", source: dtc_2026}
+  - {date: 2026-04-03, name: "Good Friday (NSCC closed, no CNS)", source: nscc_good_friday_2026}
+  - {date: 2026-05-25, name: "Memorial Day", source: dtc_2026}
+  - {date: 2026-06-19, name: "Juneteenth", source: dtc_2026}
+  - {date: 2026-07-03, name: "Independence Day observed (NSCC closed, no CNS)", source: nscc_independence_day_2026}
+  - {date: 2026-09-07, name: "Labor Day", source: dtc_2026}
+  - {date: 2026-10-12, name: "Columbus Day (DTC open, no settlement services)", source: dtc_2026}
+  - {date: 2026-11-11, name: "Veterans Day (DTC open, no settlement services)", source: dtc_2026}
+  - {date: 2026-11-26, name: "Thanksgiving Day", source: dtc_2026}
+  - {date: 2026-12-25, name: "Christmas Day", source: dtc_2026}

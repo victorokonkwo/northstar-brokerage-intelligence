@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Last updated | 2026-11-19 |
-| Current phase | **Phase 2 — Brokerage simulation + accounting (not started)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. |
+| Current phase | **Phase 2 — Brokerage simulation + accounting (in progress, started 2026-11-19)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. |
 
 This is the **authoritative status tracker**. Update it in the same change that alters status. Status values are `Not started`, `In progress`, `Done`. "Done" means the exit gate passed, with evidence linked.
 
@@ -32,13 +32,34 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 |---|---|---|---|---|
 | 0 Business architecture | 1 | Charter, requirements, glossary, KPI dictionary, domain model, event contracts, NFRs, ADRs, risk register | **Architecture gate:** every KPI has a decision, an exact definition, an authoritative source, and a verification method; the owner has reviewed the domain model | Done (2026-11-18) |
 | 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, OpenTelemetry foundation, AWS budget alert + Terraform baseline and CloudWatch OTLP export | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | Done (2026-11-19). Gate evidence: [CI run on `main` 3a22ecf](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44592557891). CloudWatch OTLP export deferred to Phase 3 |
-| 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | Not started |
+| 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | In progress |
 | 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Not started |
 | 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | Not started |
 | 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
 | 6 Treasury forecasting | 13–14 | Known vs. uncertain flows, baseline/statistical/GBM models, walk-forward evaluation, intervals, scenarios, MLflow | **Forecast evaluation gate:** reproducible forecasts evaluated against the baseline, with error, bias, coverage, and stress results documented | Not started |
 | 7 Finance intelligence | 15–16 | Profitability mart, allocation method, KPI restatements, drilldown, simulated reporting package, executive dashboard | **Reporting gate:** every finance KPI has a documented formula, passes tie-outs, and drills down to transactions | Not started |
 | 8 Production readiness | 17–18 | Load tests, failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
+
+## Phase 2 (weeks 3–4)
+
+Plan approved by the owner on 2026-11-19, as five PRs: 2A calendars and settlement rules → 2B domain events, posting rules, and positions → 2C seeded generators → 2D external records and defect injection → 2E gate.
+
+### Phase 2 decisions (owner, 2026-11-19)
+
+| Decision | Outcome |
+|---|---|
+| OQ-01 FX revenue | Recognized at conversion against the reference rate. Reference rates come from a seeded synthetic path in Phase 2 |
+| OQ-03 / OQ-05 | Options premium only (US, OCC T+1); exercise, expiry, and dividends in Phase 5 |
+| Margin | Debit balances and daily interest (2100 / 4300). Requirements and calls stay in Phase 5 |
+| Policies (illustrative) | FX spread 1.50%; margin interest 6.00%/yr, ACT/365; max debit guard CAD 50,000; commissions CAD/USD 4.95 per equity execution and USD 0.75 per option contract; clearing fee 0.01 per share |
+| Dev dataset | About 50 accounts, Q1 2026. All six FR-SIM-03 defect types |
+| New dependency | `numpy` (with the generators, PR 2C) |
+| US calendars | XNYS for all of 2026 (verified). XCBO only through 2026-04-02, because OCC's bank-holiday treatment is unverified; extend it once the OCC memo is read |
+
+| PR | Status |
+|---|---|
+| 2A calendars and settlement rules | In progress: XNYS and XCBO calendars, US equity and option T+1 cycles, `AssetClass.OPTION` |
+| 2B–2E | Not started |
 
 ## Sprint 1 (weeks 1–2)
 

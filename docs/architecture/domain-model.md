@@ -271,11 +271,11 @@ Stock record (quantities): on T, the client gains ownership of +10 and the locat
 
 | ID | Question | Needed by |
 |---|---|---|
-| OQ-01 | FX conversion posting mechanics and when FX spread revenue is recognized (at conversion against the reference rate, or on covering) | Phase 2 |
+| OQ-01 | **Resolved (owner, 2026-11-19):** the FX spread is revenue **at conversion**, measured against the reference rate (4200). Account 2300 carries the firm's open FX position per currency; covering trades are out of scope. In Phase 2 the reference rates come from a seeded **synthetic** USD/CAD path; Bank of Canada Valet ingestion comes in Phase 3 | Done |
 | OQ-02 | **Resolved (owner, 2026-11-19):** commission is charged per execution, so a cancelled order with partial fills has paid for exactly its fills | Done |
-| OQ-03 | Option settlement cycle per market, exercise/assignment and expiry handling, and whether early exercise is simulated | Phase 2 / 5 |
-| OQ-04 | **Resolved (owner, 2026-11-19):** maintained, versioned YAML per market (`config/calendars/<mic>.yaml`), with separate trading and settlement holiday lists, a primary source for every date, and explicit coverage. Dates outside coverage raise `CalendarCoverageError`. XTSE is done; the US calendar arrives with USD trading (Phase 2) | Done |
-| OQ-05 | Corporate actions (splits, dividends): out of scope, or minimal support for a dividend in the flagship scenario | Phase 2 |
+| OQ-03 | **Partly resolved (owner, 2026-11-19):** listed US equity options (Cboe, OCC) settle premium T+1 (verified). Phase 2 simulates premium trades only, and generated options expire after the simulated window. Exercise, assignment, expiry, and early exercise are decided in Phase 5 | Phase 5 (rest) |
+| OQ-04 | **Resolved (owner, 2026-11-19):** maintained, versioned YAML per market (`config/calendars/<mic>.yaml`), with separate trading and settlement holiday lists, a primary source for every date, and explicit coverage. Dates outside coverage raise `CalendarCoverageError`. Done: XTSE (2026 → Jan 2027), XNYS (2026), and XCBO (to 2026-04-02, pending OCC verification) | Done |
+| OQ-05 | **Resolved (owner, 2026-11-19):** corporate actions, including dividends, are out of scope until Phase 5 | Done |
 | OQ-06 | Definition of `available_liquidity` for KPI-16 (deferred by owner decision on 2026-11-18) | Phase 6 |
 | OQ-07 | Severity thresholds and SLA values for exceptions | Phase 4 |
 | OQ-08 | VaR lookback window and quantile interpolation method | Phase 5 |
