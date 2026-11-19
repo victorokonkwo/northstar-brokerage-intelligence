@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: int_reporting_dates
+    description: >
+      Ledger business days (XTSE settlement days) from the first to the last posting
+      date. Grain and key = business_date.
+    columns:
+      - name: business_date
+        data_tests: [unique, not_null]
+
+  - name: int_fx_rates_applicable
+    description: >
+      The USD/CAD rate that applies on each calendar date under fallback policy v1
+      (most recent rate on or before the date). Grain and key = calendar_date.
+    columns:
+      - name: calendar_date
+        data_tests: [unique, not_null]
+      - name: rate
+        data_tests: [not_null]
+
+  - name: int_execution_amounts
+    description: >
+      Each execution's gross amount, commission, and clearing fee, read from its
+      journal lines. Grain and key = execution_id.
+    columns:
+      - name: execution_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships: {arguments: {to: ref('fct_executions'), field: execution_id}}

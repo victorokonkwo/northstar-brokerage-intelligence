@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: mart_daily_client_cash
+    description: >
+      Client cash per account x currency x reporting date (grain; unique, tested in
+      assert_daily_fact_grains_unique), from the GL 2100 sub-ledger. A negative
+      closing balance is a margin loan. Lineage: the grain keys select the
+      contributing 2100 lines in fct_journal_lines (INV-10, tie-out tested).
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: opening_balance, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: credits, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: debits, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: closing_balance, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: closing_balance_cad, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: fx_rate, data_type: "numeric(18, 10)"}
+      - {name: fx_rate_date, data_type: date}
+      - {name: fx_policy_version, data_type: text}
+      - {name: _journal_line_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: mart_daily_finance
+    description: >
+      Revenue (4100 commission, 4200 FX conversion, 4300 margin interest) and direct
+      costs (5100 clearing) per posting date x currency (grain; unique, tested in
+      assert_daily_fact_grains_unique). Tie-out to the journal tested (INV-10).
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - name: currency
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: commission_revenue, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: fx_conversion_revenue, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: margin_interest_revenue, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: clearing_costs, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: net_contribution, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: net_contribution_cad, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
+      - {name: fx_rate, data_type: "numeric(18, 10)"}
+      - {name: fx_rate_date, data_type: date}
+      - {name: fx_policy_version, data_type: text}
+      - {name: _journal_line_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}

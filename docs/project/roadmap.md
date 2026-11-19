@@ -52,7 +52,7 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 | FX rates for CAD translation | the simulator's synthetic reference rate, published as `fx_rate_published`. Bank of Canada ingestion is deferred to a later phase |
 | Airflow | a custom image extending `apache/airflow:3.4.0-python3.13`, with the project in its own virtualenv; tasks call the `northstar` CLI |
 | OpenLineage | file transport to `audit/lineage/` in the object store; no new service |
-| Account history | new event `account_updated` (margin approvals, trading restrictions) drives SCD2 `dim_account` |
+| Account history | new event `account_updated` (margin approvals, trading restrictions) drives SCD2 `dim_account`, built by event time rather than as a dbt snapshot (FR-M1-05 reworded) |
 | Quarantine threshold | 0.5% per load (illustrative, versioned config); a load above it fails |
 | Deferred | average cost in `fct_positions_daily` (Phase 5); the reconciliation-exception condition of the publication gate (Phase 4) |
 
@@ -60,8 +60,9 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 |---|---|
 | 3A events for SCD2 and FX | Done (#20): `account_updated` and `fx_rate_published`, emitted by the engine and generator |
 | 3B ingestion | Done (#21): validation, quarantine with a threshold, dedup, content-addressed append-only raw layer, run manifests, and the warehouse load from raw ([data foundation](../architecture/data-foundation.md)) |
-| 3C dbt staging, dimensions, core facts | Built (this PR): `dim_account` (event-sourced SCD2), `dim_instrument`, `dim_calendar`, `fct_orders`, `fct_settlements`, `fct_cash_movements`, extended `fct_executions`; INV-06 and point-in-time tests; append-only triggers (INV-11). External record staging moves to Phase 4 |
-| 3D–3G | Not started |
+| 3C dbt staging, dimensions, core facts | Done (#22): `dim_account` (event-sourced SCD2), `dim_instrument`, `dim_calendar`, `fct_orders`, `fct_settlements`, `fct_cash_movements`, extended `fct_executions`; INV-06 and point-in-time tests; append-only triggers (INV-11). External record staging moves to Phase 4 |
+| 3D daily facts and gate marts | Built (this PR): FX rates and fallback, prices with staleness, daily positions valued in CAD, and the client cash, positions, executions, and finance marts with INV-03/07/08/10 tests ([data foundation](../architecture/data-foundation.md#daily-facts-and-marts)) |
+| 3E–3G | Not started |
 
 ## Phase 2 (weeks 3–4)
 

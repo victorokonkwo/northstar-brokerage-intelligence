@@ -122,3 +122,19 @@ models:
       - name: currency
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_brokerage__price_updated
+    description: One row per daily close. Grain = instrument_id x price_date (event_id is the key).
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: close_price
+        data_tests: [not_null]
+
+  - name: stg_brokerage__fx_rate_published
+    description: One row per published reference rate. Grain = base x quote x rate_date (event_id is the key).
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: rate
+        data_tests: [not_null]

@@ -1,0 +1,162 @@
+version: 2
+
+unit_tests:
+  - name: a_price_is_stale_only_when_its_market_traded_since
+    model: fct_market_prices_daily
+    description: >
+      2026-02-16 is Family Day on the TSX and Washington's Birthday on the NYSE
+      (config/calendars), so both are closed. On 02-17 both trade: the CAD stock has a
+      02-17 close, but the USD stock's latest close is 02-13, so only it is stale.
+    given:
+      - input: ref('stg_brokerage__price_updated')
+        rows:
+          - {instrument_id: cad, price_date: 2026-02-13, close_price: 10.00, currency: CAD, price_source: synthetic}
+          - {instrument_id: cad, price_date: 2026-02-17, close_price: 11.00, currency: CAD, price_source: synthetic}
+          - {instrument_id: usd, price_date: 2026-02-13, close_price: 20.00, currency: USD, price_source: synthetic}
+      - input: ref('dim_instrument')
+        rows:
+          - {instrument_id: cad, market: XTSE, is_current: true}
+          - {instrument_id: usd, market: XNYS, is_current: true}
+      - input: ref('int_reporting_dates')
+        rows:
+          - {business_date: 2026-02-13}
+          - {business_date: 2026-02-17}
+      - input: ref('dim_calendar')
+        rows:
+          - {market: XTSE, calendar_date: 2026-02-13, is_trading_day: true}
+          - {market: XTSE, calendar_date: 2026-02-16, is_trading_day: false}
+          - {market: XTSE, calendar_date: 2026-02-17, is_trading_day: true}
+          - {market: XNYS, calendar_date: 2026-02-13, is_trading_day: true}
+          - {market: XNYS, calendar_date: 2026-02-16, is_trading_day: false}
+          - {market: XNYS, calendar_date: 2026-02-17, is_trading_day: true}
+    expect:
+      rows:
+        - {instrument_id: cad, business_date: 2026-02-13, price_date: 2026-02-13, close_price: 10.00, is_stale: false}
+        - {instrument_id: cad, business_date: 2026-02-17, price_date: 2026-02-17, close_price: 11.00, is_stale: false}
+        - {instrument_id: usd, business_date: 2026-02-13, price_date: 2026-02-13, close_price: 20.00, is_stale: false}
+        - {instrument_id: usd, business_date: 2026-02-17, price_date: 2026-02-13, close_price: 20.00, is_stale: true}
+
+  - name: a_closed_market_carries_its_price_without_staleness
+    model: fct_market_prices_daily
+    given:
+      - input: ref('stg_brokerage__price_updated')
+        rows:
+          - {instrument_id: usd, price_date: 2026-11-10, close_price: 20.00, currency: USD, price_source: synthetic}
+      - input: ref('dim_instrument')
+        rows:
+          - {instrument_id: usd, market: XNYS, is_current: true}
+      - input: ref('int_reporting_dates')
+        rows:
+          - {business_date: 2026-11-12}
+      - input: ref('dim_calendar')
+        rows:
+          - {market: XNYS, calendar_date: 2026-11-10, is_trading_day: true}
+          - {market: XNYS, calendar_date: 2026-11-11, is_trading_day: false}
+          - {market: XNYS, calendar_date: 2026-11-12, is_trading_day: false}
+    expect:
+      rows:
+        - {instrument_id: usd, business_date: 2026-11-12, price_date: 2026-11-10, expected_price_date: 2026-11-10, is_stale: false}
+
+  - name: positions_round_half_even_flag_missing_prices_and_translate_usd
+    model: fct_positions_daily
+    given:
+      - input: ref('stg_brokerage__trade_executed')
+        rows:
+          - {account_id: a1, instrument_id: tie_down, side: BUY, quantity: 1, trade_date: 2026-03-02}
+          - {account_id: a1, instrument_id: tie_up, side: BUY, quantity: 1, trade_date: 2026-03-02}
+          - {account_id: a1, instrument_id: no_price, side: BUY, quantity: 5, trade_date: 2026-03-02}
+          - {account_id: a1, instrument_id: us, side: BUY, quantity: 3, trade_date: 2026-03-02}
+          - {account_id: a1, instrument_id: us, side: SELL, quantity: 1, trade_date: 2026-03-03}
+      - input: ref('stg_brokerage__trade_settled')
+        rows:
+          - {account_id: a1, instrument_id: us, side: BUY, quantity: 3, settlement_date: 2026-03-03}
+      - input: ref('int_reporting_dates')
+        rows:
+          - {business_date: 2026-03-02}
+          - {business_date: 2026-03-03}
+      - input: ref('dim_instrument')
+        rows:
+          - {instrument_id: tie_down, currency: CAD, multiplier: 1, is_current: true}
+          - {instrument_id: tie_up, currency: CAD, multiplier: 1, is_current: true}
+          - {instrument_id: no_price, currency: CAD, multiplier: 1, is_current: true}
+          - {instrument_id: us, currency: USD, multiplier: 100, is_current: true}
+      - input: ref('fct_market_prices_daily')
+        rows:
+          - {instrument_id: tie_down, business_date: 2026-03-02, price_date: 2026-03-02, close_price: 10.125, is_stale: false}
+          - {instrument_id: tie_up, business_date: 2026-03-02, price_date: 2026-03-02, close_price: 10.135, is_stale: false}
+          - {instrument_id: us, business_date: 2026-03-03, price_date: 2026-03-03, close_price: 2.10, is_stale: true}
+      - input: ref('int_fx_rates_applicable')
+        rows:
+          - {calendar_date: 2026-03-03, rate: 1.3712000000, fx_rate_date: 2026-03-02, fx_policy_version: "2026.1"}
+    expect:
+      rows:
+        # 10.125 -> 10.12 and 10.135 -> 10.14 (half-even; half-up would give 10.13 and 10.14)
+        - {instrument_id: tie_down, business_date: 2026-03-02, trade_date_quantity: 1, settled_quantity: 0, market_value: 10.12, market_value_cad: 10.12, is_price_missing: false, fx_rate_date: null}
+        - {instrument_id: tie_up, business_date: 2026-03-02, trade_date_quantity: 1, settled_quantity: 0, market_value: 10.14, market_value_cad: 10.14, is_price_missing: false, fx_rate_date: null}
+        - {instrument_id: tie_down, business_date: 2026-03-03, trade_date_quantity: 1, settled_quantity: 0, market_value: null, market_value_cad: null, is_price_missing: true, fx_rate_date: null}
+        - {instrument_id: tie_up, business_date: 2026-03-03, trade_date_quantity: 1, settled_quantity: 0, market_value: null, market_value_cad: null, is_price_missing: true, fx_rate_date: null}
+        - {instrument_id: no_price, business_date: 2026-03-02, trade_date_quantity: 5, settled_quantity: 0, market_value: null, market_value_cad: null, is_price_missing: true, fx_rate_date: null}
+        - {instrument_id: no_price, business_date: 2026-03-03, trade_date_quantity: 5, settled_quantity: 0, market_value: null, market_value_cad: null, is_price_missing: true, fx_rate_date: null}
+        - {instrument_id: us, business_date: 2026-03-02, trade_date_quantity: 3, settled_quantity: 0, market_value: null, market_value_cad: null, is_price_missing: true, fx_rate_date: null}
+        # 2 x 2.10 x 100 = 420.00 USD; x 1.3712 = 575.904 -> 575.90 CAD; carries the stale flag
+        - {instrument_id: us, business_date: 2026-03-03, trade_date_quantity: 2, settled_quantity: 3, market_value: 420.00, market_value_cad: 575.90, is_price_missing: false, fx_rate_date: 2026-03-02}
+
+  - name: the_rate_on_a_weekend_is_fridays_and_is_flagged
+    model: int_fx_rates_applicable
+    given:
+      - input: ref('fct_fx_rates_daily')
+        rows:
+          - {base_currency: USD, quote_currency: CAD, rate_date: 2026-03-06, rate: 1.3708000000, fx_policy_version: "2026.1"}
+          - {base_currency: USD, quote_currency: CAD, rate_date: 2026-03-09, rate: 1.3716000000, fx_policy_version: "2026.1"}
+      - input: ref('dim_calendar')
+        rows:
+          - {market: XTSE, calendar_date: 2026-03-05}
+          - {market: XTSE, calendar_date: 2026-03-06}
+          - {market: XTSE, calendar_date: 2026-03-07}
+          - {market: XTSE, calendar_date: 2026-03-08}
+          - {market: XTSE, calendar_date: 2026-03-09}
+      - input: ref('int_reporting_dates')
+        rows:
+          - {business_date: 2026-03-09}
+    expect:
+      rows:
+        - {calendar_date: 2026-03-06, rate: 1.3708000000, fx_rate_date: 2026-03-06, is_fallback: false}
+        - {calendar_date: 2026-03-07, rate: 1.3708000000, fx_rate_date: 2026-03-06, is_fallback: true}
+        - {calendar_date: 2026-03-08, rate: 1.3708000000, fx_rate_date: 2026-03-06, is_fallback: true}
+        - {calendar_date: 2026-03-09, rate: 1.3716000000, fx_rate_date: 2026-03-09, is_fallback: false}
+
+  - name: client_cash_rolls_balances_through_quiet_days_and_shows_loans
+    model: mart_daily_client_cash
+    given:
+      - input: ref('fct_journal_lines')
+        rows:
+          - {gl_account: "2100", client_account_id: a1, currency: CAD, posting_date: 2026-03-02, credit_amount: 1000.00, debit_amount: 0.00}
+          - {gl_account: "2100", client_account_id: a1, currency: CAD, posting_date: 2026-03-04, credit_amount: 0.00, debit_amount: 1250.50}
+          - {gl_account: "1000", client_account_id: null, currency: CAD, posting_date: 2026-03-02, credit_amount: 0.00, debit_amount: 1000.00}
+      - input: ref('int_reporting_dates')
+        rows:
+          - {business_date: 2026-03-02}
+          - {business_date: 2026-03-03}
+          - {business_date: 2026-03-04}
+      - input: ref('int_fx_rates_applicable')
+        rows:
+          - {calendar_date: 2026-03-02, rate: 1.37, fx_rate_date: 2026-03-02, fx_policy_version: "2026.1"}
+    expect:
+      rows:
+        - {account_id: a1, currency: CAD, business_date: 2026-03-02, opening_balance: 0.00, credits: 1000.00, debits: 0.00, closing_balance: 1000.00, closing_balance_cad: 1000.00, _journal_line_count: 1}
+        - {account_id: a1, currency: CAD, business_date: 2026-03-03, opening_balance: 1000.00, credits: 0.00, debits: 0.00, closing_balance: 1000.00, closing_balance_cad: 1000.00, _journal_line_count: 0}
+        - {account_id: a1, currency: CAD, business_date: 2026-03-04, opening_balance: 1000.00, credits: 0.00, debits: 1250.50, closing_balance: -250.50, closing_balance_cad: -250.50, _journal_line_count: 1}
+
+  - name: an_account_with_an_unpriced_position_has_no_total
+    model: mart_daily_positions
+    given:
+      - input: ref('fct_positions_daily')
+        rows:
+          - {account_id: a1, business_date: 2026-03-02, market_value_cad: 100.00, is_price_missing: false, is_price_stale: false}
+          - {account_id: a1, business_date: 2026-03-02, market_value_cad: null, is_price_missing: true, is_price_stale: false}
+          - {account_id: a2, business_date: 2026-03-02, market_value_cad: 40.10, is_price_missing: false, is_price_stale: true}
+          - {account_id: a2, business_date: 2026-03-02, market_value_cad: 9.90, is_price_missing: false, is_price_stale: false}
+    expect:
+      rows:
+        - {account_id: a1, business_date: 2026-03-02, position_count: 2, market_value_cad: null, has_missing_price: true, has_stale_price: false}
+        - {account_id: a2, business_date: 2026-03-02, position_count: 2, market_value_cad: 50.00, has_missing_price: false, has_stale_price: true}
