@@ -505,6 +505,89 @@
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "Serving"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "Serving": {
+      "Type": "Task",
+      "Comment": "run-step serving",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "serving"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'serving' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "serving",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
+          "Output": {
+            "step": "serving",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "ServingExitCode"
+    },
+    "ServingExitCode": {
+      "Type": "Choice",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
           "Next": "Publish"
         }
       ],

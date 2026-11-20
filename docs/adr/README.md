@@ -14,5 +14,6 @@ An ADR records one significant decision: its context, the options considered, th
 | [008](008-data-lineage-and-observability.md) | OpenLineage and OpenTelemetry for lineage and observability | Accepted |
 | [009](009-local-telemetry-backend.md) | Local telemetry backend: OpenTelemetry Collector with the debug exporter | Accepted |
 | [010](010-cloud-batch-runtime.md) | Cloud batch runtime: EventBridge Scheduler, Step Functions, and ECS Fargate | Accepted |
+| [011](011-looker-studio-dashboards.md) | Dashboards in Looker Studio, reading serving views of the published snapshots | Accepted |
 
 New ADRs copy [template.md](template.md) and take the next number.

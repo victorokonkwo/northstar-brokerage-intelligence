@@ -36,7 +36,7 @@ Three Terraform stacks define all of it, with their state in S3: `bootstrap` (bu
 
 ## Planned stack
 
-Python 3.13, SQL, dbt Core, Apache Airflow, OpenLineage, OpenTelemetry, PostgreSQL (local), Amazon S3, Redshift Serverless, and CloudWatch (cloud), FastAPI, Streamlit, MLflow, Docker, Terraform, and GitHub Actions. The reasoning is in [`docs/adr/`](docs/adr/).
+Python 3.13, SQL, dbt Core, Apache Airflow, OpenLineage, OpenTelemetry, PostgreSQL (local), Amazon S3, Redshift Serverless, and CloudWatch (cloud), FastAPI, Looker Studio, MLflow, Docker, Terraform, and GitHub Actions. The reasoning is in [`docs/adr/`](docs/adr/).
 
 ## Documentation
 
@@ -81,6 +81,8 @@ make compare-warehouses # every dbt model, Postgres vs Redshift, row for row
 make test-redshift      # live loading, append-only, dbt-check, and incremental controls (minutes of compute)
 make parity             # the same pipeline on both warehouses from nothing, every table compared
 # The cloud run (ADR 010): make tf-plan-batch, make batch-image, then start the state machine
+make serving            # the dashboard's views of the published controls snapshots (make publish runs it)
+make dashboard-check    # every serving view equals the published snapshot and the mart (FR-M2-09)
 ```
 
 See [cloud warehouse](docs/architecture/cloud-warehouse.md).

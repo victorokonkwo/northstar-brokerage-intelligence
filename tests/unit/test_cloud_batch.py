@@ -29,6 +29,7 @@ DAG_ORDER = [
     "reconcile",
     "dbt_controls",
     "publish_controls",
+    "serving",
     "publish",
 ]
 SET_BY_STATE_MACHINE = {"NBI_BUSINESS_DATE", "NBI_RUN"}
@@ -50,6 +51,14 @@ def _script_steps() -> dict[str, str]:
         m.group(1): m.group(2)
         for m in re.finditer(r"^  ([a-z_]+)\)\n(.*?)^    ;;", body, re.MULTILINE | re.DOTALL)
     }
+
+
+def test_the_steps_are_the_airflow_dags_in_its_order() -> None:
+    dag = (ROOT / "orchestration" / "airflow" / "dags" / "northstar_daily.py").read_text()
+    chain = dag[dag.rindex("check_business_day\n") :]
+    tasks = ["check_business_day", *re.findall(r">> (\w+)", chain)]
+    merged = [t for t in tasks if t != "load"]  # ingest and load run as one cloud task
+    assert [t.replace("ingest", "ingest_and_load") for t in merged] == DAG_ORDER
 
 
 def test_the_step_script_is_valid_shell() -> None:

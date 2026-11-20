@@ -1,0 +1,13 @@
+version: 2
+sources:
+- name: published_controls
+  description: 'The controls snapshot stream (northstar publish --stream controls): versioned copies of
+    the controls marts and the snapshot timeline. Written only by the application; the serving views read
+    it.'
+  schema: "{{ var('published_controls_schema', 'published_controls') }}"
+  tables:
+  - name: snapshot_timeline
+  - name: mart_cash_breaks
+  - name: mart_exception_monitoring
+  - name: mart_match_rates
+  - name: mart_settlement_fails

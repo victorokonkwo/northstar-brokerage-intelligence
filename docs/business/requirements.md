@@ -92,4 +92,4 @@ Non-functional requirements are in [non-functional-requirements.md](../architect
 | ID | Requirement | Acceptance criteria |
 |---|---|---|
 | FR-API-01 | A read-only FastAPI service exposes published results for reconciliation, risk, treasury, and finance. | OpenAPI spec committed. Contract tests. No business calculations in route handlers. |
-| FR-DASH-01 | Four Streamlit dashboards: Brokerage Operations, Market Risk, Treasury, Executive Finance. | Each page shows its data's snapshot version and as-of time. |
+| FR-DASH-01 | Four dashboards in Looker Studio (owner decision 2026-11-20, replacing Streamlit; [ADR 011](../adr/011-looker-studio-dashboards.md)): Brokerage Operations, Market Risk, Treasury, Executive Finance. | Each page shows its data's snapshot version and as-of time. |

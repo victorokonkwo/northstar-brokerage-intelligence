@@ -1,0 +1,154 @@
+version: 2
+models:
+- name: serving_exception_monitoring
+  description: 'KPI-03 and KPI-04 as currently published: the rows of mart_exception_monitoring in each
+    business date''s PUBLISHED controls snapshot, with snapshot_version and published_at. Same grain as
+    mart_exception_monitoring. Read by the operations dashboard.'
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: business_date
+    data_type: date
+    data_tests:
+    - not_null
+  - name: reconciliation
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: exception_type
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: severity
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: exception_count
+    data_type: integer
+  - name: open_count
+    data_type: integer
+  - name: past_sla_open_count
+    data_type: integer
+  - name: resolved_count
+    data_type: integer
+  - name: open_exposure_cad
+    data_type: "numeric(18, 2)"
+  - name: policy_version
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: reconciled_as_of
+    data_type: date
+  - name: snapshot_version
+    data_type: integer
+    data_tests:
+    - not_null
+    description: The published snapshot version these rows come from.
+  - name: published_at
+    data_type: timestamp with time zone
+    data_tests:
+    - not_null
+    description: When that version was published (UTC).
+- name: serving_match_rates
+  description: 'KPI-02 as currently published: the rows of mart_match_rates in each business date''s PUBLISHED
+    controls snapshot, with snapshot_version and published_at. Same grain as mart_match_rates. Read by
+    the operations dashboard.'
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: business_date
+    data_type: date
+    data_tests:
+    - not_null
+  - name: currency
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: execution_count
+    data_type: integer
+  - name: matched_count
+    data_type: integer
+  - name: match_rate
+    data_type: "numeric(18, 6)"
+  - name: notional
+    data_type: "numeric(18, 2)"
+  - name: matched_notional
+    data_type: "numeric(18, 2)"
+  - name: notional_match_rate
+    data_type: "numeric(18, 6)"
+  - name: snapshot_version
+    data_type: integer
+    data_tests:
+    - not_null
+    description: The published snapshot version these rows come from.
+  - name: published_at
+    data_type: timestamp with time zone
+    data_tests:
+    - not_null
+    description: When that version was published (UTC).
+- name: serving_settlement_fails
+  description: 'KPI-05 as currently published: the rows of mart_settlement_fails in each business date''s
+    PUBLISHED controls snapshot, with snapshot_version and published_at. Same grain as mart_settlement_fails.
+    Read by the operations dashboard.'
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: business_date
+    data_type: date
+    data_tests:
+    - not_null
+  - name: currency
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: asset_class
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: obligations_due
+    data_type: integer
+  - name: failed_count
+    data_type: integer
+  - name: fail_rate
+    data_type: "numeric(18, 6)"
+  - name: value_due
+    data_type: "numeric(18, 2)"
+  - name: value_failed
+    data_type: "numeric(18, 2)"
+  - name: value_fail_rate
+    data_type: "numeric(18, 6)"
+  - name: snapshot_version
+    data_type: integer
+    data_tests:
+    - not_null
+    description: The published snapshot version these rows come from.
+  - name: published_at
+    data_type: timestamp with time zone
+    data_tests:
+    - not_null
+    description: When that version was published (UTC).
+- name: serving_cash_breaks
+  description: 'KPI-06 as currently published: the rows of mart_cash_breaks in each business date''s PUBLISHED
+    controls snapshot, with snapshot_version and published_at. Same grain as mart_cash_breaks. Read by
+    the operations dashboard.'
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: business_date
+    data_type: date
+    data_tests:
+    - not_null
+  - name: currency
+    data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+  - name: gl_cash_balance
+    data_type: "numeric(18, 2)"
+  - name: bank_balance
+    data_type: "numeric(18, 2)"
+  - name: difference
+    data_type: "numeric(18, 2)"
+  - name: explained_timing
+    data_type: "numeric(18, 2)"
+  - name: unexplained
+    data_type: "numeric(18, 2)"
+  - name: cash_break_amount
+    data_type: "numeric(18, 2)"
+  - name: snapshot_version
+    data_type: integer
+    data_tests:
+    - not_null
+    description: The published snapshot version these rows come from.
+  - name: published_at
+    data_type: timestamp with time zone
+    data_tests:
+    - not_null
+    description: When that version was published (UTC).
