@@ -1,0 +1,35 @@
+format: 0.3
+title: "NBI data stack: S3 bronze and Redshift Serverless (dev, ca-central-1)"
+connect:
+  aws_iam_role.redshift_copy:
+    - aws_s3_bucket.bronze: "COPY reads _stage/"
+  tv_aws_users.operator:
+    - aws_s3_bucket.bronze: "ingest raw/, stage JSONL"
+    - tv_aws_internet.internet: "load-run, dbt build (TLS 5439)"
+  aws_sns_topic.sns:
+    - tv_aws_users.operator: "email"
+update:
+  aws_redshiftserverless_workgroup.warehouse:
+    label: "Redshift workgroup"
+  aws_redshiftserverless_namespace.warehouse:
+    label: "Redshift namespace"
+  aws_security_group.warehouse_warehouse:
+    label: "SG: 5439 allowlist"
+  aws_s3_bucket.bronze:
+    label: "Bronze bucket"
+  aws_iam_role.redshift_copy:
+    label: "COPY role"
+  tv_aws_users.operator:
+    label: "Operator"
+  aws_sns_topic.sns:
+    label: "Alerts topic"
+  aws_cloudwatch_metric_alarm.monthly_compute:
+    label: "Monthly compute alarm"
+  aws_vpc.warehouse:
+    cidr_block: "10.42.0.0/16"
+  aws_subnet.warehouse["ca-central-1a"]~1:
+    cidr_block: "10.42.0.0/24"
+  aws_subnet.warehouse["ca-central-1b"]~1:
+    cidr_block: "10.42.1.0/24"
+  aws_subnet.warehouse["ca-central-1d"]~1:
+    cidr_block: "10.42.2.0/24"
