@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Status | Partly implemented (Phase 4): the policy (4A); staged matching and classification (4B). The lifecycle, publication gate, marts, and dashboard follow in 4C–4G ([roadmap](../project/roadmap.md#phase-4-weeks-89)). |
-| Requirements | FR-M2-02 to FR-M2-04, FR-M2-07, NFR-03 ([requirements](../business/requirements.md)) |
+| Status | Partly implemented (Phase 4): the policy (4A); staged matching and classification (4B); the lifecycle and audit trail (4C). The publication gate, marts, and dashboard follow in 4D–4G ([roadmap](../project/roadmap.md#phase-4-weeks-89)). |
+| Requirements | FR-M2-02 to FR-M2-07, NFR-03 ([requirements](../business/requirements.md)) |
 | Definitions | domain model §7 ([domain model](domain-model.md#7-reconciliation-exceptions)) |
 
 ## Inputs
@@ -52,3 +52,38 @@ A rerun inserts 0 matches and 0 exceptions.
 ## Storage
 
 The `recon` schema (`recon_dev` for the dev dataset) holds `runs`, `match_results`, and `exceptions`. All three are append-only, enforced by triggers, and keyed by deterministic IDs. A stored row whose content differs from a rerun's is refused (`LoadConflictError`). The source evidence is never touched: reconciliation only reads.
+
+## Lifecycle and audit trail (FR-M2-05, FR-M2-06)
+
+Every exception moves through domain model §7.4's lifecycle:
+
+```text
+OPEN → INVESTIGATING → RESOLVED
+OPEN → RESOLVED   (a rule only)
+OPEN → ESCALATED  (SLA breached)
+INVESTIGATING → ESCALATED → RESOLVED
+```
+
+`northstar.domain.lifecycle.check` refuses any other move. Every change is appended to `exception_transitions` with an actor, a reason, a time, and a sequence number; nothing is updated or deleted. `RESOLVED` is terminal, and every resolution needs its proof:
+
+| Resolution | Actor | Used for |
+|---|---|---|
+| `AUTO_RULE` | `rule:<id>@<version>` | a named, versioned rule |
+| `MANUAL_OVERRIDE` | `user:<name>`, with a reason | a person; they must move the exception to `INVESTIGATING` or `ESCALATED` first, because only a rule may resolve an `OPEN` exception |
+| `SOURCE_CORRECTED` | `rule:source_corrected@1` | a later run no longer finds the break |
+
+The database enforces the same rules with CHECK constraints: no `RESOLVED` without a type, no manual override by a rule, no rule resolution by a person, and no empty reason. A unique (exception, sequence) means two concurrent changes cannot both land.
+
+**Rules applied after every run, all versioned:**
+1. `detected@1` opens each new exception.
+2. `source_corrected@1` resolves an unresolved exception, dated on or before the as-of date, that the run no longer finds.
+3. `late_settlement_completed@1` resolves a `SETTLEMENT_LATE` whose bank line was matched as a timing difference: the cash has moved.
+4. `sla_breach@1` escalates an unresolved exception open longer than its severity's SLA, counted in ledger business days (`business_days_open`; weekends and holidays don't count).
+
+A rerun proposes nothing new, so it appends nothing. People act through `northstar exception transition --to … --actor user:<name> --reason …`, and `northstar exception history` prints the trail.
+
+**Dev dataset (seed 42), as of 2026-04-01:**
+- 76 opened
+- 12 late settlements auto-resolved
+- 54 escalated past their SLA
+- 10 still open, because they are recent
