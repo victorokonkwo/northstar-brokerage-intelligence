@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import resource
 import subprocess
 import sys
@@ -110,6 +111,9 @@ def run_stage(stage: str, command: Sequence[str], cwd: Path, env: dict[str, str]
     )
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+"""Terminal colour codes (dbt colours its output)."""
+
 _KEEP = {
     "simulate": ("events under", "event trade_executed"),
     "ingest": ("run ",),
@@ -122,9 +126,10 @@ _KEEP = {
 def summarize(stage: str, output: str) -> str:
     """The lines of a stage's output that describe its size and outcome (logs dropped)."""
     keep = _KEEP[stage]
+    plain = _ANSI.sub("", output)
     lines = [
         line.strip()
-        for line in output.splitlines()
+        for line in plain.splitlines()
         if line and not line.lstrip().startswith("{") and any(k in line for k in keep)
     ]
     return " / ".join(lines)[:400] or "(no summary line)"

@@ -64,8 +64,23 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 | 3C dbt staging, dimensions, core facts | Done (#22): `dim_account` (event-sourced SCD2), `dim_instrument`, `dim_calendar`, `fct_orders`, `fct_settlements`, `fct_cash_movements`, extended `fct_executions`; INV-06 and point-in-time tests; append-only triggers (INV-11). External record staging moves to Phase 4 |
 | 3D daily facts and gate marts | Done (#23): FX rates and fallback, prices with staleness, daily positions valued in CAD, and the client cash, positions, executions, and finance marts with INV-03/07/08/10 tests ([data foundation](../architecture/data-foundation.md#daily-facts-and-marts)) |
 | 3E snapshots and restatements | Done (#24): content-addressed snapshot versions, publication gate (KPI-01), append-only status log, point-in-time reads, and a late-record restatement in CI ([data foundation](../architecture/data-foundation.md#published-snapshots-and-restatements-adr-006-fr-m1-06)) |
-| 3F orchestration and lineage | Built (this PR): `northstar_daily` DAG in a custom Airflow image (project venv), retries and stored alerts, backfill equal to daily runs, dbt and Airflow OpenLineage events as files ([data foundation](../architecture/data-foundation.md#orchestration-and-lineage-fr-m1-07-adr-008)) |
-| 3G load test and gate | Not started |
+| 3F orchestration and lineage | Done (#25): `northstar_daily` DAG in a custom Airflow image (project venv), retries and stored alerts, backfill equal to daily runs, dbt and Airflow OpenLineage events as files ([data foundation](../architecture/data-foundation.md#orchestration-and-lineage-fr-m1-07-adr-008)) |
+| 3G load test and gate | Built (this PR): `load.yaml` (6,400 accounts) measured end to end with `scripts/benchmark.py` ([load test](../performance/load-test.md)); three scaling fixes (generator clock, balance index, INV-10 tie-out). The 1M-execution target moves to Phase 8 (owner decision) |
+
+### Phase 3 gate evidence
+
+**Trusted data gate:** the daily cash, position, execution, and finance marts pass quality tests, and historical snapshots are reproducible.
+
+- **Marts pass their tests:** `mart_daily_client_cash`, `mart_daily_positions`, `mart_daily_executions`, and `mart_daily_finance`, with their facts, pass every dbt test on the dev dataset (174 nodes) and at load-test size (174 nodes, 6,400 accounts, run on `d05f7e7`). The tests include:
+  - enforced contracts, keys, and relationships
+  - INV-03, INV-06, INV-07, INV-08, and INV-10 tie-outs to the ledger
+  - half-even rounding and staleness
+  - dbt unit tests for the cases the data never produces
+- **Snapshots are reproducible:** in CI on every push, publishing all 63 reporting dates and then publishing again creates no new version (INV-09). A late deposit restates exactly the affected dates as v2 with a reason, and leaves v1 queryable. Two independent local runs gave identical hashes for 2026-03-02 v1 and v2. Airflow daily runs and backfills publish the same hashes as the CLI.
+- **Ingestion and orchestration:** a replayed ingestion writes nothing (FR-M1-03). A forced task failure retries and alerts. dbt and Airflow lineage are recorded.
+- **Open:** the 1M-execution load test (FR-SIM-06, NFR-08) is deferred to Phase 8. The pipeline is measured at 98,334 executions, and generation alone at 189,734.
+
+**Awaiting owner approval** to mark the gate passed.
 
 ## Phase 2 (weeks 3–4)
 

@@ -60,3 +60,9 @@ def test_a_doc_without_markers_is_refused(tmp_path: Path) -> None:
     doc.write_text("# no markers\n", encoding="utf-8")
     with pytest.raises(ValueError, match="markers"):
         b.write_doc(doc, "x")
+
+
+def test_summaries_drop_terminal_colour_codes() -> None:
+    b = _benchmark()
+    output = "\x1b[0m01:20:03  Done. PASS=174 WARN=0 ERROR=0\n"
+    assert b.summarize("dbt build", output) == "01:20:03  Done. PASS=174 WARN=0 ERROR=0"
