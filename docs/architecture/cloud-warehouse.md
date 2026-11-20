@@ -9,6 +9,25 @@
 
 The same pipeline code runs against both warehouses. `--warehouse postgres` (the default) uses the local stack: SeaweedFS and Postgres. `--warehouse redshift` uses the S3 bronze bucket and Redshift Serverless.
 
+## Architecture
+
+What the two Terraform stacks deploy, drawn by [TerraVision](https://github.com/patrickchugh/terravision) 0.56.4 from `terraform plan`.
+
+![Data stack: VPC with three subnets, the Redshift Serverless workgroup in its security group, the namespace, the COPY role, and the bronze bucket](aws/data-stack.svg)
+
+![Bootstrap stack: the monthly budget and the Terraform state bucket](aws/bootstrap-stack.svg)
+
+**What the diagrams leave out:**
+- **Resources TerraVision has no icon for:** the usage limits (4 RPU-hours a day, deactivate; 60 a month, emit-metric) and the buckets' ownership controls. They would be blank boxes.
+- **Things outside the stacks:** the Redshift-managed admin secret, Looker Studio (4G), and the planned scheduled run (ECR, Step Functions, ECS Fargate, CloudWatch).
+
+**How they're made.** `make diagrams` (`scripts/draw_architecture.sh`, needs `aws login`) works on copies of the stacks in a temporary directory:
+1. TerraVision plans them against empty local state, so the stacks' S3 state is never read and nothing is applied. The required variables get placeholder values, which change no resource's shape.
+2. `scripts/terravision_prune.py` removes TerraVision's artifacts and adds the edges a plan can't show. The artifacts are three duplicate copies of the workgroup and its security group, a "shared services" IAM group that neither stack declares, and the blank nodes. The added edges are the COPY role reading the bronze bucket, and the operator. If TerraVision's output changes shape, the script fails.
+3. TerraVision draws the result with the labels in `aws/*.terravision.yml`.
+
+The route-table icon shows "172.16.x", which is part of TerraVision's icon, not an address in this VPC. Run `make diagrams` again whenever a stack changes.
+
 ## Flow
 
 ```
