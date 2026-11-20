@@ -5,6 +5,12 @@
 dataset_id: dev
 illustrative: true
 window: {start: 2026-01-02, end: 2026-03-31}
+# Synthetic market history before the window, for historical VaR (roadmap 5A,
+# owner decisions 2026-11-20): every weekday (a synthetic calendar, not real 2025
+# exchange days), equity closes and USD/CAD rates walked backward from each
+# start_price and from fx.start_rate. External record sets price_history and
+# fx_rate_history; the window's own paths are unchanged.
+history: {start: 2025-01-02, end: 2025-12-31}
 settlement_time_local: "12:00:00"
 
 accounts: {count: 50, margin_share: "0.40", base_currency: CAD}

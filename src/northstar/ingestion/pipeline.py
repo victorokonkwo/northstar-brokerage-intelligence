@@ -36,13 +36,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from northstar.common.exceptions import NorthstarError
 from northstar.domain.calendar import MarketCalendar
 from northstar.ingestion.sources import (
+    INGESTED_RECORD_MODELS,
     Accepted,
     Rejected,
     RejectionKind,
     classify_event,
     classify_record,
 )
-from northstar.simulation.external import RECORD_MODELS
 
 MANIFEST_PREFIX = "audit/ingestion_manifests"
 
@@ -146,7 +146,7 @@ class SourceFile:
             raise FileNotFoundError(msg)
         external = [
             cls(root / "external" / f"{name}.jsonl", name)
-            for name in sorted(RECORD_MODELS)
+            for name in sorted(INGESTED_RECORD_MODELS)
             if (root / "external" / f"{name}.jsonl").is_file()
         ]
         return (cls(events, None), *external)

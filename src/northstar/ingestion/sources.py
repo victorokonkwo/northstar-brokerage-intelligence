@@ -28,6 +28,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from northstar.domain.calendar import MarketCalendar, business_date
 from northstar.domain.events import EVENT_MODELS, Event, EventType, TradeExecuted
 from northstar.simulation.external import EXTERNAL_RECORD_SCHEMA_VERSION, RECORD_MODELS
+from northstar.simulation.history import HISTORY_MODELS
 
 
 class RejectionKind(StrEnum):
@@ -70,8 +71,14 @@ EXTERNAL_DOMAINS: Final[Mapping[str, str]] = {
     "fx_confirmations": "bank",
     "custody_snapshots": "custody",
     "price_feed": "market_data",
+    "price_history": "market_data",
+    "fx_rate_history": "market_data",
 }
 """The raw-layer domain of each external record set (system overview §6)."""
+
+INGESTED_RECORD_MODELS: Final[Mapping[str, type[BaseModel]]] = {**RECORD_MODELS, **HISTORY_MODELS}
+"""Every record set ingested from a dataset's ``external/`` directory: the sets derived
+from the events, and the synthetic market history before the window (roadmap 5A)."""
 
 _EXTERNAL_DATES: Final[Mapping[str, Callable[[Any], date]]] = {
     "clearing_confirmations": lambda r: r.trade_date,
@@ -81,6 +88,8 @@ _EXTERNAL_DATES: Final[Mapping[str, Callable[[Any], date]]] = {
     "fx_confirmations": lambda r: r.trade_date,
     "custody_snapshots": lambda r: r.snapshot_date,
     "price_feed": lambda r: r.price_date,
+    "price_history": lambda r: r.price_date,
+    "fx_rate_history": lambda r: r.rate_date,
 }
 """The business date each external record is partitioned by."""
 
@@ -141,7 +150,7 @@ def classify_record(record_set: str, line: str) -> Accepted | Rejected:
     Raises:
         KeyError: ``record_set`` is not a known external record set.
     """
-    model = RECORD_MODELS[record_set]
+    model = INGESTED_RECORD_MODELS[record_set]
     try:
         record = model.model_validate_json(line)
     except ValidationError as error:

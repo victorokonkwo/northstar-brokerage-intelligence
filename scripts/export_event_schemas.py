@@ -14,6 +14,7 @@ from pathlib import Path
 from northstar.domain.events import EVENT_MODELS
 from northstar.simulation.defects import DefectEntry
 from northstar.simulation.external import EXTERNAL_RECORD_SCHEMA_VERSION, RECORD_MODELS
+from northstar.simulation.history import HISTORY_MODELS
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "contracts" / "events"
 EXTERNAL_OUTPUT = Path(__file__).resolve().parents[1] / "contracts" / "external"
@@ -32,7 +33,7 @@ def render_schemas() -> dict[str, str]:
 
 def render_external_schemas() -> dict[str, str]:
     """Return ``{file name: content}`` for each external record set and the defect manifest."""
-    models = dict(RECORD_MODELS) | {"defect_manifest": DefectEntry}
+    models = dict(RECORD_MODELS) | dict(HISTORY_MODELS) | {"defect_manifest": DefectEntry}
     return {
         f"{name}.v{EXTERNAL_RECORD_SCHEMA_VERSION}.schema.json": json.dumps(
             model.model_json_schema(mode="validation"), indent=2, sort_keys=True

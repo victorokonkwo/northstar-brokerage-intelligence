@@ -433,3 +433,40 @@ models:
       - {name: policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _detected_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+
+  - name: fct_price_history_daily
+    description: >
+      One row per instrument and day with a close (grain; unique, tested in
+      assert_daily_fact_grains_unique): the synthetic history before the dataset
+      window, then the window's closes. Read by historical VaR and the backtest
+      (roadmap 5A). No close is carried forward.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: instrument_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: price_date, data_type: date, constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: close_price, data_type: "numeric(18, 8)", constraints: [{type: not_null}], data_tests: [not_null]}
+      - name: currency
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: price_source, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _source_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+
+  - name: fct_fx_rate_history_daily
+    description: >
+      One row per USD/CAD reference rate date (grain; unique, tested in
+      assert_daily_fact_grains_unique): the synthetic history before the dataset
+      window, then the window's published rates. CAD per 1 USD (roadmap 5A).
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: base_currency, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: quote_currency, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: rate_date, data_type: date, constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: rate, data_type: "numeric(18, 10)", constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: rate_source, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _source_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}

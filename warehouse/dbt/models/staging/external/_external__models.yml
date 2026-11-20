@@ -63,3 +63,32 @@ models:
       - name: currency
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_external__price_history
+    description: >
+      One row per synthetic historical equity close before the dataset window
+      (simulation.history, roadmap 5A). Grain and primary key = record_id; unique by
+      instrument x price date.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+      - name: instrument_id
+        data_tests: [not_null]
+      - name: close_price
+        data_tests: [not_null]
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_external__fx_rate_history
+    description: >
+      One row per synthetic historical USD/CAD reference rate before the dataset
+      window (simulation.history, roadmap 5A). Grain and primary key = record_id;
+      unique by rate date.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+      - name: rate_date
+        data_tests: [unique, not_null]
+      - name: rate
+        data_tests: [not_null]

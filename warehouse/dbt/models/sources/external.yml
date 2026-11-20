@@ -27,3 +27,5 @@ sources:
                       - fee_records
                       - fx_confirmations
                       - price_feed
+                      - price_history     # synthetic market history (roadmap 5A)
+                      - fx_rate_history

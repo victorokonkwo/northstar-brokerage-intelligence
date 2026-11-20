@@ -13,18 +13,22 @@ The same inputs and policy versions always give the same bytes in every file.
 import hashlib
 import logging
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from opentelemetry import trace
+from pydantic import BaseModel
 
 from northstar.application.policies import load_policies
+from northstar.domain.events import Event, InstrumentListed
 from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.event_files import write_events, write_records
 from northstar.simulation.defects import DefectConfig, DefectEntry, inject_defects
 from northstar.simulation.engine import LEDGER_CALENDAR_MARKET
 from northstar.simulation.external import derive_external_records
-from northstar.simulation.generator import DatasetConfig, generate_dataset
+from northstar.simulation.generator import DatasetConfig, HistoryWindow, generate_dataset
+from northstar.simulation.history import HistorySpec, MarketHistory, generate_history
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,14 +76,17 @@ def simulate_dataset(
             injected = inject_defects(external, events, defect_config, seed, ledger)
             external, manifest = injected.records, injected.manifest
             write_records(root / "defects" / "manifest.jsonl", manifest)
-        for name, records in external.by_name().items():
+        written: dict[str, Sequence[BaseModel]] = dict(external.by_name())
+        if config.history is not None:
+            written |= _history(config, config.history, events, seed).by_name()
+        for name, records in written.items():
             write_records(root / "external" / f"{name}.jsonl", records)
         result = SimulatedDataset(
             dataset_id=config.dataset_id,
             seed=seed,
             root=root,
             counts=dict(sorted(Counter(str(e.event_type) for e in events).items())),
-            external_counts={n: len(r) for n, r in external.by_name().items()},
+            external_counts={n: len(r) for n, r in written.items()},
             defect_counts=dict(sorted(Counter(str(d.defect_type) for d in manifest).items())),
             file_sha256={
                 str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -101,3 +108,30 @@ def simulate_dataset(
             extra={"job": "simulate", "seed": seed},
         )
         return result
+
+
+def _history(
+    config: DatasetConfig, window: HistoryWindow, events: Sequence[Event], seed: int
+) -> MarketHistory:
+    """The synthetic market history before the window, for the dataset's own instrument IDs."""
+    ids = {
+        e.payload.symbol: e.payload.instrument_id for e in events if isinstance(e, InstrumentListed)
+    }
+    specs = [
+        HistorySpec(
+            instrument_id=ids[i.symbol],
+            currency=i.currency,
+            asset_class=i.asset_class,
+            anchor=i.start_price,
+            daily_vol=i.daily_vol,
+        )
+        for i in config.instruments
+    ]
+    return generate_history(
+        specs,
+        config.fx.start_rate,
+        config.fx.daily_vol,
+        window.start,
+        window.end,
+        seed,
+    )
