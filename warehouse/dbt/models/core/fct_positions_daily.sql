@@ -1,3 +1,24 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'date': 'business_date',
+        'inputs': [
+            'stg_brokerage__trade_executed',
+            'stg_brokerage__trade_settled',
+            'stg_brokerage__price_updated',
+            'stg_brokerage__instrument_listed',
+            'stg_brokerage__fx_rate_published',
+            'stg_ledger__journal_lines',
+            'stg_reference__market_calendar_days',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- One row per account x instrument x reporting date with a non-zero
 -- trade-date or settled quantity. Trade-date quantity is the sum of executed
 -- quantities with trade_date on or before the date; settled quantity is the
@@ -104,7 +125,7 @@ valued as (
         p.close_price is null as is_price_missing,
         coalesce(p.is_stale, false) as is_price_stale,
         q.trade_date_quantity * p.close_price * i.multiplier as unrounded_value,
-        case when i.currency = 'USD' then fx.rate end as fx_rate,
+        (case when i.currency = 'USD' then fx.rate end)::numeric(18, 10) as fx_rate,
         case when i.currency = 'USD' then fx.fx_rate_date end as fx_rate_date,
         case when i.currency = 'USD' then fx.fx_policy_version end as fx_policy_version
     from quantities as q
@@ -139,3 +160,6 @@ select
     price_event_id as _price_event_id,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from valued
+{% if is_incremental() %}
+    where {{ rebuild_filter('business_date') }}
+{% endif %}

@@ -26,6 +26,13 @@ clean-targets:         # directories to be removed by `dbt clean`
 flags:
   send_anonymous_usage_stats: false
 
+# Number every run and build, for the incremental models (macros/incremental.sql).
+on-run-start:
+  - "{{ create_build_schema() }}"
+  - "{{ create_build_log() }}"
+  - "{{ create_model_builds() }}"
+  - "{{ register_build() }}"
+
 # Layer defaults (engineering standards §3.2). Core models also enforce
 # contracts, set per model in its YAML.
 models:

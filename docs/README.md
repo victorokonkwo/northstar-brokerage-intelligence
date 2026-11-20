@@ -19,6 +19,10 @@ Every document states whether it describes something **implemented** or **planne
 | [architecture/simulation.md](architecture/simulation.md) | Simulation engine, scripted scenarios, and the seeded generator |
 | [domain-model.md](architecture/domain-model.md) | Canonical entities, identifiers, event envelope, accounting model, financial invariants, time semantics |
 | [non-functional-requirements.md](architecture/non-functional-requirements.md) | Accuracy, reproducibility, scale, freshness, security, and operability targets |
+| [data-foundation.md](architecture/data-foundation.md) | Ingestion, the warehouse load, dbt layers, published snapshots, orchestration |
+| [reconciliation.md](architecture/reconciliation.md) | Reconciliation policy, matching, exception lifecycle, controls marts, publication gate |
+| [cloud-warehouse.md](architecture/cloud-warehouse.md) | S3 bronze and Redshift Serverless: loading, controls, dbt on both warehouses, parity |
+| [incremental-models.md](architecture/incremental-models.md) | Incremental dbt models and SCD2 under late data, and the proof they equal a full rebuild |
 | [adr/](adr/) | Architecture decision records |
 
 ## Project

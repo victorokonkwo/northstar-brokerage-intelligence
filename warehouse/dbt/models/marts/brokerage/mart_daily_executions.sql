@@ -1,3 +1,19 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'date': 'business_date',
+        'inputs': [
+            'stg_brokerage__trade_executed',
+            'stg_ledger__journal_lines',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- Daily execution activity per trade date x market x currency. Amounts are
 -- the journal lines Python posted for each execution (int_execution_amounts),
 -- so they tie out to the ledger (INV-10).
@@ -27,4 +43,7 @@ select
     sum(journal_line_count)::integer as _journal_line_count,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from executions
+{% if is_incremental() %}
+    where {{ rebuild_filter('trade_date') }}
+{% endif %}
 group by trade_date, market, currency

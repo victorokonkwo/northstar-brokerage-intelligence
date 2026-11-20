@@ -1,3 +1,21 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'date': 'business_date',
+        'inputs': [
+            'stg_brokerage__price_updated',
+            'stg_brokerage__instrument_listed',
+            'stg_ledger__journal_lines',
+            'stg_reference__market_calendar_days',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- One row per instrument and reporting date that has a close on or before it.
 -- The price is the latest close on or before the date. It is stale (INV-08)
 -- when the instrument's market traded after that close, on or before the
@@ -73,3 +91,6 @@ inner join closes as c
     on l.instrument_id = c.instrument_id and l.price_date = c.price_date
 left join expected as e
     on l.instrument_id = e.instrument_id and l.business_date = e.business_date
+{% if is_incremental() %}
+    where {{ rebuild_filter('l.business_date') }}
+{% endif %}

@@ -16,7 +16,7 @@ DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev", "recon
 # Redshift targets: temporary AWS credentials from `aws login`, and the warehouse's
 # endpoint and bucket from the Terraform data stack (scripts/redshift_env.py).
 REDSHIFT_ENV := eval "$$(aws configure export-credentials --format env)" && eval "$$(uv run python scripts/redshift_env.py)" &&
-.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses checkdbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data
+.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses dbt-build-full compare-incremental check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -130,6 +130,13 @@ simulate-load: ingest ## Ingest the dev dataset, load it into raw_dev/ledger_dev
 
 dbt-build-dataset: | .env ## dbt build over raw_dev/ledger_dev into dbt_dataset (needs make up)
 	$(WITH_ENV) export NBI_DBT_SCHEMA=dbt_dataset && cd warehouse/dbt && uv run dbt build --vars $(DATASET_VARS)
+
+dbt-build-full: | .env ## Full-refresh dbt build of the same data into dbt_dataset_full, to check incremental builds against
+	$(WITH_ENV) export NBI_DBT_SCHEMA=dbt_dataset_full && cd warehouse/dbt && uv run dbt build --full-refresh --vars $(DATASET_VARS)
+
+compare-incremental: | .env ## Compare every incrementally built dbt_dataset model with dbt_dataset_full, row for row
+	$(WITH_ENV) uv run python scripts/compare_warehouses.py --schema dbt_dataset \
+		--right postgres --right-schema dbt_dataset_full
 
 publish: | .env ## Publish the dev dataset's controls, then financial snapshots (after reconcile); exits 2 if a date is blocked
 	$(WITH_ENV) uv run northstar publish --stream controls --dbt-schema dbt_dataset --published-schema published_controls_dev

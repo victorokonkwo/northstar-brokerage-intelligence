@@ -15,7 +15,7 @@ The same pipeline code runs against both warehouses. `--warehouse postgres` (the
 ingest ─► s3://northstar-bronze-…/raw/…   content-addressed, put-if-absent (bronze)
 load-run ─► s3://…/_stage/<schema>.<table>/<sha256>.jsonl ─► COPY ─► temp table
           ─► conflict check ─► INSERT … WHERE NOT EXISTS ─► raw_dev, ledger_dev
-dbt build (target redshift) ─► dbt_dataset (silver and gold)
+dbt build (target redshift) ─► dbt_dataset (silver and gold; incremental, see incremental-models.md)
 ```
 
 - **Ingest is unchanged.** It writes the same content-addressed objects to S3. AWS S3 refuses an overwrite just as SeaweedFS does: re-ingesting wrote 0 of 929 objects again.
@@ -52,6 +52,7 @@ Redshift has no triggers and no CHECK constraints, and doesn't enforce unique ke
 - **No bare `numeric`.** Redshift reads `numeric` as numeric(18, 0) and rounds the decimals away; porting found KPI-01's daily totals rounded to whole dollars that way, and they're fixed. Every cast and contract type states its precision.
 - **The guard.** `tests/unit/test_dbt_portability.py` fails CI on bare `numeric`, `::text`, jsonb operators and functions, `IS DISTINCT FROM`, `FILTER`, `DISTINCT ON`, `LATERAL`, `generate_series`, and unquoted comma types in YAML. CI never runs Redshift, so this guard keeps it in reach.
 - **Parsing both targets.** `make dbt-parse` parses both targets.
+- **Incremental models.** The incremental models and their `rebuild` strategy run unchanged on both warehouses ([incremental models](incremental-models.md)). `tests/redshift/test_redshift_incremental.py` runs the late-data scenario live.
 
 ## Parity with Postgres
 

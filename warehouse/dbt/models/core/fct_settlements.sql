@@ -1,3 +1,20 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': 'settlement_id',
+        'arrival': 'settlement_id',
+        'inputs': [
+            'stg_brokerage__trade_executed',
+            'stg_brokerage__trade_settled',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- One row per settlement obligation: an order's executions on one trade date
 -- (INV-06). Built from the executions, so an obligation exists from its first
 -- fill. It is SETTLED once its trade_settled event arrives, PENDING before.
@@ -71,3 +88,6 @@ select
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from obligations as o
 left join settled as s on o.settlement_id = s.settlement_id
+{% if is_incremental() %}
+    where {{ rebuild_filter('o.settlement_id') }}
+{% endif %}

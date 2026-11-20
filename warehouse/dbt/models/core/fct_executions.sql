@@ -1,3 +1,19 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': '_source_event_id',
+        'arrival': 'record_id',
+        'inputs': [
+            'stg_brokerage__trade_executed',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- Canonical executions (domain model §3). One row per execution (fill).
 -- The gross amount is not recomputed here: it is posted by Python and lives
 -- in fct_journal_lines (ADR 007).
@@ -57,3 +73,6 @@ select
     schema_version as _schema_version,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from executions
+{% if is_incremental() %}
+    where {{ rebuild_filter('event_id') }}
+{% endif %}
