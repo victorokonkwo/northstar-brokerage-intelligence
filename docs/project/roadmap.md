@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Last updated | 2026-11-19 |
-| Current phase | **Phase 4 — Reconciliation + controls (not started)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. Phase 2 done 2026-11-19. Phase 3 done 2026-11-20. |
+| Current phase | **Phase 4 — Reconciliation + controls (in progress)**. Phase 0 done 2026-11-18. Phase 1 done 2026-11-19. Phase 2 done 2026-11-19. Phase 3 done 2026-11-20. |
 
 This is the **authoritative status tracker**. Update it in the same change that alters status. Status values are `Not started`, `In progress`, `Done`. "Done" means the exit gate passed, with evidence linked.
 
@@ -34,11 +34,39 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | 1 Engineering foundation | 2 | Monorepo, `pyproject.toml` + `uv.lock`, Ruff, mypy, pytest, pre-commit, Docker Compose (Postgres, Airflow, S3-compatible store), CI, OpenTelemetry foundation, AWS budget alert + Terraform baseline and CloudWatch OTLP export | **Platform gate:** a fresh clone can start the stack, run a sample pipeline and the tests, and reproduce the same result | Done (2026-11-19). Gate evidence: [CI run on `main` 3a22ecf](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44592557891). CloudWatch OTLP export deferred to Phase 3 |
 | 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | Done (2026-11-19). Gate evidence: [CI run on `main` 8895a82](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44608534995) |
 | 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Done (2026-11-20). Gate evidence: [CI run on `main` acc9227](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44654267221); the 1M-execution load test is deferred to Phase 8 |
-| 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | Not started |
+| 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | In progress |
 | 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
 | 6 Treasury forecasting | 13–14 | Known vs. uncertain flows, baseline/statistical/GBM models, walk-forward evaluation, intervals, scenarios, MLflow | **Forecast evaluation gate:** reproducible forecasts evaluated against the baseline, with error, bias, coverage, and stress results documented | Not started |
 | 7 Finance intelligence | 15–16 | Profitability mart, allocation method, KPI restatements, drilldown, simulated reporting package, executive dashboard | **Reporting gate:** every finance KPI has a documented formula, passes tie-outs, and drills down to transactions | Not started |
 | 8 Production readiness | 17–18 | Load tests (including the 1M-execution run deferred from Phase 3: streaming generation and loading), failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
+
+## Phase 4 (weeks 8–9)
+
+Plan approved by the owner on 2026-11-20, as seven PRs:
+1. 4A external records in the warehouse, and the reconciliation policy
+2. 4B staged matching and classification
+3. 4C lifecycle, audit trail, and auto-resolution
+4. 4D exception marts, publication gate, and pipeline
+5. 4E cloud infrastructure (Terraform)
+6. 4F cloud medallion: S3 bronze, Redshift silver and gold
+7. 4G Looker Studio operations dashboard, and the gate
+
+### Phase 4 decisions (owner, 2026-11-20)
+
+| Decision | Outcome |
+|---|---|
+| Dashboards | Looker Studio (free), for all four dashboards, replacing Streamlit; an ADR follows in 4G |
+| Cloud architecture | the documented medallion: S3 bronze, Redshift Serverless silver and gold via dbt-redshift (ADR 005; this slipped from Phase 3). Looker Studio reads Redshift gold |
+| Sequencing | reconciliation first (local), then the cloud track, then the dashboard |
+| Reconciliation policy | tolerances exact (prices ±0.0001); severity CRITICAL ≥ CAD 10,000, HIGH ≥ 1,000, MEDIUM ≥ 100; SLA 1/2/5/10 business days (illustrative, `config/reconciliation/policy.yaml`) |
+| Reconciliations | seven: executions, cash, settlements, positions, fees, and, for the defect manifest, FX and prices (`STALE_PRICE`) |
+| Publication | the financial snapshot is blocked by open CRITICAL/HIGH exceptions; the controls snapshot (exception monitoring) is gated by KPI-01 only |
+| Looker Studio report | built by the owner from a spec, with figures checked against the marts |
+
+| PR | Status |
+|---|---|
+| 4A external records and policy | Built (this PR): dbt staging for the seven external record sets; the versioned reconciliation policy with severity rules |
+| 4B–4G | Not started |
 
 ## Phase 3 (weeks 5–7)
 

@@ -137,14 +137,18 @@ The event types are `account_created`, `account_updated`, `instrument_listed`, `
 | Settlements | `fct_settlements` | settlement confirmations | `settlement_id` → (account, instrument, settlement date, quantity) |
 | Positions | settlement-date positions | custody snapshots | (account, instrument, date) |
 | Fees | commission and fee lines | external fee records | `execution_id` → (account, trade date, amount) |
+| FX | client conversions (`fct_cash_movements`) | FX confirmations | `fx_conversion_id` → (account, trade date, sell and buy amounts) |
+| Prices | daily closes (`price_updated`) | the vendor price feed | (instrument, price date) |
+
+FX and prices were added in Phase 4 (owner decision, 2026-11-20). The defect manifest (FR-SIM-03) injects wrong FX conversions and stale vendor prices, and reconciliation must detect both. A delayed settlement moves both its confirmation and its bank line. It is one `SETTLEMENT_LATE` exception: the bank line's later value date is an explained timing difference, not a `CASH_BREAK`.
 
 ### 7.2 Exception types
 
-`MISSING_EXTERNAL`, `MISSING_INTERNAL`, `DUPLICATE_EXTERNAL`, `QUANTITY_MISMATCH`, `PRICE_MISMATCH`, `FEE_MISMATCH`, `FX_MISMATCH`, `SETTLEMENT_LATE`, `SETTLEMENT_AMOUNT_MISMATCH`, `POSITION_MISMATCH`, `CASH_BREAK`.
+`MISSING_EXTERNAL`, `MISSING_INTERNAL`, `DUPLICATE_EXTERNAL`, `QUANTITY_MISMATCH`, `PRICE_MISMATCH`, `FEE_MISMATCH`, `FX_MISMATCH`, `SETTLEMENT_LATE`, `SETTLEMENT_AMOUNT_MISMATCH`, `POSITION_MISMATCH`, `CASH_BREAK`, `STALE_PRICE` (the vendor repeated an earlier close for a day its market traded; added in Phase 4). They are defined in `northstar.domain.reconciliation.ExceptionType`.
 
 ### 7.3 Severity
 
-Thresholds live in config. The defaults are proposals to be confirmed in Phase 4.
+Thresholds live in `config/reconciliation/policy.yaml` (version 2026.1, illustrative; confirmed by the owner on 2026-11-20): CRITICAL ≥ CAD 10,000, HIGH ≥ CAD 1,000, MEDIUM ≥ CAD 100. The SLAs are 1, 2, 5, and 10 business days. Tolerances are exact for IDs, quantities, and amounts, and ±0.0001 per unit for prices. `northstar.domain.reconciliation.ReconciliationPolicy.severity_of` applies the rule below.
 
 | Severity | Rule | Blocks publication |
 |---|---|---|

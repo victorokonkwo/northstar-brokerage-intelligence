@@ -103,7 +103,7 @@ On the dev dataset (seed 42) the build has 126 nodes, and all pass:
 - 416 settled obligations
 - 274 cash movements
 
-External record sets are loaded to `raw.external_records` but not yet modelled. Their staging models come with reconciliation in Phase 4, which consumes them.
+External record sets are loaded to `raw.external_records`, and each has a staging model (`stg_external__<set>`, Phase 4A), with rename and cast only and a key test on `record_id`. A duplicate clearing message has its own `record_id` and repeats the `broker_reference`: detecting it is reconciliation's job, not staging's.
 
 ## Daily facts and marts
 

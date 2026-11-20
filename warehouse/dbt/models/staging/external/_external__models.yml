@@ -1,0 +1,65 @@
+version: 2
+
+models:
+  - name: stg_external__clearing_confirmations
+    description: One row per clearing confirmation. Grain and primary key = record_id. A duplicate message has its own record_id and repeats the broker_reference.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+      - name: side
+        data_tests:
+          - accepted_values: {arguments: {values: [BUY, SELL]}}
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_external__settlement_confirmations
+    description: One row per settlement confirmation. Grain and primary key = record_id.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+      - name: side
+        data_tests:
+          - accepted_values: {arguments: {values: [BUY, SELL]}}
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_external__bank_statement_lines
+    description: One row per bank statement line. Grain and primary key = record_id.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_external__custody_snapshots
+    description: One row per custody line (account x instrument x snapshot date). Grain and primary key = record_id.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+
+  - name: stg_external__fee_records
+    description: One row per external fee record. Grain and primary key = record_id.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_external__fx_confirmations
+    description: One row per FX confirmation. Grain and primary key = record_id.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+
+  - name: stg_external__price_feed
+    description: One row per vendor close (instrument x price date). Grain and primary key = record_id.
+    columns:
+      - name: record_id
+        data_tests: [unique, not_null]
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
