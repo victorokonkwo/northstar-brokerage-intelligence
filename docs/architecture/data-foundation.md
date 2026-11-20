@@ -206,7 +206,7 @@ check_business_day → ingest → load → dbt_build (dbt-ol, lineage archived) 
 - **Airflow tasks:** the image's OpenLineage provider (2.21.0) writes task events to `/opt/airflow/lineage/airflow.jsonl` on the `airflow-lineage` volume.
 - **No lineage service:** there is none, by owner decision. The events are inspectable JSON Lines.
 
-**The window and the run limit.** The DAG covers the dev dataset's business dates (start and end dates in the DAG), with `catchup=False` and one active run at a time, because runs share the warehouse schemas.
+**The window and one writer at a time.** The DAG covers the dev dataset's business dates (start and end dates in the DAG), with `catchup=False` and `max_active_runs=1`. That limit alone does not stop a backfill from running beside a triggered run. In CI, two concurrent dbt builds on one schema deadlocked in Postgres, and this was reproduced locally. So `load`, `dbt_build`, and `publish` share the one-slot `warehouse` pool, created by `airflow-init`. Concurrent runs now take turns, and a daily run and a backfill submitted together both succeed on their first try with the CLI's hashes.
 
 **Equivalence, checked in CI.**
 - **Runs:** a daily run (2026-01-06) and a backfill (2026-01-09, then the Saturday 2026-01-10, which is skipped).

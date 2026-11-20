@@ -236,6 +236,13 @@ jobs:
           docker compose --env-file .env --file infrastructure/docker/compose.yaml \
             exec -T airflow-scheduler grep -c '"northstar_daily.publish"' /opt/airflow/lineage/airflow.jsonl
 
+      - name: On failure, show the error lines of the Airflow task logs
+        if: failure()
+        run: |
+          docker compose --env-file .env --file infrastructure/docker/compose.yaml \
+            exec -T airflow-scheduler bash -c \
+            'grep -rhoE "(ERROR|Error|Traceback|deadlock)[^\"]{0,200}" /opt/airflow/logs/dag_id=northstar_daily | sort | uniq -c | sort -rn | head -40' || true
+
       - name: Telemetry reached the OpenTelemetry Collector
         # ADR 008/009: the e2e runs export traces, metrics, and logs over OTLP;
         # the Collector's debug exporter prints them.

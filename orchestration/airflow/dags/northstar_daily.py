@@ -19,6 +19,10 @@ When a task fails after its last retry, ``alert`` runs ``northstar
 record-alert``, which logs it and stores it under ``audit/alerts/``. A
 backfill uses the same tasks, so N backfilled dates equal N daily runs.
 
+Tasks that write the warehouse (load, dbt_build, publish) share the one-slot
+``warehouse`` pool, so concurrent runs, such as a backfill next to a triggered
+run, take turns instead of deadlocking.
+
 Runs are limited to the dataset's window (start/end dates below): the dev
 dataset is synthetic Q1 2026 data, so later dates have nothing to publish.
 """
@@ -40,6 +44,10 @@ DBT_OL = f"{VENV_BIN}/dbt-ol"
 PROJECT = "/opt/northstar"
 TORONTO = pendulum.timezone("America/Toronto")
 NOT_A_BUSINESS_DAY = 99
+WAREHOUSE_POOL = "warehouse"
+"""One slot (created by airflow-init): tasks that write the warehouse never overlap.
+max_active_runs alone doesn't stop a backfill from running beside a triggered
+run, and two concurrent dbt builds on one schema deadlock in Postgres."""
 
 BUSINESS_DATE = "{{ macros.ds_add(ds, -1) }}"
 RUN = "{{ run_id | replace(':', '-') | replace('+', '-') }}-try{{ ti.try_number }}"
@@ -124,6 +132,7 @@ with DAG(
     )
     load = BashOperator(
         task_id="load",
+        pool=WAREHOUSE_POOL,
         bash_command=(
             f"{NORTHSTAR} load-run --run-id \"{{{{ ti.xcom_pull(task_ids='ingest') }}}}\" "
             "--raw-schema {{ params.raw_schema }} --ledger-schema {{ params.ledger_schema }}"
@@ -134,6 +143,7 @@ with DAG(
     # then exits with dbt's status, or 1 if only the archiving failed.
     dbt_build = BashOperator(
         task_id="dbt_build",
+        pool=WAREHOUSE_POOL,
         bash_command=(
             f"mkdir -p /tmp/lineage && rm -f /tmp/lineage/{RUN}.jsonl && "
             f"printf 'transport:\\n  type: file\\n  log_file_path: /tmp/lineage/{RUN}.jsonl\\n"
@@ -150,6 +160,7 @@ with DAG(
     )
     publish = BashOperator(
         task_id="publish",
+        pool=WAREHOUSE_POOL,
         bash_command=(
             f"{NORTHSTAR} publish --business-date {BUSINESS_DATE} "
             "--dbt-schema {{ params.dbt_schema }} --published-schema {{ params.published_schema }}"
