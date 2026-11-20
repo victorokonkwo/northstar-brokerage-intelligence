@@ -27,6 +27,8 @@ FORBIDDEN_SQL = {
     "generate_series": re.compile(r"\bgenerate_series\b", re.IGNORECASE),
     "jsonb function": re.compile(r"\bjsonb?_[a-z_]+\(", re.IGNORECASE),
     "lateral": re.compile(r"\blateral\b", re.IGNORECASE),
+    # Redshift has no multi-row VALUES list in FROM: build rows with UNION ALL.
+    "values list": re.compile(r"\(\s*values\s*\(", re.IGNORECASE),
 }
 # Checked with Jinja kept, because these hide in macro arguments such as
 # round_half_even('a::numeric(38, 0) / b', 6). Redshift caps a division's
@@ -74,6 +76,9 @@ def test_contract_types_are_portable(path: Path) -> None:
     assert not bad, f"{path.relative_to(DBT)}: contract types {bad} differ on Redshift"
     split = UNQUOTED_COMMA_TYPE.findall(text)
     assert not split, f"{path.relative_to(DBT)}: quote {split}: YAML splits it at the comma"
+    # Unit-test fixtures in `format: sql` run on both warehouses too.
+    rows = FORBIDDEN_SQL["values list"].findall(_strip(text))
+    assert not rows, f"{path.relative_to(DBT)}: a SQL fixture uses a VALUES list (not on Redshift)"
 
 
 @pytest.mark.parametrize(
@@ -85,6 +90,7 @@ def test_contract_types_are_portable(path: Path) -> None:
         ("where a is distinct from b", "is distinct from"),
         ("count(*) filter (where x)", "aggregate filter"),
         ("jsonb_array_elements_text(a)", "jsonb function"),
+        ("from (values (1), (2)) as a (n)", "values list"),
     ],
 )
 def test_the_guard_catches_each_construct(snippet: str, name: str) -> None:

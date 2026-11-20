@@ -13,30 +13,30 @@ unit_tests:
       - input: ref('int_execution_amounts')
         format: sql
         rows: |
+          -- Number rows by UNION ALL: Redshift has no multi-row VALUES in FROM.
           select
-              'exe_' || a.n || '_' || b.n as execution_id,
+              'exe_' || cast(a.n as varchar) || '_' || cast(b.n as varchar) as execution_id,
               cast('2026-03-02' as date) as trade_date,
               'CAD' as currency,
               cast(100.00 as numeric(18, 2)) as gross_amount
-          from (values (1), (2), (3), (4), (5), (6), (7), (8)) as a (n)
-          cross join (values (1), (2), (3), (4), (5), (6), (7), (8),
-              (9), (10), (11), (12), (13), (14), (15), (16)) as b (n)
+          from (select 1 as n union all select 2 union all select 3 union all select 4 union all select 5 union all select 6 union all select 7 union all select 8) as a
+          cross join (select 1 as n union all select 2 union all select 3 union all select 4 union all select 5 union all select 6 union all select 7 union all select 8 union all select 9 union all select 10 union all select 11 union all select 12 union all select 13 union all select 14 union all select 15 union all select 16) as b
           union all
           select
-              'exe_d2_' || a.n || '_' || b.n,
+              'exe_d2_' || cast(a.n as varchar) || '_' || cast(b.n as varchar),
               cast('2026-03-03' as date),
               'CAD',
               cast(100.00 as numeric(18, 2))
-          from (values (1), (2), (3)) as a (n)
-          cross join (values (1), (2), (3), (4), (5), (6)) as b (n)
+          from (select 1 as n union all select 2 union all select 3) as a
+          cross join (select 1 as n union all select 2 union all select 3 union all select 4 union all select 5 union all select 6) as b
       - input: ref('stg_recon__match_results')
         format: sql
         rows: |
           select 'exe_1_1' as internal_ref, 'executions' as reconciliation
           union all
-          select 'exe_d2_' || a.n || '_' || b.n, 'executions'
-          from (values (1), (2), (3)) as a (n)
-          cross join (values (1), (2), (3), (4), (5), (6)) as b (n)
+          select 'exe_d2_' || cast(a.n as varchar) || '_' || cast(b.n as varchar), 'executions'
+          from (select 1 as n union all select 2 union all select 3) as a
+          cross join (select 1 as n union all select 2 union all select 3 union all select 4 union all select 5 union all select 6) as b
           where not (a.n = 3 and b.n = 6)
     expect:
       rows:
