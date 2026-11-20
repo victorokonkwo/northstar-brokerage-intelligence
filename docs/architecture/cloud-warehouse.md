@@ -9,6 +9,34 @@
 
 The same pipeline code runs against both warehouses. `--warehouse postgres` (the default) uses the local stack: SeaweedFS and Postgres. `--warehouse redshift` uses the S3 bronze bucket and Redshift Serverless.
 
+## Architecture
+
+What the three Terraform stacks deploy, drawn by [TerraVision](https://github.com/patrickchugh/terravision) 0.56.4 from `terraform plan`. The whole platform in one picture, with a walk-through of a run, is in the [README](../../README.md#architecture-on-aws).
+
+![Data stack: VPC with three subnets, the Redshift Serverless workgroup in its security group, the namespace, the COPY role, the bronze bucket, and the alerts topic with the monthly-compute alarm](aws/data-stack.svg)
+
+![Batch stack: the schedule and the operator start the daily-close state machine, which runs Fargate tasks in the warehouse VPC and alerts through the data stack's topic](aws/batch-stack.svg)
+
+![Bootstrap stack: the monthly budget and the Terraform state bucket](aws/bootstrap-stack.svg)
+
+**What the diagrams leave out:**
+- **Resources TerraVision has no icon for:** the usage limits (4 RPU-hours a day, deactivate; 60 a month, emit-metric) and the buckets' ownership controls. They would be blank boxes. The batch stack's role policies are drawn as their roles, and its security group rules are summarised in the group's label.
+- **Edges TerraVision won't draw:** the tasks pull their image from ECR and write to the task log group. TerraVision hides edges into those two nodes, even when an annotation asks for them.
+- **Edges between stacks:** the batch tasks connect to the Redshift workgroup (port 5439, inside the VPC) and read and write the bronze bucket. Both are in the data stack. The batch diagram shows only the VPC and the alerts topic it looks up from there.
+- **Things outside the stacks:** the Redshift-managed admin secret, and Looker Studio.
+
+**How they're made.** `make diagrams` (`scripts/draw_architecture.sh`) needs `aws login` and the data stack applied, because the batch stack looks up the data stack's resources. It works on copies of the stacks in a temporary directory:
+1. TerraVision plans them against empty local state, so the stacks' S3 state is never read and nothing is applied. The required variables get placeholder values, which change no resource's shape.
+2. `scripts/terravision_prune.py` corrects TerraVision's artifacts in three steps:
+   - **Drop:** the three duplicate copies of the workgroup and its security group, a "shared services" IAM group that no stack declares, and the blank nodes.
+   - **Rewire:** the batch stack's edges, so the Fargate tasks sit in their security group inside the VPC, and the schedule, roles, and alarm point at what they act on.
+   - **Add:** the edges a plan can't show (the COPY role reading the bronze bucket, and the operator).
+
+   If TerraVision's output changes shape, the script fails.
+3. TerraVision draws the result with the labels in `aws/*.terravision.yml`.
+
+The route-table icon shows "172.16.x", which is part of TerraVision's icon, not an address in this VPC. Run `make diagrams` again whenever a stack changes.
+
 ## Flow
 
 ```
