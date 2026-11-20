@@ -76,6 +76,7 @@ The working rules (honesty, financial correctness, boundaries) are in [CONTRIBUT
 | Intermediate | `models/intermediate/` | `int_<entity>_<verb>` | reusable business logic; not exposed to consumers | ephemeral or view |
 | Core | `models/core/` | `dim_<entity>`, `fct_<entity>` | canonical model (domain model §3); **contracts enforced** | table or incremental |
 | Marts | `models/marts/<domain>/` | `mart_<subject>` | consumer-facing; **contracts enforced**; carries snapshot version | table or incremental |
+| Serving | `models/serving/` | `serving_<subject>` | what dashboards read: each date's currently published snapshot of one mart, with its version and publish time; **contracts enforced**; built after publication (`tag:serving`, outside the default selector) | view |
 
 Model folders are created when their first real model is added, not before.
 

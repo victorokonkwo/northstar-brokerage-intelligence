@@ -58,6 +58,10 @@ models/
 
 Each model's YAML states its grain and primary key, and the key is tested for `unique` and `not_null`. Monetary columns use `numeric`, never `float`. Financial invariant tests live in `tests/` as singular tests named `assert_<invariant>.sql`.
 
+## Serving views
+
+`models/serving/` holds what dashboards read ([ADR 011](../../docs/adr/011-looker-studio-dashboards.md)): views of each date's currently published snapshot. They read the published schemas, which exist only after publication, so `selectors.yml` leaves `tag:serving` out of every build that doesn't select it; `make serving` builds them after `make publish`.
+
 ## Incremental models
 
 An incremental model uses the `rebuild` strategy and declares in `meta.rebuild` whether it rebuilds by date or by key, and which staging models trigger it. `tests/unit/test_dbt_incremental.py` fails if that list differs from what the model reads. A change to a model's own SQL file rebuilds it in full on its next build. A change to anything it reads (a staging view, an intermediate model, a macro) or to a contract needs `dbt build --full-refresh`. See [incremental models](../../docs/architecture/incremental-models.md).

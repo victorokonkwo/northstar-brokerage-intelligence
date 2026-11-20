@@ -35,7 +35,7 @@ flowchart TB
 
     subgraph OUT["Consumption"]
         API["FastAPI (read-only)"]
-        DASH["Streamlit dashboards"]
+        DASH["Looker Studio dashboards (ADR 011)"]
         RPT["Reporting extracts"]
     end
 
@@ -144,7 +144,7 @@ northstar-brokerage-intelligence/
 ├── warehouse/dbt/      created with `dbt init` — models/{sources,staging,intermediate,core,marts}, macros, snapshots, seeds, tests
 ├── orchestration/      airflow/{dags,task_groups,operators,sensors,callbacks,tests}
 ├── ml/                 forecasting/{datasets,models,training,evaluation,inference}, model_cards/, notebooks/ (exploration only)
-├── services/           api/ (FastAPI), dashboards/ (Streamlit)
+├── services/           api/ (FastAPI); dashboards are Looker Studio reports (ADR 011)
 ├── infrastructure/     docker/, terraform/{modules,environments}
 ├── monitoring/         data_quality/, model_monitoring/, operational/
 ├── tests/              unit/, integration/, financial_invariants/, quantitative_validation/, contract/, end_to_end/, performance/, fixtures/

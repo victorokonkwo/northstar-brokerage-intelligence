@@ -24,6 +24,7 @@ Every document states whether it describes something **implemented** or **planne
 | [cloud-warehouse.md](architecture/cloud-warehouse.md) | S3 bronze and Redshift Serverless: loading, controls, dbt on both warehouses, parity |
 | [incremental-models.md](architecture/incremental-models.md) | Incremental dbt models and SCD2 under late data, and the proof they equal a full rebuild |
 | [adr/](adr/) | Architecture decision records |
+| [dashboards/operations.md](dashboards/operations.md) | The operations dashboard's spec (Looker Studio, KPI-02 to KPI-06) |
 
 ## Project
 

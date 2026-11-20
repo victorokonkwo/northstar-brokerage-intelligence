@@ -17,7 +17,7 @@ DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev", "recon
 # Redshift targets: temporary AWS credentials from `aws login`, and the warehouse's
 # endpoint and bucket from the Terraform data stack (scripts/redshift_env.py).
 REDSHIFT_ENV := eval "$$(aws configure export-credentials --format env)" && eval "$$(uv run python scripts/redshift_env.py)" &&
-.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses dbt-build-full compare-incremental parity check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish serving dashboard-check benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data tf-init-batch tf-plan-batch batch-image
+.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses dbt-build-full compare-incremental parity check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish serving dashboard-check dashboard-check-redshift benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data tf-init-batch tf-plan-batch batch-image
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -172,6 +172,10 @@ serving: | .env ## Build the dashboard's serving views over the published contro
 dashboard-check: | .env ## Check every serving view against the published controls snapshots and the marts (FR-M2-09)
 	$(WITH_ENV) uv run python scripts/dashboard_check.py --dbt-schema dbt_dataset \
 		--published-controls-schema published_controls_dev
+
+dashboard-check-redshift: ## The same check on Redshift, the data Looker Studio reads (needs aws login)
+	$(REDSHIFT_ENV) uv run python scripts/dashboard_check.py --warehouse redshift \
+		--dbt-schema dbt_dataset --published-controls-schema published_controls_dev
 
 benchmark: | .env ## Load-test benchmark at config/simulation/datasets/load.yaml; writes docs/performance/load-test.md (needs make up; minutes)
 	$(WITH_ENV) uv run python scripts/benchmark.py --dataset config/simulation/datasets/load.yaml --write-doc docs/performance/load-test.md
