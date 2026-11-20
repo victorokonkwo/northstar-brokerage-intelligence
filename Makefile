@@ -6,6 +6,7 @@ COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.y
 WITH_ENV := set -a && . ./.env && set +a &&
 TF_BOOTSTRAP := infrastructure/terraform/bootstrap
 TF_DATA := infrastructure/terraform/data
+TF_BATCH := infrastructure/terraform/batch
 TF_STATE_BUCKET = northstar-tfstate-$$(aws sts get-caller-identity --query Account --output text)-ca-central-1
 DEV_DATASET := data/generated/dev/seed=42
 # One run ID per make invocation, shared by ingest and load (override with RUN_ID=...).
@@ -16,7 +17,7 @@ DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev", "recon
 # Redshift targets: temporary AWS credentials from `aws login`, and the warehouse's
 # endpoint and bucket from the Terraform data stack (scripts/redshift_env.py).
 REDSHIFT_ENV := eval "$$(aws configure export-credentials --format env)" && eval "$$(uv run python scripts/redshift_env.py)" &&
-.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses dbt-build-full compare-incremental parity check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data
+.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses dbt-build-full compare-incremental parity check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data tf-init-batch tf-plan-batch batch-image
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -108,6 +109,9 @@ tf-validate: ## Terraform format check and validation of every stack (no AWS acc
 	terraform -chdir=$(TF_DATA) fmt -check -recursive
 	terraform -chdir=$(TF_DATA) init -backend=false -input=false
 	terraform -chdir=$(TF_DATA) validate
+	terraform -chdir=$(TF_BATCH) fmt -check -recursive
+	terraform -chdir=$(TF_BATCH) init -backend=false -input=false
+	terraform -chdir=$(TF_BATCH) validate
 
 tf-init-bootstrap: ## Initialise the bootstrap stack against its S3 state (needs AWS login)
 	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) init -input=false -backend-config="bucket=$(TF_STATE_BUCKET)"
@@ -118,8 +122,22 @@ tf-plan-bootstrap: tf-init-bootstrap ## Plan the AWS bootstrap; never applies (n
 tf-init-data: ## Initialise the data stack (S3 bronze, Redshift Serverless) against its S3 state (needs AWS login)
 	$(WITH_ENV) terraform -chdir=$(TF_DATA) init -input=false -backend-config="bucket=$(TF_STATE_BUCKET)"
 
-tf-plan-data: tf-init-data ## Plan the data stack; never applies (needs AWS login and TF_VAR_operator_cidrs in .env)
-	$(WITH_ENV) terraform -chdir=$(TF_DATA) plan -input=false -out=data.tfplan
+tf-plan-data: tf-init-data ## Plan the data stack; never applies (needs AWS login, TF_VAR_operator_cidrs and TF_VAR_budget_alert_email in .env)
+	$(WITH_ENV) TF_VAR_alert_email="$$TF_VAR_budget_alert_email" terraform -chdir=$(TF_DATA) plan -input=false -out=data.tfplan
+
+tf-init-batch: ## Initialise the batch stack (ECR, ECS, Step Functions, Scheduler) against its S3 state (needs AWS login)
+	$(WITH_ENV) terraform -chdir=$(TF_BATCH) init -input=false -backend-config="bucket=$(TF_STATE_BUCKET)"
+
+tf-plan-batch: tf-init-batch ## Plan the batch stack for the image of HEAD; never applies (needs AWS login and the data stack's alerts topic)
+	$(WITH_ENV) terraform -chdir=$(TF_BATCH) plan -input=false -var="image_tag=$$(git rev-parse HEAD)" -out=batch.tfplan
+
+batch-image: ## Build the arm64 batch image of HEAD and push it to ECR (needs AWS login, Docker, the applied batch stack, a clean tree)
+	@test -z "$$(git status --porcelain --untracked-files=no)" || { echo "commit first: the image tag is the commit" >&2; exit 1; }
+	$(eval BATCH_REPO := $(shell terraform -chdir=$(TF_BATCH) output -raw ecr_repository_url))
+	aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin $(firstword $(subst /, ,$(BATCH_REPO)))
+	docker build --platform linux/arm64 -f infrastructure/docker/batch/Dockerfile \
+		--build-arg NBI_CODE_VERSION=$$(git rev-parse HEAD) -t $(BATCH_REPO):$$(git rev-parse HEAD) .
+	docker push $(BATCH_REPO):$$(git rev-parse HEAD)
 
 simulate: ## Generate the dev dataset (seed 42): canonical events, external records, defects
 	uv run northstar simulate --dataset config/simulation/datasets/dev.yaml --seed 42 \

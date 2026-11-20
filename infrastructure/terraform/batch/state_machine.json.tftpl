@@ -1,0 +1,610 @@
+{
+  "Comment": "Daily close of the northstar dev dataset on Redshift (roadmap 4G, ADR 010). Mirrors orchestration/airflow/dags/northstar_daily.py.",
+  "QueryLanguage": "JSONata",
+  "TimeoutSeconds": 10800,
+  "StartAt": "Resolve",
+  "States": {
+    "Resolve": {
+      "Type": "Pass",
+      "Comment": "The date to close: the input's business_date, or for a scheduled run the day before scheduled_time (06:00 Toronto is 10:00 or 11:00 UTC the same day).",
+      "Assign": {
+        "business_date": "{% $exists($states.input.business_date) ? $states.input.business_date : $fromMillis($toMillis($states.input.scheduled_time) - 86400000, '[Y0001]-[M01]-[D01]') %}"
+      },
+      "Next": "CheckBusinessDay"
+    },
+    "CheckBusinessDay": {
+      "Type": "Task",
+      "Comment": "run-step check_business_day",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "check_business_day"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'check_business_day' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "check_business_day",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Output": {
+            "step": "check_business_day",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $states.errorOutput.Cause %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "CheckBusinessDayExitCode"
+    },
+    "CheckBusinessDayExitCode": {
+      "Type": "Choice",
+      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "IngestAndLoad"
+        },
+        {
+          "Condition": "{% $states.input.exit_code = 99 %}",
+          "Next": "NotABusinessDay"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "IngestAndLoad": {
+      "Type": "Task",
+      "Comment": "run-step ingest_and_load",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "ingest_and_load"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'ingest_and_load' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "ingest_and_load",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Output": {
+            "step": "ingest_and_load",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $states.errorOutput.Cause %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "IngestAndLoadExitCode"
+    },
+    "IngestAndLoadExitCode": {
+      "Type": "Choice",
+      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "DbtBuild"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "DbtBuild": {
+      "Type": "Task",
+      "Comment": "run-step dbt_build",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "dbt_build"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'dbt_build' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "dbt_build",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Output": {
+            "step": "dbt_build",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $states.errorOutput.Cause %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "DbtBuildExitCode"
+    },
+    "DbtBuildExitCode": {
+      "Type": "Choice",
+      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "Reconcile"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "Reconcile": {
+      "Type": "Task",
+      "Comment": "run-step reconcile",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "reconcile"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'reconcile' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "reconcile",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Output": {
+            "step": "reconcile",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $states.errorOutput.Cause %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "ReconcileExitCode"
+    },
+    "ReconcileExitCode": {
+      "Type": "Choice",
+      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "DbtControls"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "DbtControls": {
+      "Type": "Task",
+      "Comment": "run-step dbt_controls",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "dbt_controls"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'dbt_controls' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "dbt_controls",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Output": {
+            "step": "dbt_controls",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $states.errorOutput.Cause %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "DbtControlsExitCode"
+    },
+    "DbtControlsExitCode": {
+      "Type": "Choice",
+      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "PublishControls"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "PublishControls": {
+      "Type": "Task",
+      "Comment": "run-step publish_controls",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "publish_controls"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'publish_controls' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "publish_controls",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Output": {
+            "step": "publish_controls",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $states.errorOutput.Cause %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "PublishControlsExitCode"
+    },
+    "PublishControlsExitCode": {
+      "Type": "Choice",
+      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "Publish"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "Publish": {
+      "Type": "Task",
+      "Comment": "run-step publish",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Arguments": {
+        "Cluster": "${cluster_arn}",
+        "TaskDefinition": "${task_definition_arn}",
+        "LaunchType": "FARGATE",
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": ${subnets_json},
+            "SecurityGroups": [
+              "${security_group_id}"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "northstar",
+              "Command": [
+                "publish"
+              ],
+              "Environment": [
+                {
+                  "Name": "NBI_BUSINESS_DATE",
+                  "Value": "{% $business_date %}"
+                },
+                {
+                  "Name": "NBI_RUN",
+                  "Value": "{% 'cloud-' & $states.context.Execution.Name & '-' & 'publish' & '-try' & $string($states.context.State.RetryCount) %}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "Output": {
+        "step": "publish",
+        "exit_code": "{% $states.result.Containers[0].ExitCode %}"
+      },
+      "TimeoutSeconds": 3600,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "ECS.AmazonECSException",
+            "ECS.AccessDeniedException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 60,
+          "BackoffRate": 2,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Output": {
+            "step": "publish",
+            "error": "{% $states.errorOutput.Error %}",
+            "cause": "{% $states.errorOutput.Cause %}"
+          },
+          "Next": "NotifyFailure"
+        }
+      ],
+      "Next": "PublishExitCode"
+    },
+    "PublishExitCode": {
+      "Type": "Choice",
+      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 0 %}",
+          "Next": "Closed"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
+    "NotABusinessDay": {
+      "Type": "Succeed",
+      "Comment": "Not a ledger business day (exit 99): nothing to close."
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "${alerts_topic_arn}",
+        "Subject": "northstar daily close failed",
+        "Message": "{% 'Business date ' & $business_date & ': step ' & $states.input.step & ' failed (' & ($exists($states.input.exit_code) ? 'exit code ' & $string($states.input.exit_code) : $states.input.error & ': ' & $states.input.cause) & '). Execution ' & $states.context.Execution.Id %}"
+      },
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "StepFailed",
+      "Cause": "A step failed; the alert email has the details."
+    },
+    "Closed": {
+      "Type": "Succeed",
+      "Comment": "Both snapshots published for the business date."
+    }
+  }
+}

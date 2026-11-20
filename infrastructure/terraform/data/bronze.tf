@@ -59,6 +59,25 @@ resource "aws_s3_bucket_lifecycle_configuration" "bronze" {
     }
   }
 
+  # Load staging (redshift.Stage): JSON Lines copied into Redshift, then never
+  # read again. Content-addressed, so a later replay stages the file anew.
+  rule {
+    id     = "expire-load-staging"
+    status = "Enabled"
+
+    filter {
+      prefix = "_stage/"
+    }
+
+    expiration {
+      days = var.stage_expiry_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
   depends_on = [aws_s3_bucket_versioning.bronze]
 }
 
