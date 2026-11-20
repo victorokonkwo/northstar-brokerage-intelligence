@@ -13,10 +13,9 @@ with executions as (
 ),
 
 listed as (
-    select
-        s.settlement_id,
-        jsonb_array_elements_text(s.execution_ids) as execution_id
-    from {{ ref('stg_brokerage__trade_settled') }} as s
+    {{ json_array_texts(
+        ref('stg_brokerage__trade_settled'), 'settlement_id', 'execution_ids', 'execution_id'
+    ) }}
 ),
 
 membership_breaks as (

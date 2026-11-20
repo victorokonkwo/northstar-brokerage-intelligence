@@ -42,14 +42,17 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 
 ## Phase 4 (weeks 8–9)
 
-Plan approved by the owner on 2026-11-20, as seven PRs:
+Plan approved by the owner on 2026-11-20, as seven PRs; revised the same day to nine, after the decisions on the cloud batch runtime and on incremental loading:
 1. 4A external records in the warehouse, and the reconciliation policy
 2. 4B staged matching and classification
 3. 4C lifecycle, audit trail, and auto-resolution
 4. 4D exception marts, publication gate, and pipeline
 5. 4E cloud infrastructure (Terraform)
-6. 4F cloud medallion: S3 bronze, Redshift silver and gold
-7. 4G Looker Studio operations dashboard, and the gate
+6. 4F-a Redshift pipeline: S3 bronze, loading, dbt on Redshift, controls
+7. 4F-b incremental dbt models and incremental SCD2, on both warehouses
+8. 4F-c reconciliation and publication on Redshift; the parity gate
+9. 4G cloud batch runtime (EventBridge Scheduler, Step Functions, ECS Fargate, CloudWatch)
+10. 4H Looker Studio operations dashboard, and the gate
 
 ### Phase 4 decisions (owner, 2026-11-20)
 
@@ -60,6 +63,9 @@ Plan approved by the owner on 2026-11-20, as seven PRs:
 | Sequencing | reconciliation first (local), then the cloud track, then the dashboard |
 | Reconciliation policy | tolerances exact (prices ±0.0001); severity CRITICAL ≥ CAD 10,000, HIGH ≥ 1,000, MEDIUM ≥ 100; SLA 1/2/5/10 business days (illustrative, `config/reconciliation/policy.yaml`) |
 | Reconciliations | seven: executions, cash, settlements, positions, fees, and, for the defect manifest, FX and prices (`STALE_PRICE`) |
+| Cloud batch runtime | EventBridge Scheduler → Step Functions → ECS Fargate tasks from an ECR image, with logs and alarms in CloudWatch. Not Glue (dbt owns transformations) and not MWAA (about USD 233/month at the smallest size, list price). Airflow stays the local orchestrator |
+| Controls on Redshift | Redshift has no triggers or CHECK constraints. There, append-only is enforced by ownership and grants (the pipeline holds SELECT and INSERT only), and the lifecycle and ledger CHECKs by the application plus dbt tests that run on both warehouses ([cloud warehouse](../architecture/cloud-warehouse.md)) |
+| Incremental loading and SCD | dbt models become incremental, with late data rebuilding the dates it touches, and `dim_account` updates incrementally. CI proves incremental output equals a full rebuild (4F-b) |
 | Publication | the financial snapshot is blocked by open CRITICAL/HIGH exceptions; the controls snapshot (exception monitoring) is gated by KPI-01 only |
 | Looker Studio report | built by the owner from a spec, with figures checked against the marts |
 
@@ -70,7 +76,8 @@ Plan approved by the owner on 2026-11-20, as seven PRs:
 | 4C lifecycle, audit trail, auto-resolution | Done (#30): §7.4 state machine, append-only transitions with database checks, four versioned rules (detected, source corrected, late settlement completed, SLA breach), manual changes with actor and reason |
 | 4D exception marts, publication gate, pipeline | Done (#31): controls marts (KPI-02 to KPI-06) with tie-outs; financial and controls publication streams; open CRITICAL/HIGH exceptions block the financial snapshot until resolved; reconcile and controls publish in the Airflow DAG |
 | 4E cloud infrastructure | **Applied 2026-11-20** after owner approval (this PR): Terraform `data` stack. It holds S3 bronze; Redshift Serverless at 4 RPU, with a daily cap that turns queries off and a monthly limit that emits a metric; a TLS-only public endpoint reachable from Looker Studio and the operator only; a COPY role; and a Redshift-managed admin secret. Read-back matches the plan, there is one public IPv4 address, and a follow-up `plan` shows no changes ([stack README](../../infrastructure/terraform/data/README.md)). The rest of the dev environment in the [system overview](../architecture/system-overview.md) (ECR, ECS Fargate, CloudWatch) is not built yet |
-| 4F–4G | Not started |
+| 4F-a Redshift pipeline | Built (this PR): `--warehouse redshift` for ingest (S3 bronze) and load (staged `COPY`, idempotent, conflicts refused); `redshift-bootstrap` (admin-owned tables, an SELECT/INSERT-only pipeline role); dbt-redshift with dialect macros and a CI portability guard; dbt tests for the CHECKs Redshift lacks. On the live workgroup: dbt 239 of 239 pass, and `make compare-warehouses` finds 41 of 49 models identical to Postgres, the other 8 being reconciliation models that are empty until 4F-c ([cloud warehouse](../architecture/cloud-warehouse.md)) |
+| 4F-b–4H | Not started |
 
 ## Phase 3 (weeks 5–7)
 

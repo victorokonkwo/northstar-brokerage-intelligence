@@ -30,10 +30,20 @@ DEFAULT_BUCKET = "northstar-data-local"
 class ObjectStoreSettings:
     """Connection settings for the object store. Secrets are never logged."""
 
-    endpoint_url: str
-    access_key_id: str
-    secret_access_key: str
+    endpoint_url: str | None
+    access_key_id: str | None
+    secret_access_key: str | None
     bucket: str
+    region: str = "us-east-1"  # SeaweedFS ignores the region; boto3 requires one
+
+    @classmethod
+    def aws(cls, bucket: str, region: str) -> "ObjectStoreSettings":
+        """Amazon S3 itself, with no endpoint override.
+
+        Credentials come from the standard AWS chain (the environment, or a
+        task role on ECS), never from this object.
+        """
+        return cls(None, None, None, bucket, region)
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "ObjectStoreSettings":
@@ -63,17 +73,20 @@ class S3ObjectStore:
         """Create a client. ``prefix`` isolates keys (tests use a unique one)."""
         self._bucket = settings.bucket
         self._prefix = prefix
-        self._client = cast(
-            "S3Client",
-            boto3.client(
+        if settings.endpoint_url is None:  # Amazon S3: default addressing and credential chain
+            client = boto3.client(
+                "s3", region_name=settings.region, config=Config(retries={"mode": "standard"})
+            )
+        else:
+            client = boto3.client(
                 "s3",
                 endpoint_url=settings.endpoint_url,
                 aws_access_key_id=settings.access_key_id,
                 aws_secret_access_key=settings.secret_access_key,
-                region_name="us-east-1",  # SeaweedFS ignores the region; boto3 requires one
+                region_name=settings.region,
                 config=Config(s3={"addressing_style": "path"}, retries={"mode": "standard"}),
-            ),
-        )
+            )
+        self._client = cast("S3Client", client)
 
     def put_if_absent(self, key: str, body: bytes) -> bool:
         """Write ``body`` at ``key`` unless an object exists there; return whether it was written.

@@ -22,6 +22,6 @@ select
     end::numeric(18, 2) as market_value_cad,
     bool_or(is_price_missing) as has_missing_price,
     bool_or(is_price_stale) as has_stale_price,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from positions
 group by account_id, business_date

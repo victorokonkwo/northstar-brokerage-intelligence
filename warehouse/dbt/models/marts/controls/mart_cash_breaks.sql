@@ -106,5 +106,5 @@ select
     explained_timing::numeric(18, 2) as explained_timing,
     (gl_cash_balance - bank_balance - explained_timing)::numeric(18, 2) as unexplained,
     abs(gl_cash_balance - bank_balance - explained_timing)::numeric(18, 2) as cash_break_amount,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from balances

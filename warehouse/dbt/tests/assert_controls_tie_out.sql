@@ -108,4 +108,4 @@ select
     mart_value,
     source_value
 from checks
-where mart_value is distinct from source_value
+where {{ distinct_from('mart_value', 'source_value') }}

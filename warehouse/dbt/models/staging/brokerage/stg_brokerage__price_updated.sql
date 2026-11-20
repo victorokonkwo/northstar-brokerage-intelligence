@@ -10,9 +10,9 @@ select
     schema_version,
     _ingestion_run_id,
     _ingested_at,
-    payload ->> 'instrument_id' as instrument_id,
-    (payload ->> 'price_date')::date as price_date,
-    (payload ->> 'close_price')::numeric(18, 8) as close_price,
-    payload ->> 'currency' as currency,
-    payload ->> 'source' as price_source
+    {{ json_text('payload', 'instrument_id') }} as instrument_id,
+    ({{ json_text('payload', 'price_date') }})::date as price_date,
+    ({{ json_text('payload', 'close_price') }})::numeric(18, 8) as close_price,
+    {{ json_text('payload', 'currency') }} as currency,
+    {{ json_text('payload', 'source') }} as price_source
 from source

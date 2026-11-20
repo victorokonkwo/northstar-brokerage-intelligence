@@ -43,5 +43,5 @@ select
     source_event_id as _source_event_id,
     _ingestion_run_id,
     _ingested_at,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from journal_lines

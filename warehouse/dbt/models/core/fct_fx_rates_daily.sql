@@ -29,5 +29,5 @@ select
     _ingestion_run_id,
     _ingested_at,
     schema_version as _schema_version,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from published

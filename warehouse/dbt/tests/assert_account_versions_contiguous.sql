@@ -16,13 +16,13 @@ breaks as (
     from ordered
     where
         (next_from is null and valid_to is not null)
-        or (next_from is not null and valid_to is distinct from next_from)
+        or (next_from is not null and {{ distinct_from('valid_to', 'next_from') }})
         or valid_to <= valid_from
     union all
     select account_id
     from ordered
     group by account_id
-    having count(*) filter (where is_current) != 1
+    having sum(case when is_current then 1 else 0 end) <> 1
 )
 
 select distinct account_id from breaks

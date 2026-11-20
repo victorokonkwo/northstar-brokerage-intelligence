@@ -11,13 +11,15 @@ select
     schema_version,
     _ingestion_run_id,
     _ingested_at,
-    payload ->> 'broker_reference' as broker_reference,
-    payload ->> 'account_id' as account_id,
-    payload ->> 'instrument_id' as instrument_id,
-    payload ->> 'side' as side,
-    (payload ->> 'quantity')::numeric(18, 8) as quantity,
-    (payload ->> 'amount')::numeric(18, 2) as amount,
-    payload ->> 'currency' as currency,
-    (payload ->> 'contractual_settlement_date')::date as contractual_settlement_date,
-    (payload ->> 'actual_settlement_date')::date as actual_settlement_date
+    {{ json_text('payload', 'broker_reference') }} as broker_reference,
+    {{ json_text('payload', 'account_id') }} as account_id,
+    {{ json_text('payload', 'instrument_id') }} as instrument_id,
+    {{ json_text('payload', 'side') }} as side,
+    ({{ json_text('payload', 'quantity') }})::numeric(18, 8) as quantity,
+    ({{ json_text('payload', 'amount') }})::numeric(18, 2) as amount,
+    {{ json_text('payload', 'currency') }} as currency,
+    (
+        {{ json_text('payload', 'contractual_settlement_date') }}
+    )::date as contractual_settlement_date,
+    ({{ json_text('payload', 'actual_settlement_date') }})::date as actual_settlement_date
 from source

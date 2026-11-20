@@ -44,7 +44,9 @@ from northstar.domain.matching import (
     Match,
 )
 from northstar.domain.reconciliation import AppliedRate, ReconException
+from northstar.infrastructure.dialect import Dialect, dialect_of, redshift_ddl
 from northstar.infrastructure.postgres import insert_new, make_append_only
+from northstar.infrastructure.redshift import require_tables
 
 _RUNS_DDL: Final = """
 create table if not exists {t} (
@@ -147,8 +149,28 @@ _EXCEPTION_COLUMNS: Final = (
 )
 
 
+RECON_TABLES: Final = ("runs", "match_results", "exceptions", "exception_transitions")
+LOCK_TABLE: Final = "lifecycle_lock"
+"""Redshift only: an empty table that manual transitions ``LOCK`` to take turns.
+``LOCK`` needs UPDATE or DELETE, which the pipeline must never hold on the
+append-only tables; on this table, which holds no data, it may."""
+
+
 def ensure_recon_tables(conn: psycopg.Connection[Any], schema: str) -> None:
-    """Create the recon schema and its append-only tables if they do not exist."""
+    """Create the recon schema and its append-only tables if they do not exist.
+
+    On Redshift only the admin creates them (``redshift-bootstrap``); for any
+    other user this checks that they exist. Redshift has no CHECK
+    constraints: the domain enforces the lifecycle before every write, and
+    dbt tests check every stored transition (owner decision 2026-11-20).
+
+    Raises:
+        ConfigurationError: On Redshift, a table is missing.
+    """
+    redshift = dialect_of(conn) is Dialect.REDSHIFT
+    if redshift and not getattr(conn, "admin", False):
+        require_tables(conn, schema, (*RECON_TABLES, LOCK_TABLE))
+        return
     with conn.cursor() as cur:
         cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(schema)))
         for ddl, table in (
@@ -158,13 +180,37 @@ def ensure_recon_tables(conn: psycopg.Connection[Any], schema: str) -> None:
             (_TRANSITIONS_DDL, "exception_transitions"),
         ):
             cur.execute(
-                sql.SQL(ddl).format(
+                sql.SQL(redshift_ddl(ddl) if redshift else ddl).format(
                     t=sql.Identifier(schema, table),
                     exceptions=sql.Identifier(schema, "exceptions"),
                 )
             )
-    for table in ("runs", "match_results", "exceptions", "exception_transitions"):
+    if redshift:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("create table if not exists {} (unused integer)").format(
+                    sql.Identifier(schema, LOCK_TABLE)
+                )
+            )
+    for table in RECON_TABLES:
         make_append_only(conn, schema, table)
+
+
+def lock_exception(conn: psycopg.Connection[Any], schema: str, exception_id: str) -> bool:
+    """Serialise changes to one exception until the transaction ends; return whether it exists.
+
+    Postgres locks the exception's row (``FOR UPDATE``). Redshift has no row
+    locks, so it locks the empty ``lifecycle_lock`` table: manual changes are
+    rare, and each waits for the one before.
+    """
+    with conn.cursor() as cur:
+        if dialect_of(conn) is Dialect.REDSHIFT:
+            cur.execute(sql.SQL("lock {}").format(sql.Identifier(schema, LOCK_TABLE)))
+            query = "select 1 from {} where exception_id = %s"
+        else:
+            query = "select 1 from {} where exception_id = %s for update"
+        cur.execute(sql.SQL(query).format(sql.Identifier(schema, "exceptions")), (exception_id,))
+        return cur.fetchone() is not None
 
 
 @dataclass(frozen=True, slots=True)

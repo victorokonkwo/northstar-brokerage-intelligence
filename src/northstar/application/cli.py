@@ -41,6 +41,7 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from importlib.metadata import version
 from pathlib import Path
+from typing import TextIO
 
 from opentelemetry import trace
 
@@ -68,8 +69,14 @@ from northstar.domain.reconciliation import ReconciliationPolicy
 from northstar.infrastructure.build_info import code_version
 from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectStore
-from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas
-from northstar.infrastructure.recon_store import current_states, history
+from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas, ensure_tables
+from northstar.infrastructure.recon_store import (
+    LOCK_TABLE,
+    current_states,
+    ensure_recon_tables,
+    history,
+)
+from northstar.infrastructure.redshift import PIPELINE_ROLE, RedshiftSettings, grant_pipeline
 from northstar.infrastructure.snapshots import history as snapshot_history
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
 from northstar.simulation.engine import LEDGER_CALENDAR_MARKET
@@ -81,6 +88,13 @@ NOT_A_BUSINESS_DAY = 99
 def build_parser() -> argparse.ArgumentParser:
     """Return the argument parser for every command."""
     parser = argparse.ArgumentParser(prog="northstar", description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--warehouse",
+        choices=["postgres", "redshift"],
+        default=os.environ.get("NBI_WAREHOUSE", "postgres"),
+        help="postgres: the local stack (SeaweedFS, Postgres); redshift: S3 bronze and "
+        "Redshift Serverless (default: $NBI_WAREHOUSE or postgres)",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     run = commands.add_parser("run-slice", help="simulate, post, and load the Sprint 1 slice")
@@ -166,6 +180,25 @@ def build_parser() -> argparse.ArgumentParser:
     exc.add_argument("--reason", help="why (required for every change)")
     exc.add_argument("--resolution", choices=[r.value for r in Resolution])
 
+    boot = commands.add_parser(
+        "redshift-bootstrap",
+        help="as the Redshift admin: create the append-only tables and grant the pipeline",
+    )
+    boot.add_argument("--raw-schema", default="raw")
+    boot.add_argument("--ledger-schema", default="ledger")
+    boot.add_argument("--recon-schema", default="recon")
+    boot.add_argument(
+        "--admin-secret-arn",
+        default=os.environ.get("NBI_RS_ADMIN_SECRET_ARN"),
+        help="the namespace's admin secret (default: $NBI_RS_ADMIN_SECRET_ARN)",
+    )
+    boot.add_argument(
+        "--grant-to",
+        action="append",
+        default=[],
+        help="database user to grant the pipeline role (default: your own IAM user)",
+    )
+
     ver = commands.add_parser("recon-verify", help="compare exceptions with a defect manifest")
     ver.add_argument("--recon-schema", required=True)
     ver.add_argument("--manifest", type=Path, required=True, help="defects/manifest.jsonl")
@@ -226,8 +259,10 @@ def _run(args: argparse.Namespace) -> int:
         )
         out.write(f"recorded alert at {alert_key}\n")
         return 0
+    if args.command == "redshift-bootstrap":
+        return _redshift_bootstrap(args, out)
     if args.command == "ingest":
-        store = S3ObjectStore(ObjectStoreSettings.from_env())
+        store = _object_store(args.warehouse)
         manifest = ingest_dataset(store, args.config, args.dataset_dir, args.run_id, code_version())
         raw = manifest.raw_objects()
         out.write(
@@ -238,10 +273,10 @@ def _run(args: argparse.Namespace) -> int:
             f"{len(raw)} raw objects ({sum(o.written for o in raw)} new)\n"
         )
         return 0
-    settings = PostgresSettings.from_env()
+    settings = _warehouse(args.warehouse)
     schemas = WarehouseSchemas()
     if args.command == "load-run":
-        store = S3ObjectStore(ObjectStoreSettings.from_env())
+        store = _object_store(args.warehouse)
         dataset_schemas = WarehouseSchemas(
             raw=args.raw_schema, ledger=args.ledger_schema, recon=args.recon_schema
         )
@@ -442,3 +477,45 @@ def _run(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _warehouse(name: str) -> PostgresSettings | RedshiftSettings:
+    """The warehouse's connection settings, from the environment."""
+    return RedshiftSettings.from_env() if name == "redshift" else PostgresSettings.from_env()
+
+
+def _object_store(warehouse: str) -> S3ObjectStore:
+    """Where raw objects live: the local SeaweedFS bucket, or S3 bronze for Redshift."""
+    if warehouse == "redshift":
+        rs = RedshiftSettings.from_env()
+        return S3ObjectStore(ObjectStoreSettings.aws(rs.bucket, rs.region))
+    return S3ObjectStore(ObjectStoreSettings.from_env())
+
+
+def _redshift_bootstrap(args: argparse.Namespace, out: TextIO) -> int:
+    """Create Redshift's append-only tables as the admin and grant the pipeline role."""
+    if not args.admin_secret_arn:
+        sys.stderr.write("--admin-secret-arn (or $NBI_RS_ADMIN_SECRET_ARN) is required\n")
+        return 2
+    settings = RedshiftSettings.from_env()
+    users = list(args.grant_to)
+    if not users:  # connecting once creates the caller's IAM database user
+        with settings.connect() as conn:
+            users = [str(conn.info.user)]
+    schemas = WarehouseSchemas(
+        raw=args.raw_schema, ledger=args.ledger_schema, recon=args.recon_schema
+    )
+    with settings.connect_admin(args.admin_secret_arn) as admin:
+        ensure_tables(admin, schemas)
+        ensure_recon_tables(admin, schemas.recon)
+        grant_pipeline(
+            admin,
+            (schemas.raw, schemas.ledger, schemas.recon),
+            users,
+            lock_tables=[(schemas.recon, LOCK_TABLE)],
+        )
+    out.write(
+        f"bootstrapped {schemas.raw}, {schemas.ledger}, {schemas.recon} "
+        f"(owned by the admin); granted {PIPELINE_ROLE} to {', '.join(users)}\n"
+    )
+    return 0

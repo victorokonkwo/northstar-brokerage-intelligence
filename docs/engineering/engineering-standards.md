@@ -86,7 +86,7 @@ Model folders are created when their first real model is added, not before.
 - Monetary, price, quantity, and rate columns use the `numeric` precisions from ADR 004. **Never use `float`.** Every amount column has an adjacent currency column.
 - Use CTEs: import CTEs first, then logical CTEs, then a final `select`. No `select *` in core or marts.
 - Incremental models state their `unique_key`, their strategy, and how late-arriving data is handled. Published history is never merged over (ADR 006).
-- Dialect differences go through macros.
+- Dialect differences go through the macros in `warehouse/dbt/macros/dialect.sql` (`json_text`, `json_value`, `json_array_texts`, `string_type`, `distinct_from`). Every `numeric` states its precision, because Redshift reads a bare `numeric` as numeric(18, 0). `tests/unit/test_dbt_portability.py` enforces this in CI ([cloud warehouse](../architecture/cloud-warehouse.md)).
 - Financial invariants are singular tests in `tests/` named `assert_<invariant>.sql` (domain model §8).
 - Every mart row carries lineage columns (domain model §4.3).
 

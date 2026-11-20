@@ -10,9 +10,9 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -24,9 +24,9 @@ models:
       - {name: closing_balance_cad, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: fx_rate, data_type: "numeric(18, 10)"}
       - {name: fx_rate_date, data_type: date}
-      - {name: fx_policy_version, data_type: text}
+      - {name: fx_policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: _journal_line_count, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: mart_daily_finance
     description: >
@@ -38,7 +38,7 @@ models:
     columns:
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -50,6 +50,6 @@ models:
       - {name: net_contribution_cad, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: fx_rate, data_type: "numeric(18, 10)"}
       - {name: fx_rate_date, data_type: date}
-      - {name: fx_policy_version, data_type: text}
+      - {name: fx_policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: _journal_line_count, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}

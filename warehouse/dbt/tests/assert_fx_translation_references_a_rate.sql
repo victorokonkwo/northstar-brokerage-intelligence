@@ -41,4 +41,4 @@ where
     r.rate_date is null
     or t.fx_rate_date > t.business_date
     or t.fx_rate != r.rate
-    or t.fx_policy_version is distinct from r.fx_policy_version
+    or {{ distinct_from('t.fx_policy_version', 'r.fx_policy_version') }}

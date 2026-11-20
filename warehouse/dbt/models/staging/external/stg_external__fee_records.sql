@@ -10,9 +10,9 @@ select
     schema_version,
     _ingestion_run_id,
     _ingested_at,
-    payload ->> 'broker_reference' as broker_reference,
-    payload ->> 'account_id' as account_id,
-    (payload ->> 'trade_date')::date as trade_date,
-    payload ->> 'currency' as currency,
-    (payload ->> 'amount')::numeric(18, 2) as amount
+    {{ json_text('payload', 'broker_reference') }} as broker_reference,
+    {{ json_text('payload', 'account_id') }} as account_id,
+    ({{ json_text('payload', 'trade_date') }})::date as trade_date,
+    {{ json_text('payload', 'currency') }} as currency,
+    ({{ json_text('payload', 'amount') }})::numeric(18, 2) as amount
 from source

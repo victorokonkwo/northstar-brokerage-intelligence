@@ -63,7 +63,7 @@ select
     o._ingestion_run_id,
     o._ingested_at,
     o.schema_version as _schema_version,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from orders as o
 left join fills as f on o.order_id = f.order_id
 left join cancellations as c on o.order_id = c.order_id

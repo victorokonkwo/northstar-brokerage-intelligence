@@ -163,4 +163,4 @@ select
     mart_value,
     ledger_value
 from checks
-where mart_value is distinct from ledger_value
+where {{ distinct_from('mart_value', 'ledger_value') }}

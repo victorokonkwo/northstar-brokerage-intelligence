@@ -48,14 +48,14 @@ trail as (
 )
 
 select
-    e.exception_id::text as exception_id,
+    e.exception_id::{{ string_type() }} as exception_id,
     e.reconciliation,
     e.exception_type,
     e.severity,
     e.reference,
     e.business_date,
     e.impact_amount,
-    e.impact_currency::text as impact_currency,
+    e.impact_currency::{{ string_type() }} as impact_currency,
     e.impact_basis,
     e.impact_cad,
     e.fx_rate_date,
@@ -70,7 +70,7 @@ select
     t.transition_count::integer as transition_count,
     e.policy_version,
     e.run_id as _detected_run_id,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from exceptions as e
 inner join transitions as l on e.exception_id = l.exception_id and l.recency = 1
 inner join trail as t on e.exception_id = t.exception_id

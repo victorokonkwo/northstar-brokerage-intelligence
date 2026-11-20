@@ -12,13 +12,13 @@ models:
       contract: {enforced: true}
     columns:
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
-      - {name: currency, data_type: text, constraints: [{type: not_null}]}
+      - {name: currency, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: batch_count, data_type: bigint, constraints: [{type: not_null}]}
       - {name: line_count, data_type: bigint, constraints: [{type: not_null}]}
-      - {name: total_debit, data_type: numeric, constraints: [{type: not_null}]}
-      - {name: total_credit, data_type: numeric, constraints: [{type: not_null}]}
+      - {name: total_debit, data_type: "numeric(38, 2)", constraints: [{type: not_null}]}
+      - {name: total_credit, data_type: "numeric(38, 2)", constraints: [{type: not_null}]}
       - {name: unbalanced_batch_count, data_type: bigint, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: mart_exception_monitoring
     description: >
@@ -30,17 +30,17 @@ models:
       contract: {enforced: true}
     columns:
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
-      - {name: reconciliation, data_type: text, constraints: [{type: not_null}]}
-      - {name: exception_type, data_type: text, constraints: [{type: not_null}]}
-      - {name: severity, data_type: text, constraints: [{type: not_null}]}
+      - {name: reconciliation, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: exception_type, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: severity, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: exception_count, data_type: integer, constraints: [{type: not_null}]}
       - {name: open_count, data_type: integer, constraints: [{type: not_null}]}
       - {name: past_sla_open_count, data_type: integer, constraints: [{type: not_null}]}
       - {name: resolved_count, data_type: integer, constraints: [{type: not_null}]}
       - {name: open_exposure_cad, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
-      - {name: policy_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: reconciled_as_of, data_type: date, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: mart_match_rates
     description: >
@@ -53,7 +53,7 @@ models:
     columns:
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -63,7 +63,7 @@ models:
       - {name: notional, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: matched_notional, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: notional_match_rate, data_type: "numeric(18, 6)"}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: mart_settlement_fails
     description: >
@@ -76,18 +76,18 @@ models:
     columns:
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
-      - {name: asset_class, data_type: text, constraints: [{type: not_null}]}
+      - {name: asset_class, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: obligations_due, data_type: integer, constraints: [{type: not_null}]}
       - {name: failed_count, data_type: integer, constraints: [{type: not_null}]}
       - {name: fail_rate, data_type: "numeric(18, 6)", constraints: [{type: not_null}]}
       - {name: value_due, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: value_failed, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: value_fail_rate, data_type: "numeric(18, 6)"}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: mart_cash_breaks
     description: >
@@ -100,7 +100,7 @@ models:
     columns:
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -110,4 +110,4 @@ models:
       - {name: explained_timing, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: unexplained, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: cash_break_amount, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
