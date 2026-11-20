@@ -16,10 +16,17 @@ import psycopg
 import pytest
 from psycopg import sql
 
+from northstar.common.ids import derived_id
 from northstar.infrastructure.dialect import RedshiftConnection
 from northstar.infrastructure.loading import LoadConflictError
 from northstar.infrastructure.postgres import WarehouseSchemas, ensure_tables, insert_new
-from northstar.infrastructure.recon_store import LOCK_TABLE, ensure_recon_tables, lock_exception
+from northstar.infrastructure.recon_store import (
+    LOCK_TABLE,
+    TransitionRecord,
+    append_transitions,
+    ensure_recon_tables,
+    lock_exception,
+)
 from northstar.infrastructure.redshift import RedshiftSettings, grant_pipeline
 from northstar.infrastructure.snapshots import (
     PUBLISHED_MARTS,
@@ -239,3 +246,26 @@ def test_repeated_queries_survive_alter_and_rollback(settings: RedshiftSettings)
             admin.autocommit = True
         finally:
             admin.execute(sql.SQL("drop schema {} cascade").format(sql.Identifier(schema)))
+
+
+def test_lifecycle_transitions_are_recorded_with_their_derived_ids(
+    conn: RedshiftConnection, schemas: WarehouseSchemas
+) -> None:
+    # Transition IDs are uuid.UUID values, which psycopg would send as a type
+    # Redshift doesn't have; Redshift connections send them as text.
+    exception_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "exception-for-transition"))
+    record = TransitionRecord(
+        exception_id, 1, None, "OPEN", "rule:detected", "detected", None,
+        datetime(2026, 3, 3, 6, 0, tzinfo=UTC), "run-test",
+    )  # fmt: skip
+    conn.autocommit = False
+    with conn.transaction():
+        assert append_transitions(conn, schemas.recon, [record]) == 1
+    conn.autocommit = True
+    stored = conn.execute(
+        sql.SQL("select transition_id, to_status from {} where exception_id = %s").format(
+            sql.Identifier(schemas.recon, "exception_transitions")
+        ),
+        (exception_id,),
+    ).fetchone()
+    assert stored == (str(derived_id("recon_transition", exception_id, 1)), "OPEN")

@@ -35,7 +35,7 @@ import psycopg
 from psycopg import sql
 
 from northstar.common.exceptions import ConfigurationError
-from northstar.infrastructure.dialect import RedshiftConnection
+from northstar.infrastructure.dialect import RedshiftConnection, UuidAsText
 from northstar.infrastructure.loading import LoadConflictError, distinct_rows
 from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectStore
 
@@ -123,6 +123,7 @@ class RedshiftSettings:
         store = S3ObjectStore(ObjectStoreSettings.aws(self.bucket, self.region), STAGE_PREFIX)
         conn.stage = Stage(store, self.bucket)
         conn.admin = admin
+        conn.adapters.register_dumper(uuid.UUID, UuidAsText)
         return conn
 
 
