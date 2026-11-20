@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Phase 4F: loading and dbt (4F-a), incremental models (4F-b), and reconciliation and publication (4F-c) on Redshift. The scheduled cloud run (Step Functions and ECS Fargate) follows in 4G |
+| Status | Phase 4F: loading and dbt (4F-a), incremental models (4F-b), and reconciliation and publication (4F-c) on Redshift. The cloud run (Step Functions and ECS Fargate, [ADR 010](../adr/010-cloud-batch-runtime.md)) is written in 4G and not yet applied |
 | Decisions | [ADR 005](../adr/005-local-postgres-cloud-redshift.md) (local Postgres, cloud Redshift); owner decisions 2026-11-20: Step Functions and Fargate for the cloud batch; Redshift controls by grants, the application, and dbt tests |
 | Infrastructure | [Terraform data stack](../../infrastructure/terraform/data/README.md) |
 | Facts | [sources.md](../sources.md): the Redshift and S3 rows dated 2026-11-20 |
