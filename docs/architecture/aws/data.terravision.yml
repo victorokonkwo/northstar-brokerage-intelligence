@@ -6,6 +6,8 @@ connect:
   tv_aws_users.operator:
     - aws_s3_bucket.bronze: "ingest raw/, stage JSONL"
     - tv_aws_internet.internet: "load-run, dbt build (TLS 5439)"
+  aws_sns_topic.sns:
+    - tv_aws_users.operator: "email"
 update:
   aws_redshiftserverless_workgroup.warehouse:
     label: "Redshift workgroup"
@@ -19,6 +21,10 @@ update:
     label: "COPY role"
   tv_aws_users.operator:
     label: "Operator"
+  aws_sns_topic.sns:
+    label: "Alerts topic"
+  aws_cloudwatch_metric_alarm.monthly_compute:
+    label: "Monthly compute alarm"
   aws_vpc.warehouse:
     cidr_block: "10.42.0.0/16"
   aws_subnet.warehouse["ca-central-1a"]~1:
