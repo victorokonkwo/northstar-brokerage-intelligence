@@ -62,3 +62,10 @@ select
 from {{ ref('fct_fx_rate_history_daily') }}
 group by base_currency, quote_currency, rate_date
 having count(*) > 1
+union all
+select
+    'fct_dividend_payments' as model_name,
+    dividend_id || ':' || account_id as grain_key
+from {{ ref('fct_dividend_payments') }}
+group by dividend_id, account_id
+having count(*) > 1

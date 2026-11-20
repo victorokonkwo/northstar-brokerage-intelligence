@@ -72,14 +72,14 @@ Surrogate keys (`*_sk`) are dbt-generated hashes of the natural key plus the ver
 ### 4.1 Identifiers
 
 - **Source entities** get prefixed, deterministic IDs from the simulator, built from `(seed, entity type, sequence number)`:
-  `acc_`, `ins_`, `ord_`, `exe_`, `cm_` (cash movement), `stl_` (settlement), `evt_` (event).
+  `acc_`, `ins_`, `ord_`, `exe_`, `cm_` (cash movement), `fxc_` (FX conversion), `stl_` (settlement), `div_` (dividend), `evt_` (event).
   The same seed produces the same IDs.
 - **Derived records** (journal batches and lines, exceptions) get UUIDv5 IDs computed from their causal inputs. A journal line uses `(source_event_id, posting_rule_id, posting_rule_version, line_number)`. Re-posting the same event under the same rule therefore produces the same IDs, which makes posting idempotent.
 - **External records** (clearing, custody, bank) carry their own external reference IDs plus, where a real counterparty would provide one, the broker's reference. An injected defect may corrupt or drop that reference, which is why composite matching exists.
 
 ### 4.2 Event envelope
 
-Every source event has this envelope. Payload fields depend on `event_type`. The JSON Schemas are generated from the pydantic models in `northstar.domain.events` into `contracts/events/<type>.v<N>.schema.json` (`scripts/export_event_schemas.py`), and a contract test fails if they drift. Implemented: `account_created`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `order_placed`, `order_cancelled`, `trade_executed` (**v2**: adds an optional `clearing_fee`; v1 events stay valid but may not carry a fee), `trade_settled`, `price_updated`, and `margin_interest_accrued`. Each type keeps its own `schema_version`.
+Every source event has this envelope. Payload fields depend on `event_type`. The JSON Schemas are generated from the pydantic models in `northstar.domain.events` into `contracts/events/<type>.v<N>.schema.json` (`scripts/export_event_schemas.py`), and a contract test fails if they drift. Implemented: `account_created`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `order_placed`, `order_cancelled`, `trade_executed` (**v2**: adds an optional `clearing_fee`; v1 events stay valid but may not carry a fee), `trade_settled`, `price_updated`, `margin_interest_accrued`, `account_updated`, `fx_rate_published`, `dividend_declared`, and `dividend_paid`. Each type keeps its own `schema_version`.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -95,7 +95,7 @@ Every source event has this envelope. Payload fields depend on `event_type`. The
 
 **Monetary and quantity values are serialized as decimal strings** (`"250.00"`), never JSON numbers, so that no precision is lost.
 
-The event types are `account_created`, `account_updated`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `fx_rate_published`, `order_placed`, `order_cancelled`, `trade_executed`, `trade_settled`, `price_updated`, `margin_interest_accrued`. More are added only when a module needs them, each with its own schema. `account_updated` carries an account's full new state (type, trading status, reason) and drives the SCD2 history of `dim_account` (FR-M1-05).
+The event types are `account_created`, `account_updated`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `fx_rate_published`, `order_placed`, `order_cancelled`, `trade_executed`, `trade_settled`, `price_updated`, `margin_interest_accrued`, `dividend_declared`, `dividend_paid`. More are added only when a module needs them, each with its own schema. `dividend_declared` records an issuer's cash dividend (rate in whole cents; ex-date = record date under T+1), and `dividend_paid` its payment on the pay date to every account holding settled shares at the end of the record date, cash basis ([ADR 013](../adr/013-corporate-events.md)). `account_updated` carries an account's full new state (type, trading status, reason) and drives the SCD2 history of `dim_account` (FR-M1-05).
 
 **Schema evolution.** Additive optional fields bump `schema_version` and remain backward compatible. Any breaking change gets a new `event_type` version and parallel support during migration. Consumers reject unknown major versions to quarantine rather than guessing.
 
@@ -187,7 +187,7 @@ Each invariant must be an executable test. **Implemented:** the Python tests for
 | INV-02 | No duplicate executions after any replay | `warehouse/dbt/tests/assert_unique_executions.sql`; ingestion replay integration test |
 | INV-03 | For every account × instrument, the change in position equals Σ executed quantity (+ other position-changing events) over the period | `tests/financial_invariants/test_position_consistency.py`; `warehouse/dbt/tests/assert_position_reconciliation.sql` |
 | INV-04 | Stock record balances: per instrument and date, Σ client ownership quantity = Σ location quantity | `tests/financial_invariants/test_position_consistency.py` |
-| INV-05 | Cash conservation: each client's cash balance = Σ of that client's journal lines on account 2100; total client cash changes only through deposits, withdrawals, trades, fees, interest, and FX | `tests/financial_invariants/test_cash_conservation.py` |
+| INV-05 | Cash conservation: each client's cash balance = Σ of that client's journal lines on account 2100; total client cash changes only through deposits, withdrawals, trades, fees, interest, FX, and dividends | `tests/financial_invariants/test_cash_conservation.py` |
 | INV-06 | Every execution belongs to exactly one settlement obligation, and obligation amount = Σ its executions' amounts | `tests/financial_invariants/test_settlement_obligations.py`; `warehouse/dbt/tests/assert_settlement_integrity.sql` |
 | INV-07 | Every CAD-translated amount references an existing FX rate, with `fx_rate_date` ≤ `business_date` and a recorded policy version | dbt relationship and expression tests |
 | INV-08 | No position is valued with a missing price. Stale prices carry `is_stale = true` and propagate a flag to every downstream result | dbt tests, plus risk-engine unit tests |

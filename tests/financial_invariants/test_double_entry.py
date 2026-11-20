@@ -24,6 +24,7 @@ from factories import (
     covered_timestamps,
     currencies,
     deposit,
+    dividend_paid,
     engine,
     execution,
     fx_conversion,
@@ -43,6 +44,22 @@ def assert_balanced(batch: JournalBatch) -> None:
     for line in batch.lines:
         assert line.amount.amount > 0
         assert line.amount.is_quantized
+
+
+@given(
+    holdings=st.lists(st.integers(1, 10**7), min_size=1, max_size=20),
+    rate=st.integers(1, 10**4).map(lambda cents: str(Decimal(cents).scaleb(-2))),
+    currency=currencies,
+    when=covered_timestamps(),
+)
+def test_dividends_balance(
+    holdings: list[int], rate: str, currency: Currency, when: datetime
+) -> None:
+    accounts = [(f"acc_s1_{n:06d}", str(q)) for n, q in enumerate(holdings, start=1)]
+    batch = engine().post(dividend_paid(accounts, rate, currency, when))
+    assert_balanced(batch)
+    cash = [line for line in batch.lines if line.gl_account == "1000"]
+    assert len(cash) == 1  # one bank line per dividend (ADR 013)
 
 
 @given(amount=positive_amounts, currency=currencies, when=covered_timestamps())

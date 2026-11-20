@@ -1,7 +1,7 @@
 """Staged matching and classification, checked against the defect manifest (NFR-03)."""
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 
@@ -13,6 +13,7 @@ from northstar.domain.calendar import business_date
 from northstar.domain.events import (
     CashDeposited,
     CashWithdrawn,
+    DividendPaid,
     Event,
     FxConverted,
     FxRatePublished,
@@ -126,6 +127,8 @@ def internal_side(events: tuple[Event, ...]) -> Ours:
                 references[e.event_id] = p.settlement_id
             case CashDeposited(payload=p) | CashWithdrawn(payload=p):
                 references[e.event_id] = p.cash_movement_id
+            case DividendPaid(payload=p):
+                references[e.event_id] = p.dividend_id
             case FxConverted(payload=p):
                 fx.append(
                     InternalFx(
@@ -333,6 +336,30 @@ class TestGroundTruth:
                 (result.matches, classify(result.breaks, POLICY, applied_rates(events, days)))
             )
         assert runs[0] == runs[1]
+
+    def test_a_missing_dividend_receipt_is_a_cash_break_on_its_dividend(
+        self, dataset: tuple[tuple[Event, ...], ExternalRecords, tuple[DefectEntry, ...]]
+    ) -> None:
+        # The depository's payment never shows on the bank statement (roadmap 5C-a).
+        events, _, _ = dataset
+        exact = derive_external_records(events, 42, xtse())
+        paid = {e.payload.dividend_id: e.payload for e in events if isinstance(e, DividendPaid)}
+        assert paid
+        dropped = replace(
+            exact,
+            bank_statement_lines=tuple(
+                b for b in exact.bank_statement_lines if b.reference not in paid
+            ),
+        )
+        result = reconcile_all(build_inputs(events, dropped), TOL)
+        assert {(b.exception_type, b.reference) for b in result.breaks} == {
+            (ExceptionType.CASH_BREAK, dividend_id) for dividend_id in paid
+        }
+        for b in result.breaks:
+            assert (b.impact_amount, b.impact_currency) == (
+                paid[b.reference].total_amount,
+                paid[b.reference].currency,
+            )
 
     def test_cash_breaks_block_and_late_settlements_do_not(
         self, dataset: tuple[tuple[Event, ...], ExternalRecords, tuple[DefectEntry, ...]]

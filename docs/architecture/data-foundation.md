@@ -37,7 +37,7 @@ In that last case, every copy of the ID is quarantined, including identical ones
 
 | Entity | Domain | Event date |
 |---|---|---|
-| `price_updated`, `fx_rate_published` | `market_data` | business date of the event |
+| `price_updated`, `fx_rate_published`, `dividend_declared` | `market_data` | business date of the event |
 | other canonical events | `brokerage` | business date of the event |
 | `clearing_confirmations`, `fee_records` | `clearing` | `trade_date` |
 | `settlement_confirmations` | `clearing` | `actual_settlement_date` |

@@ -3,22 +3,24 @@
 from datetime import date
 from decimal import Decimal
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from northstar.common.money import Currency
 from northstar.domain.calendar import Holiday
 from northstar.domain.events import ExerciseStyle, OptionRight
-from northstar.domain.market_risk.options import OptionInputs, binomial, implied_vol
+from northstar.domain.market_risk.options import Dividend, OptionInputs, binomial, implied_vol
 from northstar.infrastructure.config_loader import load_policy
 from northstar.simulation.generator import (
     DatasetConfig,
+    DividendSpec,
     GeneratedInstrument,
     MarketData,
     build_market,
     market_stream,
 )
-from northstar.simulation.market import OPTION_TREE_STEPS, model_option_close
+from northstar.simulation.market import OPTION_TREE_STEPS, log_normal_path, model_option_close
 
 from factories import CONFIG, policies
 
@@ -43,9 +45,24 @@ def _options(config: DatasetConfig) -> list[GeneratedInstrument]:
     return options
 
 
-def _inputs(spec: GeneratedInstrument, spot: Decimal, day: date, rate: Decimal) -> OptionInputs:
+def _inputs(
+    spec: GeneratedInstrument,
+    spot: Decimal,
+    day: date,
+    rate: Decimal,
+    dividends: tuple[DividendSpec, ...] = (),
+) -> OptionInputs:
+    """The model's inputs, with the underlying's dividends declared by ``day`` that go
+    ex after it and by expiry (roadmap 5C-a), recomputed here independently."""
     assert spec.option is not None
     assert spec.implied_vol is not None
+    expiry = spec.option.expiry
+    known = sorted(
+        (d.record_date, d.amount_per_share)
+        for d in dividends
+        if d.instrument == spec.option.underlying
+        and d.declaration_date <= day < d.record_date <= expiry
+    )
     return OptionInputs(
         right=spec.option.right,
         style=spec.option.exercise_style,
@@ -53,7 +70,8 @@ def _inputs(spec: GeneratedInstrument, spot: Decimal, day: date, rate: Decimal) 
         strike=float(spec.option.strike),
         rate=float(rate),
         vol=float(spec.implied_vol),
-        expiry=(spec.option.expiry - day).days / 365,
+        expiry=(expiry - day).days / 365,
+        dividends=tuple(Dividend((ex - day).days / 365, float(amount)) for ex, amount in known),
     )
 
 
@@ -65,7 +83,9 @@ def test_each_close_is_the_tree_price_on_the_underlyings_close(
         assert spec.option is not None
         underlying = market.closes[spec.option.underlying]
         for day, close in market.closes[spec.key].items():
-            value = binomial(_inputs(spec, underlying[day], day, usd), OPTION_TREE_STEPS)
+            value = binomial(
+                _inputs(spec, underlying[day], day, usd, config.dividends), OPTION_TREE_STEPS
+            )
             assert close == max(round(Decimal(value), 2), Decimal("0.01")), (spec.key, day)
 
 
@@ -77,7 +97,7 @@ def test_the_risk_model_recovers_the_configured_implied_vol(
         assert spec.implied_vol is not None
         underlying = market.closes[spec.option.underlying]
         for day, close in list(market.closes[spec.key].items())[::10]:  # bisection is slow
-            o = _inputs(spec, underlying[day], day, USD_RATE)
+            o = _inputs(spec, underlying[day], day, USD_RATE, config.dividends)
             recovered = implied_vol(o, float(close), steps=OPTION_TREE_STEPS)
             # Up to the rounding of the close to a cent: half a cent over vega.
             assert recovered == pytest.approx(float(spec.implied_vol), abs=2e-3), (spec.key, day)
@@ -153,3 +173,51 @@ def test_an_equity_needs_its_walk_and_no_implied_vol(config: DatasetConfig) -> N
         GeneratedInstrument.model_validate(equity | {"implied_vol": "0.2"})
     with pytest.raises(ValidationError, match="implied_vol only"):
         GeneratedInstrument.model_validate(equity | {"daily_vol": None})
+
+
+def test_an_equity_drops_by_its_dividend_on_the_ex_date() -> None:
+    # With a vanishing vol the path is flat, so the drop is the only move.
+    days = [date(2026, 3, d) for d in (2, 3, 4, 5, 6)]
+    path = log_normal_path(
+        np.random.Generator(np.random.PCG64(1)),
+        Decimal("50.00"),
+        Decimal("0.000000001"),
+        days,
+        Decimal("0.01"),
+        {date(2026, 3, 5): Decimal("0.26")},
+    )
+    assert list(path.values()) == [Decimal("50.00")] * 3 + [Decimal("49.74")] * 2
+
+
+def test_a_dividend_worth_the_whole_price_is_refused() -> None:
+    with pytest.raises(ValueError, match="whole price"):
+        log_normal_path(
+            np.random.Generator(np.random.PCG64(1)),
+            Decimal("1.00"),
+            Decimal("0.01"),
+            [date(2026, 3, 5)],
+            Decimal("0.01"),
+            {date(2026, 3, 5): Decimal("1.00")},
+        )
+
+
+def test_a_declared_dividend_lowers_a_call_and_raises_a_put() -> None:
+    def close(right: OptionRight, dividends: tuple[tuple[date, Decimal], ...]) -> Decimal:
+        return model_option_close(
+            right,
+            ExerciseStyle.AMERICAN,
+            Decimal("60.00"),
+            date(2026, 9, 18),
+            Decimal("60.00"),
+            date(2026, 2, 2),
+            Decimal("0.04"),
+            Decimal("0.27"),
+            dividends,
+        )
+
+    dividend = ((date(2026, 2, 26), Decimal("2.00")),)
+    assert close(OptionRight.CALL, dividend) < close(OptionRight.CALL, ())
+    assert close(OptionRight.PUT, dividend) > close(OptionRight.PUT, ())
+    # A dividend that went ex before the pricing day, or goes ex after expiry, is ignored.
+    stale = ((date(2026, 1, 30), Decimal("2.00")), (date(2026, 10, 1), Decimal("2.00")))
+    assert close(OptionRight.CALL, stale) == close(OptionRight.CALL, ())

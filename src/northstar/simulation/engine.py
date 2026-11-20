@@ -39,6 +39,7 @@ from northstar.common.ids import EntityType, source_id
 from northstar.common.money import Currency, Money
 from northstar.domain.accounting import CLIENT_CASH, ChartOfAccounts, EntrySide, PostingEngine
 from northstar.domain.calendar import BUSINESS_TIMEZONE, MarketCalendar, business_date
+from northstar.domain.corporate_actions import dividend_allocations
 from northstar.domain.events import (
     AccountCreated,
     AccountCreatedPayload,
@@ -51,6 +52,11 @@ from northstar.domain.events import (
     CashDepositedPayload,
     CashWithdrawn,
     CashWithdrawnPayload,
+    DividendAllocation,
+    DividendDeclared,
+    DividendDeclaredPayload,
+    DividendPaid,
+    DividendPaidPayload,
     Event,
     ExerciseStyle,
     FxConverted,
@@ -93,6 +99,8 @@ FX_PUBLICATION_TIME_LOCAL = time(0, 0)
 the start of D, so no conversion on D is priced with a rate published after it."""
 
 _END_OF_DAY = time(23, 59, 59)
+_DIVIDEND_PAYMENT_TIME = time(9, 0)
+"""Dividends are paid at 09:00 Toronto on the pay date (a simulation convention)."""
 
 
 class _Frozen(BaseModel):
@@ -224,6 +232,22 @@ class PlaceOrder:
 
 
 @dataclass(frozen=True, slots=True)
+class DeclareDividend:
+    """An issuer declares a cash dividend on an equity (roadmap 5C-a, ADR 013).
+
+    ``record_date`` is also the ex-dividend date (T+1). Entitlements are fixed
+    from settled holdings at the end of the record date, and the dividend is
+    paid at the start of ``pay_date``.
+    """
+
+    at: datetime
+    instrument: str
+    amount_per_share: Decimal
+    record_date: date
+    pay_date: date
+
+
+@dataclass(frozen=True, slots=True)
 class ClosePrice:
     """A daily closing price, published after the close."""
 
@@ -233,7 +257,16 @@ class ClosePrice:
     close: Decimal
 
 
-type Action = OpenAccount | UpdateAccount | Deposit | Withdraw | Convert | PlaceOrder | ClosePrice
+type Action = (
+    OpenAccount
+    | UpdateAccount
+    | Deposit
+    | Withdraw
+    | Convert
+    | PlaceOrder
+    | DeclareDividend
+    | ClosePrice
+)
 
 
 # --- Engine --------------------------------------------------------------------
@@ -249,6 +282,17 @@ class _Draft:
     ref: str
     caused_by: str | None
     make: _Make
+
+
+@dataclass(slots=True)
+class _Dividend:
+    dividend_id: str
+    instrument_id: str
+    currency: Currency
+    amount_per_share: Decimal
+    record_date: date
+    pay_date: date
+    allocations: tuple[DividendAllocation, ...] | None = None  # fixed at the record date
 
 
 @dataclass(slots=True)
@@ -305,6 +349,9 @@ class SimulationEngine:
         self._account_order: list[str] = []
         self._obligations: dict[tuple[str, date], _Obligation] = {}
         self._settlement_queue: list[tuple[datetime, int, tuple[str, date]]] = []
+        # Corporate-event steps: (when, sequence, step, dividend_id), step "record" or "pay".
+        self._corporate_queue: list[tuple[datetime, int, str, str]] = []
+        self._dividends: dict[str, _Dividend] = {}
         self._queued = 0
         self._account_types: dict[str, AccountType] = {}
         self._status: dict[str, AccountStatus] = {}
@@ -389,6 +436,8 @@ class SimulationEngine:
                     self._convert(action)
                 case PlaceOrder():
                     self._order(action)
+                case DeclareDividend():
+                    self._declare_dividend(action)
                 case ClosePrice():
                     self._close(action)
             completed = True
@@ -407,9 +456,8 @@ class SimulationEngine:
         self._require_usable()
         self._accrue_interest_through(interest_until)
         self._publish_fx_rates(interest_until)
-        while self._settlement_queue:
-            _, _, key = heapq.heappop(self._settlement_queue)
-            self._settle(key)
+        while self._next_scheduled() is not None:
+            self._run_next_scheduled()
         self._finished = True
         ordered = sorted(self._drafts, key=lambda d: d.timestamp)  # stable on ties
         event_ids: dict[str, str] = {}
@@ -453,19 +501,38 @@ class SimulationEngine:
         if self._clock is not None and to < self._clock:
             msg = f"action at {to.isoformat()} is before {self._clock.isoformat()}"
             raise ScenarioError(msg)
-        # Interest for every day that has fully ended, then due settlements, in time order.
+        # Interest for every day that has fully ended, then due settlements and
+        # corporate-event steps, in time order.
         while True:
             interest_at = self._interest_time()
-            settle_at = self._settlement_queue[0][0] if self._settlement_queue else None
-            due = [t for t in (interest_at, settle_at) if t is not None and t <= to]
+            scheduled_at = self._next_scheduled()
+            due = [t for t in (interest_at, scheduled_at) if t is not None and t <= to]
             if not due:
                 break
             if interest_at is not None and interest_at == min(due):
                 self._accrue_day()
             else:
-                _, _, key = heapq.heappop(self._settlement_queue)
-                self._settle(key)
+                self._run_next_scheduled()
         self._clock = to
+
+    def _next_scheduled(self) -> datetime | None:
+        """When the next settlement or corporate-event step is due."""
+        heads = [q[0][0] for q in (self._settlement_queue, self._corporate_queue) if q]
+        return min(heads, default=None)
+
+    def _run_next_scheduled(self) -> None:
+        """Run the next settlement or corporate-event step (a settlement first on a tie)."""
+        settle_at = self._settlement_queue[0][0] if self._settlement_queue else None
+        corporate_at = self._corporate_queue[0][0] if self._corporate_queue else None
+        if settle_at is not None and (corporate_at is None or settle_at <= corporate_at):
+            _, _, key = heapq.heappop(self._settlement_queue)
+            self._settle(key)
+        elif corporate_at is not None:
+            _, _, step, dividend_id = heapq.heappop(self._corporate_queue)
+            if step == "record":
+                self._fix_entitlements(dividend_id)
+            else:
+                self._pay_dividend(dividend_id)
 
     def _interest_time(self) -> datetime | None:
         if self._next_interest_day is None:
@@ -863,9 +930,8 @@ class SimulationEngine:
     def _accrue_interest_through(self, until: date) -> None:
         while self._next_interest_day is not None and self._next_interest_day <= until:
             at = _local(self._next_interest_day, _END_OF_DAY)
-            while self._settlement_queue and self._settlement_queue[0][0] <= at:
-                _, _, key = heapq.heappop(self._settlement_queue)
-                self._settle(key)
+            while (due := self._next_scheduled()) is not None and due <= at:
+                self._run_next_scheduled()
             self._accrue_day()
 
     def _accrue_day(self) -> None:
@@ -901,6 +967,92 @@ class SimulationEngine:
                     MarginInterestAccrued(**_envelope(at, account_id), payload=payload),
                 )
         self._next_interest_day = day + timedelta(days=1)
+
+    def _declare_dividend(self, action: DeclareDividend) -> None:
+        instrument_id, spec = self._instrument(action.instrument)
+        if spec.asset_class is not AssetClass.EQUITY:
+            msg = f"dividends are declared on equities, not {action.instrument!r}"
+            raise ScenarioError(msg)
+        calendar = self._p.calendars[spec.market]
+        record = action.record_date
+        if not (calendar.is_trading_day(record) and calendar.is_settlement_day(record)):
+            msg = f"the record (ex-)date {record} is not a {spec.market} business day"
+            raise ScenarioError(msg)
+        if not calendar.is_settlement_day(action.pay_date):
+            msg = f"the pay date {action.pay_date} is not a {spec.market} settlement day"
+            raise ScenarioError(msg)
+        dividend_id = self._next_id(EntityType.DIVIDEND)
+        payload = DividendDeclaredPayload(
+            dividend_id=dividend_id,
+            instrument_id=instrument_id,
+            currency=spec.currency,
+            amount_per_share=action.amount_per_share,
+            declaration_date=business_date(action.at),
+            ex_date=record,
+            record_date=record,
+            pay_date=action.pay_date,
+        )
+        self._record(
+            _Draft(
+                action.at,
+                dividend_id,
+                None,
+                _maker(DividendDeclared, action.at, dividend_id, payload),
+            ),
+            None,
+        )
+        self._dividends[dividend_id] = _Dividend(
+            dividend_id,
+            instrument_id,
+            spec.currency,
+            action.amount_per_share,
+            record,
+            action.pay_date,
+        )
+        for step, at in (
+            ("record", _local(record, _END_OF_DAY)),
+            ("pay", _local(action.pay_date, _DIVIDEND_PAYMENT_TIME)),
+        ):
+            self._queued += 1
+            heapq.heappush(self._corporate_queue, (at, self._queued, step, dividend_id))
+
+    def _fix_entitlements(self, dividend_id: str) -> None:
+        """At the end of the record date: each account's settled shares (ADR 013)."""
+        dividend = self._dividends[dividend_id]
+        settled = {
+            account_id: quantities[1]
+            for (account_id, instrument_id), quantities in self._positions.positions().items()
+            if instrument_id == dividend.instrument_id
+        }
+        dividend.allocations = dividend_allocations(dividend.amount_per_share, settled)
+
+    def _pay_dividend(self, dividend_id: str) -> None:
+        dividend = self._dividends[dividend_id]
+        if dividend.allocations is None:  # pragma: no cover - the record step always runs first
+            msg = f"{dividend_id} is paid before its record date"
+            raise ScenarioError(msg)
+        if not dividend.allocations:
+            return  # nobody held the shares at the record date: nothing to pay
+        at = _local(dividend.pay_date, _DIVIDEND_PAYMENT_TIME)
+        payload = DividendPaidPayload(
+            dividend_id=dividend_id,
+            instrument_id=dividend.instrument_id,
+            currency=dividend.currency,
+            amount_per_share=dividend.amount_per_share,
+            record_date=dividend.record_date,
+            pay_date=dividend.pay_date,
+            allocations=dividend.allocations,
+            total_amount=sum((a.amount for a in dividend.allocations), Decimal(0)),
+        )
+        self._record(
+            _Draft(
+                at,
+                f"{dividend_id}:paid",
+                dividend_id,
+                _maker(DividendPaid, at, dividend_id, payload),
+            ),
+            DividendPaid(**_envelope(at, dividend_id), payload=payload),
+        )
 
     def _close(self, action: ClosePrice) -> None:
         instrument_id, spec = self._instrument(action.instrument)

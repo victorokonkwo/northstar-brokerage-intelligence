@@ -61,7 +61,10 @@ class Rejected:
 
 _EVENT_ADAPTER: Final = TypeAdapter(Event)
 
-_MARKET_DATA_EVENTS: Final = frozenset({EventType.PRICE_UPDATED, EventType.FX_RATE_PUBLISHED})
+_MARKET_DATA_EVENTS: Final = frozenset(
+    {EventType.PRICE_UPDATED, EventType.FX_RATE_PUBLISHED, EventType.DIVIDEND_DECLARED}
+)
+"""Market and issuer reference data; every other event is a brokerage event."""
 
 EXTERNAL_DOMAINS: Final[Mapping[str, str]] = {
     "clearing_confirmations": "clearing",

@@ -126,7 +126,7 @@ class TestCleanDataset:
                 if o.entity in events:
                     assert domain == (
                         "market_data"
-                        if o.entity in {"price_updated", "fx_rate_published"}
+                        if o.entity in {"price_updated", "fx_rate_published", "dividend_declared"}
                         else "brokerage"
                     )
                     day = business_date(datetime.fromisoformat(record["event_timestamp"]))

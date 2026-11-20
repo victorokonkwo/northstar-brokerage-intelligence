@@ -14,7 +14,10 @@ import pytest
 
 from northstar.common.money import Currency
 from northstar.domain.accounting import CLIENT_CASH, EntrySide
+from northstar.domain.calendar import business_date
 from northstar.domain.events import (
+    DividendDeclared,
+    DividendPaid,
     Event,
     InstrumentListed,
     OrderCancelled,
@@ -138,6 +141,35 @@ def test_settlement_dates_follow_the_calendars(events: tuple[Event, ...]) -> Non
                 p.settlement_rules,
                 calendar,
             )
+
+
+def test_each_dividend_pays_the_holders_at_the_close_before_the_ex_date(
+    events: tuple[Event, ...],
+) -> None:
+    # Under T+1 the shares settled at the end of the record (ex-)date are those held
+    # at the close of the day before it (ADR 013), recomputed here from the trades.
+    paid = [e for e in events if isinstance(e, DividendPaid)]
+    declared = {e.payload.dividend_id for e in events if isinstance(e, DividendDeclared)}
+    assert paid
+    assert {e.payload.dividend_id for e in paid} == declared  # the dev dividends all have holders
+    for e in paid:
+        p = e.payload
+        before_ex = [
+            t
+            for t in events
+            if isinstance(t, TradeExecuted) and business_date(t.event_timestamp) < p.record_date
+        ]
+        held: dict[str, Decimal] = defaultdict(Decimal)
+        for t in before_ex:
+            if t.payload.instrument_id == p.instrument_id:
+                signed = (
+                    t.payload.quantity if t.payload.side.value == "BUY" else -t.payload.quantity
+                )
+                held[t.payload.account_id] += signed
+        assert {a.account_id: a.quantity for a in p.allocations} == {
+            account: q for account, q in held.items() if q > 0
+        }, p.dividend_id
+        assert p.total_amount == sum(q * p.amount_per_share for q in held.values() if q > 0)
 
 
 def test_output_is_repeatable(events: tuple[Event, ...], tmp_path: Path) -> None:

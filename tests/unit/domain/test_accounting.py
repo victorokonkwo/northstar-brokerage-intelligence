@@ -11,13 +11,14 @@ import pytest
 from northstar.common.exceptions import PolicyNotFoundError, UnbalancedJournalError
 from northstar.common.money import Currency, Money
 from northstar.domain.accounting import (
+    NON_POSTING_EVENTS,
     ChartOfAccounts,
     EntrySide,
     JournalBatch,
     JournalLine,
     PostingEngine,
 )
-from northstar.domain.events import Side
+from northstar.domain.events import EventType, Side
 from northstar.infrastructure.config_loader import load_policy
 from northstar.simulation.scenario import Scenario, generate_events
 
@@ -26,6 +27,7 @@ from factories import (
     at_toronto,
     chart,
     deposit,
+    dividend_paid,
     engine,
     execution,
     policies,
@@ -217,6 +219,22 @@ def test_post_events_skips_only_declared_non_posting_types() -> None:
         "trade_executed",
         "trade_settled",
     ]
+
+
+def test_a_dividend_credits_each_entitled_account_from_one_bank_receipt() -> None:
+    batch = engine().post(dividend_paid([("acc_1", "100"), ("acc_2", "7")], "0.25"))
+    assert batch.posting_rule_id == "dividend_paid"
+    lines = [(ln.gl_account, ln.client_account_id, ln.side, ln.amount.amount) for ln in batch.lines]
+    assert lines == [
+        ("1000", None, EntrySide.DEBIT, Decimal("26.75")),
+        ("2100", "acc_1", EntrySide.CREDIT, Decimal("25.00")),
+        ("2100", "acc_2", EntrySide.CREDIT, Decimal("1.75")),
+    ]
+
+
+def test_a_dividend_declaration_posts_nothing() -> None:
+    assert EventType.DIVIDEND_DECLARED in NON_POSTING_EVENTS
+    assert EventType.DIVIDEND_PAID not in NON_POSTING_EVENTS
 
 
 def test_post_events_refuses_an_event_type_without_a_rule() -> None:

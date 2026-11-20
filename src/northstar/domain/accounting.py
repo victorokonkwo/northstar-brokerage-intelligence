@@ -25,6 +25,7 @@ from northstar.domain.calendar import MarketCalendar, business_date
 from northstar.domain.events import (
     CashDeposited,
     CashWithdrawn,
+    DividendPaid,
     Event,
     EventType,
     FxConverted,
@@ -200,6 +201,7 @@ CASH_WITHDRAWAL: Final = PostingRule("cash_withdrawn", 1)
 FX_BUY_USD: Final = PostingRule("fx_converted.buy_usd", 1)
 FX_BUY_CAD: Final = PostingRule("fx_converted.buy_cad", 1)
 MARGIN_INTEREST: Final = PostingRule("margin_interest_accrued", 1)
+DIVIDEND_PAYMENT: Final = PostingRule("dividend_paid", 1)
 
 CASH: Final = "1000"
 RECEIVABLE_FROM_CLEARING: Final = "1200"
@@ -231,6 +233,7 @@ NON_POSTING_EVENTS: Final = frozenset(
         EventType.ORDER_PLACED,
         EventType.ORDER_CANCELLED,
         EventType.PRICE_UPDATED,
+        EventType.DIVIDEND_DECLARED,
     }
 )
 """Event types that change no balance and therefore post nothing."""
@@ -242,6 +245,7 @@ PostingEvent = (
     | TradeExecuted
     | TradeSettled
     | MarginInterestAccrued
+    | DividendPaid
 )
 
 type _LineSpec = tuple[str, str | None, EntrySide, Money]
@@ -287,6 +291,8 @@ class PostingEngine:
                 return self._post_settlement(event)
             case MarginInterestAccrued():
                 return self._post_interest(event)
+            case DividendPaid():
+                return self._post_dividend(event)
 
     def post_events(self, events: Iterable[Event]) -> tuple[JournalBatch, ...]:
         """Post every event that changes a balance, in order.
@@ -425,6 +431,25 @@ class PostingEngine:
             [
                 (CASH, None, EntrySide.DEBIT, amount),
                 (RECEIVABLE_FROM_CLEARING, None, EntrySide.CREDIT, amount),
+            ],
+        )
+
+    def _post_dividend(self, event: DividendPaid) -> JournalBatch:
+        """Post a dividend on its pay date, cash basis (ADR 013).
+
+        The depository pays the total into the bank, and each entitled account's
+        client cash is credited its allocation (exact: whole-cent rate x whole shares).
+        """
+        p = event.payload
+        return self._batch(
+            event,
+            DIVIDEND_PAYMENT,
+            [
+                (CASH, None, EntrySide.DEBIT, Money(p.total_amount, p.currency)),
+                *(
+                    (CLIENT_CASH, a.account_id, EntrySide.CREDIT, Money(a.amount, p.currency))
+                    for a in p.allocations
+                ),
             ],
         )
 

@@ -15,7 +15,7 @@ Non-functional requirements are in [non-functional-requirements.md](../architect
 
 | ID | Requirement | Acceptance criteria |
 |---|---|---|
-| FR-SIM-01 | Generate accounts, instruments, deposits and withdrawals, orders, executions (including partial fills and cancellations), fees, FX conversions, settlements, margin borrowing, and interest accrual. | Generation is deterministic for a given seed and size. The same seed produces byte-identical output files. |
+| FR-SIM-01 | Generate accounts, instruments, deposits and withdrawals, orders, executions (including partial fills and cancellations), fees, FX conversions, settlements, margin borrowing, interest accrual, and cash dividends (roadmap 5C-a). | Generation is deterministic for a given seed and size. The same seed produces byte-identical output files. |
 | FR-SIM-02 | Produce **canonical** events (ground truth) separately from **external** records (clearing, custody, bank statements, fee records). | External records are derived from canonical events through a separate, documented transformation, never by reading internal derived tables. |
 | FR-SIM-03 | Inject configurable defects into external records: dropped records, duplicate clearing messages, wrong fees, delayed settlements, wrong FX conversions, stale prices. | Each injected defect is written to a defect manifest (record ID, defect type, expected financial impact) that serves as test ground truth. |
 | FR-SIM-04 | Use settlement and trading calendars that include Canadian and US market holidays. | Settlement dates skip weekends and holidays. The calendar source is recorded in `docs/sources.md`. |

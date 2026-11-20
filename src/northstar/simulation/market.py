@@ -17,7 +17,7 @@ underlying's close that day (roadmap 5B; ADR 012), from the binomial tree of
 so these closes are too.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from itertools import pairwise
@@ -26,7 +26,7 @@ from typing import Final
 import numpy as np
 
 from northstar.domain.events import ExerciseStyle, OptionRight
-from northstar.domain.market_risk.options import OptionInputs, binomial
+from northstar.domain.market_risk.options import Dividend, OptionInputs, binomial
 
 _CONTEXT = Context(prec=28, rounding=ROUND_HALF_EVEN)
 PRICE_TICK = Decimal("0.01")
@@ -46,14 +46,18 @@ def log_normal_path(
     daily_vol: Decimal,
     days: Sequence[date],
     quantum: Decimal,
+    drops: Mapping[date, Decimal] | None = None,
 ) -> dict[date, Decimal]:
     """Return one value per day in ``days`` (in order), starting from ``start``.
 
     The first day already moves from ``start``. Values are rounded half-even to
-    ``quantum`` and never fall below one quantum.
+    ``quantum`` and never fall below one quantum. On a day in ``drops`` (an
+    ex-dividend date), the level first falls by the dividend, then moves:
+    close = (previous level - dividend) x exp(shock).
 
     Raises:
-        ValueError: ``start`` or ``daily_vol`` is not positive.
+        ValueError: ``start`` or ``daily_vol`` is not positive, or a dividend is
+            worth the whole level.
     """
     if start <= 0 or daily_vol <= 0:
         msg = "start and daily_vol must be positive"
@@ -62,6 +66,11 @@ def log_normal_path(
     path: dict[date, Decimal] = {}
     level = start
     for day, z in zip(days, rng.standard_normal(len(days)), strict=True):
+        if drops and day in drops:
+            level -= drops[day]
+            if level <= 0:
+                msg = f"the dividend going ex on {day} is worth the whole price"
+                raise ValueError(msg)
         shock = _CONTEXT.add(_CONTEXT.multiply(daily_vol, Decimal(float(z))), drift)
         level = _CONTEXT.multiply(level, _CONTEXT.exp(shock))
         path[day] = max(level.quantize(quantum, rounding=ROUND_HALF_EVEN), quantum)
@@ -83,12 +92,14 @@ def model_option_close(
     day: date,
     rate: Decimal,
     implied_vol: Decimal,
+    dividends: Sequence[tuple[date, Decimal]] = (),
 ) -> Decimal:
     """The option's close on ``day``: its tree price on the underlying's close that day.
 
-    No dividends are known to the model yet (they arrive in roadmap 5C). The
-    price is rounded half-even to a cent and never falls below one cent, like
-    every synthetic close.
+    ``dividends`` are the underlying's known cash dividends, as (ex-date, amount
+    per share); the model escrows those going ex after ``day`` (the pricer
+    ignores any after expiry; roadmap 5C-a). The price is rounded half-even to
+    a cent and never falls below one cent, like every synthetic close.
 
     Raises:
         ValueError: ``day`` is after expiry (exercise and expiry are roadmap 5C).
@@ -104,6 +115,11 @@ def model_option_close(
         rate=float(rate),
         vol=float(implied_vol),
         expiry=(expiry - day).days / DAYS_PER_YEAR,
+        dividends=tuple(
+            Dividend(time=(ex - day).days / DAYS_PER_YEAR, amount=float(amount))
+            for ex, amount in sorted(dividends)
+            if day < ex  # gone ex: already in the price; after expiry: the pricer ignores it
+        ),
     )
     value = Decimal(binomial(terms, OPTION_TREE_STEPS))
     return max(value.quantize(PRICE_TICK, rounding=ROUND_HALF_EVEN), PRICE_TICK)

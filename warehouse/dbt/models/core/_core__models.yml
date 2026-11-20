@@ -470,3 +470,28 @@ models:
       - {name: rate_source, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _source_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+
+  - name: fct_dividend_payments
+    description: >
+      One row per dividend x entitled account (grain; primary key dividend_id +
+      account_id, unique, tested in assert_daily_fact_grains_unique): the client cash credited on the pay date, from the ledger's
+      dividend_paid batches (roadmap 5C-a, ADR 013). Entitlement is the settled
+      holding at the end of the record date.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: dividend_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: instrument_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: record_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: pay_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: posting_date, data_type: date, constraints: [{type: not_null}]}
+      - name: currency
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+      - {name: amount_per_share, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: amount, data_type: "numeric(18, 2)", constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
