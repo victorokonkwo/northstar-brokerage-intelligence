@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: external
+    description: >
+      What the outside parties report (clearing firm, depository, bank, custodian,
+      FX desk, price vendor), loaded append-only from the raw layer by
+      northstar.application.ingest.load_run. One row per record; payload is the
+      record as received (jsonb). Produced independently of the ledger (FR-SIM-02).
+    schema: "{{ var('raw_schema', 'raw') }}"
+    tables:
+      - name: external_records
+        description: One row per external record. Grain = record_id.
+        columns:
+          - name: record_id
+            data_tests: [unique, not_null]
+          - name: record_set
+            data_tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values:
+                      - clearing_confirmations
+                      - settlement_confirmations
+                      - bank_statement_lines
+                      - custody_snapshots
+                      - fee_records
+                      - fx_confirmations
+                      - price_feed

@@ -1,0 +1,24 @@
+# Reconciliation policy (FR-M2-03, FR-M2-04; domain model §7.3). Owner decision
+# 2026-11-20: these values. ILLUSTRATIVE: not a real firm's thresholds. Every
+# match and exception records the version that produced it.
+version: "2026.1"
+effective_from: 2026-11-20
+illustrative: true
+
+# Tolerance-stage matching: how far two values may differ and still match.
+tolerances:
+  price_per_unit: "0.0001"   # prices match within +/- 0.0001 per unit
+  amount: "0.00"             # amounts must agree to the cent
+  quantity: "0"              # quantities must agree exactly
+
+# Severity by absolute impact in CAD, highest first.
+severity:
+  critical_cad: "10000"
+  high_cad: "1000"
+  medium_cad: "100"
+  always_critical: [CASH_BREAK, MISSING_INTERNAL, POSITION_MISMATCH]
+  at_least_medium: [SETTLEMENT_LATE]
+  blocking: [CRITICAL, HIGH]   # an open exception at these severities blocks publication
+
+# Business days an exception may stay open before it breaches its SLA (KPI-04).
+sla_business_days: {CRITICAL: 1, HIGH: 2, MEDIUM: 5, LOW: 10}
