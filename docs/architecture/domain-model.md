@@ -144,7 +144,7 @@ FX and prices were added in Phase 4 (owner decision, 2026-11-20). The defect man
 
 ### 7.2 Exception types
 
-`MISSING_EXTERNAL`, `MISSING_INTERNAL`, `DUPLICATE_EXTERNAL`, `QUANTITY_MISMATCH`, `PRICE_MISMATCH`, `FEE_MISMATCH`, `FX_MISMATCH`, `SETTLEMENT_LATE`, `SETTLEMENT_AMOUNT_MISMATCH`, `POSITION_MISMATCH`, `CASH_BREAK`, `STALE_PRICE` (the vendor repeated an earlier close for a day its market traded; added in Phase 4). They are defined in `northstar.domain.reconciliation.ExceptionType`.
+`MISSING_EXTERNAL`, `MISSING_INTERNAL`, `DUPLICATE_EXTERNAL`, `QUANTITY_MISMATCH`, `PRICE_MISMATCH`, `FEE_MISMATCH`, `FX_MISMATCH`, `SETTLEMENT_LATE`, `SETTLEMENT_AMOUNT_MISMATCH`, `POSITION_MISMATCH`, `CASH_BREAK`, `STALE_PRICE` (the vendor repeated an earlier close for a day its market traded; added in Phase 4). They are defined in `northstar.domain.reconciliation.ExceptionType`. Matching and classification are in `northstar.domain.matching` and `northstar.domain.reconciliation` ([reconciliation](reconciliation.md)).
 
 ### 7.3 Severity
 

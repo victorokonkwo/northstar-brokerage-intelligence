@@ -65,8 +65,9 @@ Plan approved by the owner on 2026-11-20, as seven PRs:
 
 | PR | Status |
 |---|---|
-| 4A external records and policy | Built (this PR): dbt staging for the seven external record sets; the versioned reconciliation policy with severity rules |
-| 4B–4G | Not started |
+| 4A external records and policy | Built, awaiting merge (#28): dbt staging for the seven external record sets; the versioned reconciliation policy with severity rules |
+| 4B staged matching and classification | Built (this PR): seven reconciliations with staged rules, impact in original currency and CAD, severity; exceptions equal the defect manifest exactly on the dev dataset ([reconciliation](../architecture/reconciliation.md)) |
+| 4C–4G | Not started |
 
 ## Phase 3 (weeks 5–7)
 

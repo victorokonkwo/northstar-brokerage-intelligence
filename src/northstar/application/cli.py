@@ -21,6 +21,10 @@ Commands:
   orchestrator skips the day's run on 99).
 - ``archive-lineage``: store an OpenLineage JSON Lines file under ``audit/lineage/``.
 - ``record-alert``: log a failed pipeline task and store it under ``audit/alerts/``.
+- ``reconcile``: run the seven reconciliations against a dbt schema and store
+  matches and exceptions append-only.
+- ``recon-verify``: compare stored exceptions with a defect manifest; exit 1
+  unless they agree exactly (NFR-03).
 
 Connection settings come from the ``NBI_PG_*`` and ``NBI_S3_*`` environment
 variables.
@@ -47,6 +51,7 @@ from northstar.application.operations import (
 )
 from northstar.application.policies import load_policies
 from northstar.application.publish import publish_all, publish_date
+from northstar.application.reconcile import reconcile_warehouse, verify_against_manifest
 from northstar.application.simulate import simulate_dataset
 from northstar.application.sprint1 import (
     journal_fingerprint,
@@ -133,6 +138,16 @@ def build_parser() -> argparse.ArgumentParser:
     alert.add_argument("--run-id", required=True)
     alert.add_argument("--try-number", type=int, required=True)
     alert.add_argument("--message", required=True)
+
+    rec = commands.add_parser("reconcile", help="reconcile a dbt schema and store exceptions")
+    rec.add_argument("--dbt-schema", required=True, help="schema dbt built the models in")
+    rec.add_argument("--recon-schema", required=True, help="schema for matches and exceptions")
+    rec.add_argument("--as-of", type=date.fromisoformat, help="default: last reporting date")
+    rec.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
+
+    ver = commands.add_parser("recon-verify", help="compare exceptions with a defect manifest")
+    ver.add_argument("--recon-schema", required=True)
+    ver.add_argument("--manifest", type=Path, required=True, help="defects/manifest.jsonl")
     return parser
 
 
@@ -271,6 +286,40 @@ def _run(args: argparse.Namespace) -> int:
                     f"sha256={v.content_sha256[:12]} reason={v.restatement_reason}\n"
                 )
         return 0
+
+    if args.command == "reconcile":
+        run_id = f"recon-{uuid.uuid4().hex[:12]}"
+        with settings.connect() as conn:
+            outcome = reconcile_warehouse(
+                conn,
+                args.config,
+                args.dbt_schema,
+                args.recon_schema,
+                run_id,
+                code_version(),
+                args.as_of,
+            )
+        out.write(
+            f"run {run_id} as of {outcome.as_of}: {outcome.matches} matches "
+            f"({outcome.new_matches} new), {outcome.exceptions} exceptions "
+            f"({outcome.new_exceptions} new)\n"
+        )
+        for exception_type, count in outcome.by_type.items():
+            out.write(f"  {exception_type} {count}\n")
+        return 0
+    if args.command == "recon-verify":
+        with settings.connect() as conn:
+            check = verify_against_manifest(conn, args.recon_schema, args.manifest)
+        out.write(f"manifest {check.expected} defects, found {check.found} exceptions\n")
+        for label, items in (
+            ("missing", check.missing),
+            ("unexpected", check.unexpected),
+            ("impact differs", check.impact_differences),
+        ):
+            for item in items:
+                out.write(f"  {label}: {item}\n")
+        out.write("exact match\n" if check.exact else "NOT an exact match\n")
+        return 0 if check.exact else 1
 
     if args.command == "run-slice":
         prepared = prepare_slice(args.config, args.scenario, args.seed, args.out)
