@@ -1,0 +1,43 @@
+format: 0.3
+title: "NBI batch stack: the daily close on Step Functions and ECS Fargate (dev, ca-central-1)"
+connect:
+  tv_aws_users.operator:
+    - aws_sfn_state_machine.daily_close: "start-execution (business date)"
+  aws_scheduler_schedule.daily_close:
+    - aws_sfn_state_machine.daily_close: "06:00 Toronto"
+  aws_sfn_state_machine.daily_close:
+    - aws_fargate.ecs: "one task per step"
+    - aws_sns_topic.sns: "failed step"
+  aws_cloudwatch_metric_alarm.daily_close_failed:
+    - aws_sns_topic.sns: "failed or timed out"
+update:
+  aws_vpc.warehouse:
+    label: "Warehouse VPC, public subnets (data stack)"
+  aws_security_group.task_daily_close:
+    label: "SG: no inbound; 443 out, 5439 to Redshift"
+  aws_fargate.ecs:
+    label: "Fargate tasks (ARM64)"
+  aws_ecs_cluster.ecs:
+    label: "ECS cluster"
+  aws_ecr_repository.batch:
+    label: "Batch image (ECR)"
+  aws_cloudwatch_log_group.cloudwatch:
+    label: "Task logs"
+  aws_sfn_state_machine.daily_close:
+    label: "Daily close state machine"
+  aws_scheduler_schedule.daily_close:
+    label: "Schedule (disabled)"
+  aws_cloudwatch_metric_alarm.daily_close_failed:
+    label: "Run-failed alarm"
+  aws_sns_topic.sns:
+    label: "Alerts topic (data stack)"
+  aws_iam_role.scheduler:
+    label: "Scheduler role"
+  aws_iam_role.states:
+    label: "State machine role"
+  aws_iam_role.execution:
+    label: "Execution role"
+  aws_iam_role.task:
+    label: "Task role"
+  tv_aws_users.operator:
+    label: "Operator"
