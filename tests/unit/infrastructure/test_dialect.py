@@ -5,11 +5,12 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+import psycopg
 import pytest
 from psycopg import sql
 
 from northstar.infrastructure import postgres, recon_store, snapshots
-from northstar.infrastructure.dialect import REDSHIFT_TEXT, redshift_ddl
+from northstar.infrastructure.dialect import REDSHIFT_TEXT, UuidAsText, redshift_ddl
 from northstar.infrastructure.loading import LoadConflictError, distinct_rows
 from northstar.infrastructure.redshift import _differs, _json_value, _record
 
@@ -92,3 +93,10 @@ def test_distinct_rows_keeps_one_per_key_and_refuses_disagreement() -> None:
     assert distinct_rows("s", "t", "key", rows) == [("k1", "a", "run1"), ("k2", "b", "run1")]
     with pytest.raises(LoadConflictError, match="repeats key k1"):
         distinct_rows("s", "t", "key", [("k1", "a", "r"), ("k1", "b", "r")])
+
+
+def test_uuids_are_sent_to_redshift_as_their_text() -> None:
+    value = uuid.uuid5(uuid.NAMESPACE_URL, "x")
+    dumper = UuidAsText(uuid.UUID)
+    assert dumper.dump(value) == str(value).encode()
+    assert dumper.oid == psycopg.postgres.types["text"].oid  # not uuid (2950)

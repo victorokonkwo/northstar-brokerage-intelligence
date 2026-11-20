@@ -32,8 +32,11 @@ from northstar.infrastructure.recon_store import RunRecord, ensure_recon_tables,
 from northstar.infrastructure.snapshots import (
     CONTROLS_MARTS,
     PUBLISHED_MARTS,
+    VersionRecord,
     history,
+    log_status,
     read_as_published,
+    record_version,
 )
 
 from factories import CONFIG, xtse
@@ -242,6 +245,32 @@ def test_published_snapshots_are_append_only(
                 sql.Identifier(published, "snapshot_status_log")
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("version", "reason", "refusal"),
+    [
+        (0, None, "below 1"),
+        (1, "a first version has no reason", "can't have a restatement reason"),
+        (2, None, "needs a reason"),
+    ],
+)
+def test_the_application_refuses_versions_the_table_checks_would_refuse(
+    conn: psycopg.Connection[Any],
+    schemas: tuple[str, str],
+    version: int,
+    reason: str | None,
+    refusal: str,
+) -> None:
+    # Redshift has no CHECK constraints, so these rules must hold before the
+    # write: a ValueError here, not the database's CheckViolation.
+    source, published = schemas
+    _publish(conn, schemas, T0)
+    record = VersionRecord(D, version, "0" * 64, {}, "DRAFT", None, None, reason)
+    with pytest.raises(ValueError, match=refusal):
+        record_version(conn, published, record, 0, "run", "sha", source, T0)
+    with pytest.raises(ValueError, match="unknown snapshot status"):
+        log_status(conn, published, D, 1, "APPROVED", T0, "not a status")
 
 
 def test_only_reporting_dates_can_be_published(

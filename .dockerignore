@@ -1,4 +1,4 @@
-# Only what infrastructure/docker/airflow/Dockerfile copies is needed.
+# Only what the images copy is needed (infrastructure/docker/airflow and batch).
 **
 !pyproject.toml
 !uv.lock
@@ -6,6 +6,7 @@
 !src/**
 !config/**
 !warehouse/dbt/**
+!orchestration/cloud/run_step.sh
 warehouse/dbt/target
 warehouse/dbt/logs
 warehouse/dbt/dbt_packages

@@ -16,11 +16,26 @@ import psycopg
 import pytest
 from psycopg import sql
 
+from northstar.common.ids import derived_id
 from northstar.infrastructure.dialect import RedshiftConnection
 from northstar.infrastructure.loading import LoadConflictError
 from northstar.infrastructure.postgres import WarehouseSchemas, ensure_tables, insert_new
-from northstar.infrastructure.recon_store import LOCK_TABLE, ensure_recon_tables, lock_exception
+from northstar.infrastructure.recon_store import (
+    LOCK_TABLE,
+    TransitionRecord,
+    append_transitions,
+    ensure_recon_tables,
+    lock_exception,
+)
 from northstar.infrastructure.redshift import RedshiftSettings, grant_pipeline
+from northstar.infrastructure.snapshots import (
+    PUBLISHED_MARTS,
+    VersionRecord,
+    ensure_published,
+    history,
+    log_status,
+    record_version,
+)
 
 pytestmark = pytest.mark.redshift
 
@@ -158,3 +173,99 @@ def test_the_lifecycle_lock_works_for_the_pipeline_user(
     conn.autocommit = False
     with conn.transaction():
         assert lock_exception(conn, schemas.recon, str(uuid.uuid4())) is False
+
+
+@pytest.fixture(scope="module")
+def published(settings: RedshiftSettings) -> Iterator[tuple[str, str]]:
+    """A stand-in dbt schema with the four gate marts, and a published schema made from it."""
+    suffix = uuid.uuid4().hex[:8]
+    source, target = f"t_dbt_{suffix}", f"t_pub_{suffix}"
+    with settings.connect() as me:
+        user = str(me.info.user)
+    secret = os.environ["NBI_RS_ADMIN_SECRET_ARN"]
+    with settings.connect_admin(secret) as admin:
+        admin.execute(sql.SQL("create schema {}").format(sql.Identifier(source)))
+        for mart in PUBLISHED_MARTS:
+            admin.execute(
+                sql.SQL(
+                    "create table {} (business_date date, amount numeric(18, 2), "
+                    "_dbt_invocation_id varchar(4096))"
+                ).format(sql.Identifier(source, mart))
+            )
+            admin.execute(
+                sql.SQL("insert into {} values ('2026-03-02', 100.00, 'dbt-run-1')").format(
+                    sql.Identifier(source, mart)
+                )
+            )
+        ensure_published(admin, target, source, PUBLISHED_MARTS)
+        grant_pipeline(admin, (source, target), [user])
+    yield source, target
+    with settings.connect_admin(secret) as admin:
+        for schema in (source, target):
+            admin.execute(sql.SQL("drop schema {} cascade").format(sql.Identifier(schema)))
+
+
+def test_the_pipeline_user_records_versions_but_cannot_change_them(
+    conn: RedshiftConnection, published: tuple[str, str]
+) -> None:
+    source, target = published
+    ensure_published(conn, target, source, PUBLISHED_MARTS)  # checks only
+    day, at = date(2026, 3, 2), datetime(2026, 3, 3, 6, 0, tzinfo=UTC)
+    hashes = {mart: f"{n:064x}" for n, mart in enumerate(PUBLISHED_MARTS)}
+    record = VersionRecord(day, 1, "a" * 64, hashes, "DRAFT", None, None, None)
+    with conn.transaction():
+        record_version(conn, target, record, 0, "run-test", "sha", source, at)
+        log_status(conn, target, day, 1, "PUBLISHED", at, "test")
+    (stored,) = history(conn, target, day)
+    assert stored.mart_sha256 == hashes  # SUPER round-trips to the same mapping
+    assert stored.status == "PUBLISHED"
+    for table in ("snapshot_versions", "snapshot_status_log", PUBLISHED_MARTS[0]):
+        for statement in ("update {} set business_date = '2026-01-01'", "delete from {}"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(sql.SQL(statement).format(sql.Identifier(target, table)))
+
+
+def test_repeated_queries_survive_alter_and_rollback(settings: RedshiftSettings) -> None:
+    # psycopg prepares a query after 5 runs and then sends DEALLOCATE ALL after
+    # ALTER or ROLLBACK; Redshift rejects that, so prepares must stay off.
+    schema = f"t_prep_{uuid.uuid4().hex[:8]}"
+    with settings.connect_admin(os.environ["NBI_RS_ADMIN_SECRET_ARN"]) as admin:
+        admin.autocommit = True
+        admin.execute(sql.SQL("create schema {}").format(sql.Identifier(schema)))
+        try:
+            table = sql.Identifier(schema, "t")
+            admin.execute(sql.SQL("create table {} (a integer)").format(table))
+            for _ in range(6):
+                admin.execute(
+                    "select 1 from information_schema.columns where table_name = %s", ("t",)
+                )
+            admin.execute(sql.SQL("alter table {} add column b integer").format(table))
+            admin.autocommit = False
+            admin.execute(sql.SQL("insert into {} values (1, 2)").format(table))
+            admin.rollback()
+            admin.autocommit = True
+        finally:
+            admin.execute(sql.SQL("drop schema {} cascade").format(sql.Identifier(schema)))
+
+
+def test_lifecycle_transitions_are_recorded_with_their_derived_ids(
+    conn: RedshiftConnection, schemas: WarehouseSchemas
+) -> None:
+    # Transition IDs are uuid.UUID values, which psycopg would send as a type
+    # Redshift doesn't have; Redshift connections send them as text.
+    exception_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "exception-for-transition"))
+    record = TransitionRecord(
+        exception_id, 1, None, "OPEN", "rule:detected", "detected", None,
+        datetime(2026, 3, 3, 6, 0, tzinfo=UTC), "run-test",
+    )  # fmt: skip
+    conn.autocommit = False
+    with conn.transaction():
+        assert append_transitions(conn, schemas.recon, [record]) == 1
+    conn.autocommit = True
+    stored = conn.execute(
+        sql.SQL("select transition_id, to_status from {} where exception_id = %s").format(
+            sql.Identifier(schemas.recon, "exception_transitions")
+        ),
+        (exception_id,),
+    ).fetchone()
+    assert stored == (str(derived_id("recon_transition", exception_id, 1)), "OPEN")

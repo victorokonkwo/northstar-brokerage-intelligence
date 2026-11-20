@@ -8,9 +8,10 @@ Each model's rows are compared as multisets, leaving out the lineage columns
 that identify a run rather than the data (``_ingestion_run_id``,
 ``_ingested_at``, ``_dbt_invocation_id``, ``_build_seq``). The build log tables
 (``dbt_build_log``, ``dbt_model_builds``) record builds, not data, and are
-skipped. Values are normalised only where the two drivers return the same value
-as different Python types: a ``uuid`` as an object or a string, a JSON value as
-a list or as JSON text, and ``char(n)`` padding. Amounts are compared exactly.
+skipped, as is Redshift's empty ``lifecycle_lock``. Values are normalised only
+where the two drivers return the same value as different Python types: a
+``uuid`` as an object or a string, a JSON value as a list or as JSON text, and
+``char(n)`` padding. Amounts are compared exactly.
 
 Usage (from the repository root; Redshift needs ``aws login``)::
 
@@ -41,6 +42,8 @@ LINEAGE: frozenset[str] = frozenset(
     {"_dbt_invocation_id", "_ingestion_run_id", "_ingested_at", "_build_seq"}
 )
 BUILD_LOG_TABLES: frozenset[str] = frozenset({"dbt_build_log", "dbt_model_builds"})
+# Redshift's stand-in for SELECT ... FOR UPDATE: an empty table that exists there only.
+WAREHOUSE_SPECIFIC_TABLES: frozenset[str] = frozenset({"lifecycle_lock"})
 WAREHOUSES = ("postgres", "redshift")
 
 
@@ -85,7 +88,7 @@ def _tables(conn: psycopg.Connection[Any], schema: str) -> list[str]:
             "select table_name from information_schema.tables where table_schema = %s order by 1",
             (schema,),
         ).fetchall()
-        if r[0] not in BUILD_LOG_TABLES
+        if r[0] not in BUILD_LOG_TABLES | WAREHOUSE_SPECIFIC_TABLES
     ]
 
 
@@ -95,10 +98,12 @@ def compare(
     left: str = "postgres",
     right: str = "redshift",
     right_schema: str | None = None,
+    ignore: frozenset[str] = frozenset(),
 ) -> list[str]:
-    """One line per model that differs (row counts on each side); empty when all match.
+    """One line per table that differs (row counts on each side); empty when all match.
 
-    ``left`` and ``right`` name the warehouses; ``right_schema`` defaults to ``schema``.
+    ``left`` and ``right`` name the warehouses; ``right_schema`` defaults to
+    ``schema``. ``ignore`` adds columns to leave out, beyond the lineage ones.
     """
     right_schema = right_schema or schema
     names = (f"{left}:{schema}", f"{right}:{right_schema}")
@@ -115,7 +120,7 @@ def compare(
                     "where table_schema = %s and table_name = %s order by ordinal_position",
                     (schema, table),
                 ).fetchall()
-                if r[0] not in LINEAGE
+                if r[0] not in LINEAGE | ignore
             ]
             ours = model_rows(lc, schema, table, columns)
             theirs = model_rows(rc, right_schema, table, columns)
@@ -127,7 +132,7 @@ def compare(
                     f"{sum((theirs - ours).values())} only in {names[1]}"
                 )
         sys.stdout.write(
-            f"{len(tables) - len(differences)} of {len(tables)} models identical "
+            f"{len(tables) - len(differences)} of {len(tables)} tables identical "
             f"({names[0]} vs {names[1]})\n"
         )
     return differences
@@ -140,9 +145,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--left", choices=WAREHOUSES, default="postgres")
     parser.add_argument("--right", choices=WAREHOUSES, default="redshift")
     parser.add_argument("--right-schema", help="the schema on the right (default: --schema)")
+    parser.add_argument(
+        "--ignore",
+        action="append",
+        default=[],
+        help="a column to leave out too, such as one that records when a run happened",
+    )
     args = parser.parse_args(argv)
     differences = compare(
-        args.schema, left=args.left, right=args.right, right_schema=args.right_schema
+        args.schema,
+        left=args.left,
+        right=args.right,
+        right_schema=args.right_schema,
+        ignore=frozenset(args.ignore),
     )
     for line in differences:
         sys.stdout.write(f"  differs: {line}\n")

@@ -51,7 +51,7 @@ A rerun inserts 0 matches and 0 exceptions.
 
 ## Storage
 
-The `recon` schema (`recon_dev` for the dev dataset) holds `runs`, `match_results`, and `exceptions`. All three are append-only, enforced by triggers, and keyed by deterministic IDs. A stored row whose content differs from a rerun's is refused (`LoadConflictError`). The source evidence is never touched: reconciliation only reads.
+The `recon` schema (`recon_dev` for the dev dataset) holds `runs`, `match_results`, and `exceptions`. All three are append-only, enforced by triggers, and keyed by deterministic IDs. A stored row whose content differs from a rerun's is refused (`LoadConflictError`). The source evidence is never touched: reconciliation only reads. Its inputs are sorted in Python, not by SQL (`infrastructure/ordering.py`), so which of several candidate records matches can't depend on the warehouse's collation.
 
 ## Lifecycle and audit trail (FR-M2-05, FR-M2-06)
 

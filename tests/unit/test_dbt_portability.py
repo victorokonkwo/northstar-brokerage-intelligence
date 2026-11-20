@@ -28,6 +28,13 @@ FORBIDDEN_SQL = {
     "jsonb function": re.compile(r"\bjsonb?_[a-z_]+\(", re.IGNORECASE),
     "lateral": re.compile(r"\blateral\b", re.IGNORECASE),
 }
+# Checked with Jinja kept, because these hide in macro arguments such as
+# round_half_even('a::numeric(38, 0) / b', 6). Redshift caps a division's
+# precision at 38 and cuts the scale to 4 here (docs/sources.md); count ratios
+# use count_ratio_half_even.
+FORBIDDEN_IN_MACRO_ARGUMENTS = {
+    "precision-38 integer division": re.compile(r"numeric\(38,\s*0\)\s*/", re.IGNORECASE),
+}
 FORBIDDEN_YAML = re.compile(r"data_type:\s*(text|uuid|numeric|jsonb?)\s*[,}\n]", re.IGNORECASE)
 # In a YAML flow mapping, an unquoted `numeric(38, 2)` splits at its comma.
 UNQUOTED_COMMA_TYPE = re.compile(r"data_type:\s*[a-z]+\([^)\"']*,[^)]*\)", re.IGNORECASE)
@@ -55,6 +62,9 @@ def test_sql_uses_only_portable_constructs(path: Path) -> None:
     code = _code(path)
     found = [name for name, pattern in FORBIDDEN_SQL.items() if pattern.search(code)]
     assert not found, f"{path.relative_to(DBT)} uses {found}; see macros/dialect.sql"
+    with_jinja = re.sub(r"--[^\n]*", "", path.read_text(encoding="utf-8"))
+    hidden = [n for n, p in FORBIDDEN_IN_MACRO_ARGUMENTS.items() if p.search(with_jinja)]
+    assert not hidden, f"{path.relative_to(DBT)} uses {hidden}; see count_ratio_half_even"
 
 
 @pytest.mark.parametrize("path", YAML, ids=lambda p: str(p.relative_to(DBT)))
@@ -79,6 +89,13 @@ def test_contract_types_are_portable(path: Path) -> None:
 )
 def test_the_guard_catches_each_construct(snippet: str, name: str) -> None:
     assert FORBIDDEN_SQL[name].search(snippet)
+
+
+def test_the_guard_sees_inside_macro_arguments() -> None:
+    old = "{{ round_half_even('failed_count::numeric(38, 0) / obligations_due', 6) }}"
+    (pattern,) = FORBIDDEN_IN_MACRO_ARGUMENTS.values()
+    assert pattern.search(old)
+    assert not pattern.search("{{ count_ratio_half_even('failed_count', 'obligations_due', 6) }}")
 
 
 def test_the_guard_allows_the_portable_forms() -> None:

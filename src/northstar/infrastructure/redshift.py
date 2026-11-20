@@ -35,7 +35,7 @@ import psycopg
 from psycopg import sql
 
 from northstar.common.exceptions import ConfigurationError
-from northstar.infrastructure.dialect import RedshiftConnection
+from northstar.infrastructure.dialect import RedshiftConnection, UuidAsText
 from northstar.infrastructure.loading import LoadConflictError, distinct_rows
 from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectStore
 
@@ -115,10 +115,15 @@ class RedshiftSettings:
             password=password,
             sslmode="require",
             connect_timeout=60,
+            # No server-side prepared statements: after a query has run 5 times,
+            # psycopg prepares it, and after any DROP, ALTER, or ROLLBACK it sends
+            # DEALLOCATE ALL, which Redshift rejects (docs/sources.md).
+            prepare_threshold=None,
         )
         store = S3ObjectStore(ObjectStoreSettings.aws(self.bucket, self.region), STAGE_PREFIX)
         conn.stage = Stage(store, self.bucket)
         conn.admin = admin
+        conn.adapters.register_dumper(uuid.UUID, UuidAsText)
         return conn
 
 

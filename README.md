@@ -18,6 +18,22 @@ This repository is meant to become a single, auditable finance and market-risk a
 
 The flagship scenario is a client who deposits CAD 25,000, buys US-listed securities, borrows on margin, and trades an option. It will be the end-to-end integration test and the demo. See [`docs/business/project-charter.md`](docs/business/project-charter.md) §4.
 
+## Architecture on AWS
+
+![The Northstar data platform on AWS: the operator or a schedule starts the daily close in Step Functions, which runs batch tasks on ECS Fargate; they ingest into the S3 bronze bucket, Redshift Serverless copies the data in, and dbt, reconciliation, and publication run there; alarms and the budget email the operator](docs/architecture/aws/data-platform.svg)
+
+Each run closes one business day:
+
+1. **Start.** The operator starts a run with a business date. A daily 06:00 (Toronto) schedule exists but is off, because the dev dataset covers Q1 2026 only.
+2. **Orchestrate.** A Step Functions state machine runs seven steps in order, each as a container on ECS Fargate: check the business day, ingest and load, dbt build, reconcile, dbt controls, publish the controls, and publish. Every step runs the same image from ECR. The tasks run inside the warehouse VPC, and nothing can connect to them.
+3. **Ingest (1).** The task generates the seeded, synthetic dataset and writes it to the S3 bronze bucket: valid records under `raw/`, rejected ones under `quarantine/`, and manifests and lineage under `audit/`. Objects are content-addressed and never overwritten.
+4. **Load (2).** New rows are staged as JSON Lines under `_stage/`, and Redshift copies them into the `raw` and `ledger` schemas. Replaying a run inserts nothing.
+5. **Transform, reconcile, publish (3).** On Redshift Serverless, dbt builds the silver and gold models. Reconciliation matches internal records against the simulated clearing, bank, and custody records. Publication writes a day's versioned snapshot only when its controls pass, so a day with an open critical or high exception stays unpublished until someone resolves it.
+6. **Read.** Looker Studio dashboards will read the published schemas (planned, roadmap 4H). Redshift accepts connections on port 5439, over TLS, from Looker Studio and the operator only.
+7. **Watch the cost and failures.** A failed step, a failed or timed-out run, or the monthly compute limit (60 RPU-hours) emails the operator through SNS. A daily cap of 4 RPU-hours turns Redshift queries off, and a USD 10 monthly AWS budget emails when actual spend passes 80% of it or the forecast passes 100%.
+
+Three Terraform stacks define all of it, with their state in S3: `bootstrap` (budget, state bucket), `data` (VPC, bronze bucket, Redshift, alerts), and `batch` (the daily close). `make diagrams` redraws this picture from them with [TerraVision](https://github.com/patrickchugh/terravision). The per-stack diagrams and what they leave out are in [the cloud warehouse doc](docs/architecture/cloud-warehouse.md#architecture), and the decisions in [ADR 005](docs/adr/005-local-postgres-cloud-redshift.md) and [ADR 010](docs/adr/010-cloud-batch-runtime.md). Locally, the same pipeline runs on Docker Compose with Postgres, SeaweedFS, and Airflow (see [Local stack](#local-stack)).
+
 ## Planned stack
 
 Python 3.13, SQL, dbt Core, Apache Airflow, OpenLineage, OpenTelemetry, PostgreSQL (local), Amazon S3, Redshift Serverless, and CloudWatch (cloud), FastAPI, Streamlit, MLflow, Docker, Terraform, and GitHub Actions. The reasoning is in [`docs/adr/`](docs/adr/).
@@ -62,7 +78,9 @@ make sql-lint           # SQLFluff (needs the running warehouse)
 make redshift-bootstrap # as the admin: append-only tables owned by the admin, pipeline granted SELECT/INSERT
 make dbt-build-redshift # dbt build on Redshift
 make compare-warehouses # every dbt model, Postgres vs Redshift, row for row
-make test-redshift      # live loading, append-only, and dbt-check controls (costs a few cents)
+make test-redshift      # live loading, append-only, dbt-check, and incremental controls (minutes of compute)
+make parity             # the same pipeline on both warehouses from nothing, every table compared
+# The cloud run (ADR 010): make tf-plan-batch, make batch-image, then start the state machine
 ```
 
 See [cloud warehouse](docs/architecture/cloud-warehouse.md).

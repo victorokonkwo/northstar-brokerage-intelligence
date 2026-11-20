@@ -61,3 +61,25 @@ variable "operator_cidrs" {
     error_message = "operator_cidrs must be IPv4 CIDRs no wider than /24."
   }
 }
+
+variable "alert_email" {
+  description = "Address for the alerts topic. Personal data: the Make targets pass TF_VAR_budget_alert_email; never commit it."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be an email address."
+  }
+}
+
+variable "stage_expiry_days" {
+  description = "Days before load-staging objects under _stage/ expire."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.stage_expiry_days >= 1
+    error_message = "stage_expiry_days must be at least 1."
+  }
+}

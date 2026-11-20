@@ -45,6 +45,7 @@ from northstar.domain.matching import (
 )
 from northstar.domain.reconciliation import AppliedRate, ReconException
 from northstar.infrastructure.dialect import Dialect, dialect_of, redshift_ddl
+from northstar.infrastructure.ordering import canonical_order
 from northstar.infrastructure.postgres import insert_new, make_append_only
 from northstar.infrastructure.redshift import require_tables
 
@@ -340,9 +341,11 @@ def read_inputs(
     """Both sides of every reconciliation, and the applicable rates, as known on ``as_of``."""
 
     def rows(query: str) -> list[tuple[Any, ...]]:
+        # Sorted here, not by SQL: matching takes the first of several candidates,
+        # so the order must not depend on the warehouse's collation.
         with conn.cursor() as cur:
             cur.execute(sql.SQL(query).format(s=sql.Identifier(source)), {"as_of": as_of})
-            return list(cur.fetchall())
+            return canonical_order(cur.fetchall())
 
     def ccy(code: str) -> Currency:
         return Currency(code.strip())
@@ -353,7 +356,7 @@ def read_inputs(
             "select e.execution_id, e.account_id, e.instrument_id, e.side, e.quantity, e.price, "
             "e.currency, e.trade_date, a.gross_amount from {s}.fct_executions e "
             "join {s}.int_execution_amounts a using (execution_id) "
-            "where e.trade_date <= %(as_of)s order by e.execution_id"
+            "where e.trade_date <= %(as_of)s"
         )
     ]
     fees = [
@@ -361,7 +364,7 @@ def read_inputs(
         for r in rows(
             "select a.execution_id, e.account_id, a.clearing_fee, a.currency, a.trade_date "
             "from {s}.int_execution_amounts a join {s}.fct_executions e using (execution_id) "
-            "where a.clearing_fee > 0 and a.trade_date <= %(as_of)s order by a.execution_id"
+            "where a.clearing_fee > 0 and a.trade_date <= %(as_of)s"
         )
     ]
     multipliers = {
@@ -374,7 +377,6 @@ def read_inputs(
             "select settlement_id, account_id, instrument_id, settled_quantity, settled_amount, "
             "currency, contractual_settlement_date from {s}.fct_settlements "
             "where settlement_status = 'SETTLED' and contractual_settlement_date <= %(as_of)s "
-            "order by settlement_id"
         )
     ]
     # GL 1000 movements, signed from the bank's view, by the reference the bank echoes.
@@ -405,7 +407,6 @@ def read_inputs(
             "select cash_movement_id, account_id, amount_out, currency_out, amount_in, "
             "currency_in, business_date from {s}.fct_cash_movements "
             "where movement_type = 'FX_CONVERSION' and business_date <= %(as_of)s "
-            "order by cash_movement_id"
         )
     ]
     prices = [
@@ -420,7 +421,7 @@ def read_inputs(
         for r in rows(
             "select record_id, broker_reference, account_id, instrument_id, side, quantity, "
             "price, currency, trade_date from {s}.stg_external__clearing_confirmations "
-            "where event_date <= %(as_of)s order by record_id"
+            "where event_date <= %(as_of)s"
         )
     ]
     confirmations = [
@@ -429,7 +430,7 @@ def read_inputs(
             "select record_id, broker_reference, account_id, instrument_id, quantity, amount, "
             "currency, contractual_settlement_date, actual_settlement_date "
             "from {s}.stg_external__settlement_confirmations "
-            "where event_date <= %(as_of)s order by record_id"
+            "where event_date <= %(as_of)s"
         )
     ]
     bank = [
@@ -437,7 +438,7 @@ def read_inputs(
         for r in rows(
             "select record_id, reference, amount, currency, value_date "
             "from {s}.stg_external__bank_statement_lines "
-            "where event_date <= %(as_of)s order by record_id"
+            "where event_date <= %(as_of)s"
         )
     ]
     custody = [
@@ -445,7 +446,7 @@ def read_inputs(
         for r in rows(
             "select record_id, account_id, instrument_id, snapshot_date, settled_quantity "
             "from {s}.stg_external__custody_snapshots "
-            "where event_date <= %(as_of)s order by record_id"
+            "where event_date <= %(as_of)s"
         )
     ]
     fee_records = [
@@ -453,7 +454,7 @@ def read_inputs(
         for r in rows(
             "select record_id, broker_reference, account_id, amount, currency, trade_date "
             "from {s}.stg_external__fee_records "
-            "where event_date <= %(as_of)s order by record_id"
+            "where event_date <= %(as_of)s"
         )
     ]
     fx_confirmations = [
@@ -461,7 +462,7 @@ def read_inputs(
         for r in rows(
             "select record_id, broker_reference, account_id, sell_amount, sell_currency, "
             "buy_amount, buy_currency, trade_date from {s}.stg_external__fx_confirmations "
-            "where event_date <= %(as_of)s order by record_id"
+            "where event_date <= %(as_of)s"
         )
     ]
     price_feed = [
@@ -469,7 +470,7 @@ def read_inputs(
         for r in rows(
             "select record_id, instrument_id, price_date, close_price, currency "
             "from {s}.stg_external__price_feed "
-            "where event_date <= %(as_of)s order by record_id"
+            "where event_date <= %(as_of)s"
         )
     ]
     rates = {

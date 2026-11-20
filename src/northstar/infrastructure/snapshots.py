@@ -1,7 +1,10 @@
 """Published snapshot store (ADR 006): append-only versions of each business date's marts.
 
-Tables in the published schema, all append-only (triggers refuse UPDATE,
-DELETE, and TRUNCATE):
+Tables in the published schema, all append-only. On Postgres triggers refuse
+UPDATE, DELETE, and TRUNCATE. On Redshift the admin owns the tables
+(``redshift-bootstrap``) and the pipeline may only SELECT and INSERT. Redshift
+has no CHECK constraints, so ``record_version`` and ``log_status`` enforce the
+same rules before every write, on both warehouses:
 
 - ``snapshot_versions``: one immutable row per (business date, version), with
   its content hash, gate result, restatement reason, and what produced it.
@@ -14,6 +17,7 @@ DELETE, and TRUNCATE):
   published and superseded times, for point-in-time queries.
 """
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -23,7 +27,10 @@ import psycopg
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
+from northstar.infrastructure.dialect import Dialect, dialect_of, redshift_ddl
+from northstar.infrastructure.ordering import canonical_order
 from northstar.infrastructure.postgres import make_append_only
+from northstar.infrastructure.redshift import require_tables
 
 PUBLISHED_MARTS: Final = (
     "mart_daily_client_cash",
@@ -40,6 +47,9 @@ CONTROLS_MARTS: Final = (
     "mart_settlement_fails",
 )
 """The controls snapshot: reconciliation KPIs (KPI-02 to KPI-06)."""
+
+STATUSES: Final = frozenset({"DRAFT", "PUBLISHED", "SUPERSEDED"})
+SNAPSHOT_TABLES: Final = ("snapshot_versions", "snapshot_status_log", "snapshot_timeline")
 
 LINEAGE_ONLY_COLUMNS: Final = frozenset({"_dbt_invocation_id"})
 """Columns kept in published copies but left out of content hashes: they
@@ -127,12 +137,22 @@ def ensure_published(
 
     Each mart copy is created like the dbt mart in ``source``. A mart whose
     columns later change needs a migration: inserting into an older copy fails.
+    On Redshift only the admin creates them (``redshift-bootstrap``, after the
+    first dbt build); for any other user this checks that they exist.
+
+    Raises:
+        ConfigurationError: On Redshift, a table is missing.
     """
+    redshift = dialect_of(conn) is Dialect.REDSHIFT
+    if redshift and not getattr(conn, "admin", False):
+        require_tables(conn, published, (*SNAPSHOT_TABLES, *marts))
+        return
+    ddl = redshift_ddl if redshift else str
     names = _names(published)
     with conn.cursor() as cur:
         cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(published)))
-        cur.execute(sql.SQL(_VERSIONS_DDL).format(**names))
-        cur.execute(sql.SQL(_STATUS_DDL).format(**names))
+        cur.execute(sql.SQL(ddl(_VERSIONS_DDL)).format(**names))
+        cur.execute(sql.SQL(ddl(_STATUS_DDL)).format(**names))
         cur.execute(sql.SQL(_TIMELINE_DDL).format(**names))
         for mart in marts:
             copy = sql.Identifier(published, mart)
@@ -141,11 +161,18 @@ def ensure_published(
                     copy=copy, mart=sql.Identifier(source, mart)
                 )
             )
+            # Redshift has no "add column if not exists".
             cur.execute(
-                sql.SQL(
-                    "alter table {copy} add column if not exists snapshot_version integer"
-                ).format(copy=copy)
+                "select 1 from information_schema.columns where table_schema = %s "
+                "and table_name = %s and column_name = 'snapshot_version'",
+                (published, mart),
             )
+            if cur.fetchone() is None:
+                cur.execute(
+                    sql.SQL("alter table {copy} add column snapshot_version integer").format(
+                        copy=copy
+                    )
+                )
     for table in ("snapshot_versions", "snapshot_status_log", *marts):
         make_append_only(conn, published, table)
 
@@ -173,7 +200,7 @@ def read_rows(
     columns: Sequence[str],
     snapshot_version: int | None = None,
 ) -> list[tuple[Any, ...]]:
-    """A mart's content rows for one date, in a stable order (every column ascending)."""
+    """A mart's content rows for one date, in canonical order (``ordering.canonical_order``)."""
     cols = sql.SQL(", ").join(map(sql.Identifier, columns))
     where: sql.Composable = sql.SQL("business_date = %s")
     params: list[Any] = [business_date]
@@ -182,12 +209,12 @@ def read_rows(
         params.append(snapshot_version)
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL("select {cols} from {table} where {where} order by {cols}").format(
+            sql.SQL("select {cols} from {table} where {where}").format(
                 cols=cols, table=sql.Identifier(schema, mart), where=where
             ),
             params,
         )
-        return list(cur.fetchall())
+        return canonical_order(cur.fetchall())
 
 
 def unbalanced_batches(conn: psycopg.Connection[Any], source: str, business_date: date) -> int:
@@ -229,7 +256,21 @@ def history(
             ).format(**_names(published)),
             (business_date,),
         )
-        return [VersionRecord(*row) for row in cur.fetchall()]
+        rows = cur.fetchall()
+    # Redshift returns SUPER as JSON text; Postgres parses jsonb.
+    return [
+        VersionRecord(
+            business_date=row[0],
+            snapshot_version=row[1],
+            content_sha256=row[2],
+            mart_sha256=json.loads(row[3]) if isinstance(row[3], str) else row[3],
+            status=row[4],
+            published_at=row[5],
+            superseded_at=row[6],
+            restatement_reason=row[7],
+        )
+        for row in rows
+    ]
 
 
 def record_version(
@@ -243,20 +284,38 @@ def record_version(
     created_at: datetime,
     marts: tuple[str, ...] = PUBLISHED_MARTS,
 ) -> None:
-    """Insert the version row and copy each mart's rows for the date from ``source``."""
+    """Insert the version row and copy each mart's rows for the date from ``source``.
+
+    Raises:
+        ValueError: The version breaks a rule the Postgres table checks: a
+            version number below 1, or a restatement reason missing from a
+            restatement or present on a first version.
+    """
+    if record.snapshot_version < 1:
+        msg = f"snapshot version {record.snapshot_version} is below 1"
+        raise ValueError(msg)
+    if record.snapshot_version == 1 and record.restatement_reason is not None:
+        msg = "version 1 is not a restatement and can't have a restatement reason"
+        raise ValueError(msg)
+    if record.snapshot_version > 1 and record.restatement_reason is None:
+        msg = f"version {record.snapshot_version} is a restatement and needs a reason"
+        raise ValueError(msg)
+    redshift = dialect_of(conn) is Dialect.REDSHIFT
     with conn.cursor() as cur:
         cur.execute(
             sql.SQL(
                 "insert into {versions} (business_date, snapshot_version, content_sha256, "
                 "mart_sha256, kpi_01_unbalanced_batches, restatement_reason, run_id, "
                 "code_version, source_schema, created_at) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-            ).format(**_names(published)),
+                "values (%s, %s, %s, {json}, %s, %s, %s, %s, %s, %s)"
+            ).format(json=sql.SQL("json_parse(%s)" if redshift else "%s"), **_names(published)),
             (
                 record.business_date,
                 record.snapshot_version,
                 record.content_sha256,
-                Jsonb(record.mart_sha256),
+                json.dumps(record.mart_sha256, sort_keys=True)
+                if redshift
+                else Jsonb(record.mart_sha256),
                 kpi_01,
                 record.restatement_reason,
                 run_id,
@@ -293,7 +352,14 @@ def log_status(
     changed_at: datetime,
     reason: str,
 ) -> None:
-    """Append one status change for a version."""
+    """Append one status change for a version.
+
+    Raises:
+        ValueError: ``status`` is not DRAFT, PUBLISHED, or SUPERSEDED.
+    """
+    if status not in STATUSES:
+        msg = f"unknown snapshot status {status!r}"
+        raise ValueError(msg)
     with conn.cursor() as cur:
         cur.execute(
             sql.SQL(

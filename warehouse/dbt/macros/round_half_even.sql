@@ -14,3 +14,28 @@
         end / {{ factor }}
     )::numeric(18, {{ scale }})
 {%- endmacro %}
+
+{#- A ratio of two non-negative integer counts, rounded half-even to `scale`
+    places, in integer arithmetic only. Dividing decimals isn't portable: on
+    Redshift numeric(38, 0) / integer keeps just 4 decimal places (precision is
+    capped at 38, docs/sources.md), so 17/18 would round to 0.944400, not
+    0.944444. Here the quotient and remainder of numerator * 10^scale by the
+    denominator are exact (integer division truncates, which is the floor for
+    non-negative values), and twice the remainder against the denominator
+    decides the rounding. A zero denominator fails, as a division would. -#}
+{% macro count_ratio_half_even(numerator, denominator, scale) -%}
+    {%- set n = "(cast(" ~ numerator ~ " as bigint) * " ~ (10 ** scale) ~ ")" -%}
+    {%- set d = "cast(" ~ denominator ~ " as bigint)" -%}
+    {%- set q = "(" ~ n ~ " / " ~ d ~ ")" -%}
+    {%- set twice_r = "(2 * (" ~ n ~ " - " ~ q ~ " * " ~ d ~ "))" -%}
+    (
+        cast(
+            case
+                when {{ twice_r }} > {{ d }} then {{ q }} + 1
+                when {{ twice_r }} < {{ d }} then {{ q }}
+                when mod({{ q }}, 2) = 0 then {{ q }}
+                else {{ q }} + 1
+            end as numeric(18, 0)
+        ) * {{ "0." ~ ("0" * (scale - 1)) ~ "1" }}
+    )::numeric(18, {{ scale }})
+{%- endmacro %}

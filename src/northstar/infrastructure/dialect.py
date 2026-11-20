@@ -21,6 +21,7 @@ from enum import StrEnum
 from typing import Any, Final
 
 import psycopg
+from psycopg.adapt import Dumper
 from psycopg.rows import TupleRow
 
 REDSHIFT_TEXT: Final = "varchar(4096)"
@@ -41,6 +42,21 @@ class Dialect(StrEnum):
 
     POSTGRES = "postgres"
     REDSHIFT = "redshift"
+
+
+class UuidAsText(Dumper):
+    """Send a ``uuid.UUID`` parameter as text.
+
+    psycopg sends it as Postgres's ``uuid`` type (OID 2950), which Redshift
+    doesn't have ("cache lookup failed for type 2950"); Redshift keeps these
+    IDs as ``char(36)``.
+    """
+
+    oid = psycopg.postgres.types["text"].oid
+
+    def dump(self, obj: Any) -> bytes:
+        """The UUID's canonical string, e.g. ``"b282d7dd-461c-56b6-88e9-fdda7f98dc56"``."""
+        return str(obj).encode()
 
 
 class RedshiftConnection(psycopg.Connection[TupleRow]):
