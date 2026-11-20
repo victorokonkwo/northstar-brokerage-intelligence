@@ -117,6 +117,6 @@ Publication has two streams, each in its own published schema:
 
 A blocked financial date stays `DRAFT`, and `publish` lists the exceptions that block it and exits 2. Once they are resolved (for example `exception transition --to RESOLVED --resolution MANUAL_OVERRIDE --actor user:<name> --reason …`), the next `publish` moves the same version to `PUBLISHED`. The content did not change, so no new version is created. `publish --all` reports every blocked date and still publishes the rest.
 
-On the dev dataset (CI): 12 of the 63 financial dates block on open exceptions, and 51 publish. Resolving 2026-03-02's escalated `CASH_BREAK` with a reasoned override publishes that date's v1. A late deposit that arrives with its bank line reconciles cleanly and restates 2026-03-02 as v2.
+On the dev dataset (CI, seed 42): 13 of the 63 financial dates block on open exceptions, and 50 publish. Resolving 2026-03-02's escalated `CASH_BREAK` with a reasoned override publishes that date's v1. A late deposit that arrives with its bank line reconciles cleanly and restates 2026-03-02 as v2.
 
 In Airflow, a blocked date fails the `publish` task, which retries and then alerts: publication is held until operations act.
