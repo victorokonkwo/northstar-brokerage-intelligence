@@ -154,8 +154,11 @@ jobs:
       - name: The publication gate holds blocked dates and releases them once resolved (FR-M2-08)
         # The controls snapshot always publishes. The financial snapshot of a
         # date with an open CRITICAL/HIGH exception stays DRAFT (exit 2). A
-        # reasoned override of 2026-03-02's blocking exception then lets that
-        # same version publish. Republishing creates no new version (INV-09).
+        # reasoned override of a blocked date's exceptions then lets that same
+        # version publish: 2026-03-02 if it is blocked (the late-deposit step
+        # restates it), else the first blocked date, since which dates the
+        # synthetic defects block depends on the dataset. Republishing creates no
+        # new version (INV-09).
         run: |
           set -a && . ./.env && set +a
           uv run northstar publish --stream controls --dbt-schema dbt_dataset \
@@ -166,8 +169,15 @@ jobs:
             --published-schema published_dev --recon-schema recon_dev > financial-1.txt || status=$?
           cat financial-1.txt
           test "$status" -eq 2
-          grep -q "2026-03-02 v1 BLOCKED .* blocked by" financial-1.txt
-          for id in $(uv run northstar exception list --recon-schema recon_dev --business-date 2026-03-02 \
+          if grep -q "2026-03-02 v1 BLOCKED .* blocked by" financial-1.txt; then
+            day=2026-03-02
+          else
+            day=$(grep -m1 -E "^ *[0-9]{4}-[0-9]{2}-[0-9]{2} v1 BLOCKED .* blocked by" financial-1.txt \
+                  | awk '{print $1}')
+          fi
+          test -n "$day"
+          echo "overriding the blocking exceptions of $day"
+          for id in $(uv run northstar exception list --recon-schema recon_dev --business-date "$day" \
                       | awk '$5 != "RESOLVED" && ($4 == "CRITICAL" || $4 == "HIGH") {print $1}'); do
             uv run northstar exception transition --recon-schema recon_dev --exception-id "$id" \
               --to RESOLVED --resolution MANUAL_OVERRIDE --actor user:ci \
@@ -175,14 +185,14 @@ jobs:
           done
           uv run northstar publish --stream financial --dbt-schema dbt_dataset \
             --published-schema published_dev --recon-schema recon_dev \
-            --business-date 2026-03-02 | tee financial-2.txt
-          grep -q "2026-03-02 v1 PUBLISHED" financial-2.txt
+            --business-date "$day" | tee financial-2.txt
+          grep -q "$day v1 PUBLISHED" financial-2.txt
           status=0
           uv run northstar publish --stream financial --dbt-schema dbt_dataset \
             --published-schema published_dev --recon-schema recon_dev > financial-3.txt || status=$?
           test "$status" -eq 2
           grep -q "unchanged" financial-3.txt
-          ! grep -q "2026-03-02 .* BLOCKED" financial-3.txt
+          ! grep -q "$day .* BLOCKED" financial-3.txt
 
       - name: A late record restates published history (ADR 006, FR-M1-06)
         # A late deposit for 2026-03-02 arrives with its bank line after
