@@ -7,11 +7,14 @@ view:
 
 1. It shows exactly the currently PUBLISHED version of every published date,
    with that version's number and publication time (FR-DASH-01).
-2. Its rows equal the published copy of that version, and the dbt mart's rows
-   for the same dates, row for row.
+2. Its rows equal the published copy of that version, row for row. A mismatch
+   is a broken view.
+3. Those rows equal the dbt mart's rows for the same dates. A mismatch here,
+   when check 2 passes, means the mart changed after the last publication:
+   publish the controls stream, and the dashboard follows.
 
-Usage: ``make dashboard-check``, after ``make publish`` (it passes ``--dbt-schema``
-and ``--published-controls-schema``; add ``--warehouse redshift`` for the cloud).
+Usage: ``make dashboard-check``, after ``make publish``, or
+``make dashboard-check-redshift`` for the data Looker Studio reads.
 
 Exits 0 when every view checks out, 1 otherwise.
 """
@@ -48,6 +51,25 @@ def differences(
         f"{sum(shown.values())} rows shown, {sum(expected.values())} in {against}; "
         f"{sum((shown - expected).values())} only shown, "
         f"{sum((expected - shown).values())} only in {against}"
+    ]
+
+
+def compare_view(
+    shown: Counter[tuple[Any, ...]],
+    published_rows: Counter[tuple[Any, ...]],
+    mart_rows: Counter[tuple[Any, ...]],
+    date_at: int,
+    mart: str,
+) -> list[str]:
+    """Problems with a view's rows: a broken view first, else unpublished changes in the mart."""
+    broken = differences(shown, published_rows, "the published snapshot")
+    if broken or shown == mart_rows:
+        return broken
+    # The view shows the snapshot faithfully; the mart has changed since it was published.
+    changed = sorted({row[date_at] for row in (shown - mart_rows) + (mart_rows - shown)})
+    return [
+        f"unpublished changes: {mart} differs from the published snapshot on "
+        f"{len(changed)} date(s) from {changed[0]}; publish the controls stream"
     ]
 
 
@@ -118,7 +140,6 @@ def check(conn: psycopg.Connection[Any], dbt_schema: str, published: str) -> lis
                 timeline,
             ),
         )
-        found += differences(shown, published_rows, "the published snapshot")
         # ... and the dbt mart's rows for the published dates (FR-M2-09).
         mart_rows = Counter(
             {
@@ -130,7 +151,7 @@ def check(conn: psycopg.Connection[Any], dbt_schema: str, published: str) -> lis
                 if row[date_at] in dates
             }
         )
-        found += differences(shown, mart_rows, mart)
+        found += compare_view(shown, published_rows, mart_rows, date_at, mart)
         verdict = "DIFFERS" if found else "equal to the published snapshot and the mart"
         sys.stdout.write(
             f"{view}: {sum(shown.values())} rows, {len(versions)} date versions; {verdict}\n"

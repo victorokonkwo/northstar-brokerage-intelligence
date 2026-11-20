@@ -34,3 +34,21 @@ def test_a_changed_value_a_missing_row_and_a_duplicate_are_differences() -> None
     ]
     assert d(Counter(), Counter([ROW]), "the mart")
     assert d(Counter([ROW, ROW]), Counter([ROW]), "the mart")
+
+
+def test_a_view_is_judged_against_its_snapshot_before_the_mart() -> None:
+    compare = _module().compare_view
+    later = (date(2026, 3, 3), "CAD", Decimal("0.5"))
+    moved = (date(2026, 3, 3), "CAD", Decimal("0.6"))
+    snapshot = Counter([ROW, later])
+    # The view equals its snapshot and the mart: no problem.
+    assert compare(snapshot, snapshot, snapshot, 0, "mart_x") == []
+    # The view differs from its snapshot: a broken view, whatever the mart says.
+    (broken,) = compare(Counter([ROW]), snapshot, Counter([ROW]), 0, "mart_x")
+    assert "the published snapshot" in broken
+    # The view equals its snapshot, but the mart moved on 2026-03-03: unpublished changes.
+    (unpublished,) = compare(snapshot, snapshot, Counter([ROW, moved]), 0, "mart_x")
+    assert unpublished == (
+        "unpublished changes: mart_x differs from the published snapshot on 1 date(s) "
+        "from 2026-03-03; publish the controls stream"
+    )

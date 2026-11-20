@@ -219,8 +219,12 @@ jobs:
       - name: The operations dashboard's data equals the published snapshots and the marts (FR-M2-09)
         # The serving views (ADR 011) show each date's currently published
         # controls snapshot; every row must equal that snapshot and the dbt
-        # mart, after the late deposit's restatements above.
+        # mart. The late deposit above changed two controls marts (cash breaks,
+        # exception monitoring), so the controls stream is republished first.
         run: |
+          set -a && . ./.env && set +a
+          uv run northstar publish --stream controls --dbt-schema dbt_dataset \
+            --published-schema published_controls_dev
           make serving
           make dashboard-check
 
