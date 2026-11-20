@@ -17,7 +17,7 @@ DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev", "recon
 # Redshift targets: temporary AWS credentials from `aws login`, and the warehouse's
 # endpoint and bucket from the Terraform data stack (scripts/redshift_env.py).
 REDSHIFT_ENV := eval "$$(aws configure export-credentials --format env)" && eval "$$(uv run python scripts/redshift_env.py)" &&
-.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses dbt-build-full compare-incremental parity check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data tf-init-batch tf-plan-batch batch-image
+.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses dbt-build-full compare-incremental parity check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data tf-init-batch tf-plan-batch batch-image diagrams
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -101,6 +101,9 @@ e2e: | .env ## Sprint 1 slice: simulate, post, load, dbt build, KPI-01 summary (
 	$(WITH_ENV) uv run northstar run-slice --scenario config/simulation/sprint1_scenario.yaml --seed 42 --out data/generated
 	$(MAKE) dbt-build
 	$(WITH_ENV) uv run northstar ledger-summary
+
+diagrams: ## Redraw the AWS architecture diagrams in docs/architecture/aws/ with TerraVision (needs aws login; plans copies against empty local state, never applies)
+	scripts/draw_architecture.sh
 
 tf-validate: ## Terraform format check and validation of every stack (no AWS access)
 	terraform -chdir=$(TF_BOOTSTRAP) fmt -check -recursive
