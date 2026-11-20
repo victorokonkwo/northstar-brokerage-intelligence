@@ -139,6 +139,17 @@ jobs:
           grep -q "0 new events, 0 new journal lines, 0 new external records" replay.txt
           echo "dataset reproduced: $(head -1 first.txt)"
 
+      - name: Reconciliation finds exactly the injected defects (NFR-03), and a rerun adds nothing
+        # The seven reconciliations over the loaded dev dataset must yield
+        # exactly the defect manifest: every defect detected and classified,
+        # with the same impact, and no exception beyond it. Runs before the
+        # late-deposit fixture is loaded, which has no bank line by design.
+        run: |
+          make reconcile | tee reconcile-1.txt
+          grep -q "exact match" reconcile-1.txt
+          make reconcile | tee reconcile-2.txt
+          grep -q "matches (0 new), [0-9]* exceptions (0 new)" reconcile-2.txt
+
       - name: Published snapshots are reproducible and a late record restates (ADR 006)
         # Publishing every reporting date, then publishing again, must create
         # no new version (INV-09). A late deposit for 2026-03-02, ingested and

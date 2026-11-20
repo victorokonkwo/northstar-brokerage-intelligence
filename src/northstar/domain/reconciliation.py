@@ -5,12 +5,23 @@ tolerances, severity thresholds, and SLAs. Severity is a pure function of an
 exception's type and its absolute impact in CAD.
 """
 
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
-from typing import Annotated, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from northstar.common.exceptions import PolicyNotFoundError
+from northstar.common.ids import derived_id
+from northstar.common.money import Currency
+
+if TYPE_CHECKING:
+    from northstar.domain.matching import Break
+
+CENT = Decimal("0.01")
 
 
 class ExceptionType(StrEnum):
@@ -113,3 +124,99 @@ class ReconciliationPolicy(_Frozen):
     def blocks_publication(self, severity: Severity) -> bool:
         """Whether an open exception at ``severity`` blocks the date's publication."""
         return severity in self.severity.blocking
+
+
+# --- Classification ---------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedRate:
+    """The USD/CAD rate in force on a business date (fallback policy v1)."""
+
+    rate: Decimal
+    rate_date: date
+    fx_policy_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReconException:
+    """A classified exception: a break with its severity and CAD impact.
+
+    ``exception_id`` depends only on what the break is (reconciliation, type,
+    reference, and external records), so rerunning with the same inputs finds
+    the same exceptions, never duplicates (FR-M2-07).
+    """
+
+    exception_id: str
+    reconciliation: str
+    exception_type: ExceptionType
+    severity: Severity
+    reference: str
+    business_date: date
+    impact_amount: Decimal
+    impact_currency: Currency
+    impact_basis: str
+    impact_cad: Decimal | None
+    fx_rate_date: date | None
+    fx_policy_version: str | None
+    external_record_ids: tuple[str, ...]
+    detail: str
+    policy_version: str
+
+
+def classify(
+    breaks: "Iterable[Break]",
+    policy: ReconciliationPolicy,
+    rates: Mapping[date, AppliedRate],
+) -> tuple[ReconException, ...]:
+    """Give each break its severity and CAD impact under ``policy``.
+
+    A USD impact is translated at the rate in force on the break's business
+    date and rounded half-even once (ADR 004). A quantity break has no CAD
+    impact; its severity comes from its type alone.
+
+    Raises:
+        PolicyNotFoundError: A USD break's date has no applicable rate.
+    """
+    out = []
+    for b in breaks:
+        rate: AppliedRate | None = None
+        if b.impact_basis == "quantity":
+            impact_cad = None
+        elif b.impact_currency is Currency.CAD:
+            impact_cad = b.impact_amount
+        else:
+            rate = rates.get(b.business_date)
+            if rate is None:
+                msg = f"no USD/CAD rate applies on {b.business_date} (exception {b.reference})"
+                raise PolicyNotFoundError(msg)
+            impact_cad = (b.impact_amount * rate.rate).quantize(CENT, rounding=ROUND_HALF_EVEN)
+        severity = policy.severity_of(b.exception_type, impact_cad or Decimal(0))
+        out.append(
+            ReconException(
+                exception_id=str(
+                    derived_id(
+                        "recon_exception",
+                        b.reconciliation,
+                        b.exception_type,
+                        b.reference,
+                        *b.external_record_ids,
+                    )
+                ),
+                reconciliation=str(b.reconciliation),
+                exception_type=b.exception_type,
+                severity=severity,
+                reference=b.reference,
+                business_date=b.business_date,
+                impact_amount=b.impact_amount,
+                impact_currency=b.impact_currency,
+                impact_basis=b.impact_basis,
+                impact_cad=impact_cad,
+                fx_rate_date=rate.rate_date if rate is not None else None,
+                fx_policy_version=rate.fx_policy_version if rate is not None else None,
+                external_record_ids=b.external_record_ids,
+                detail=b.detail,
+                policy_version=policy.version,
+            )
+        )
+    return tuple(out)

@@ -286,7 +286,7 @@ def load_events(
                 run_id,
             )
         )
-    return _insert_new(
+    return insert_new(
         conn, schemas.raw, "brokerage_events", "event_id", _EVENT_COLUMNS, _EVENT_CONTENT, rows
     )
 
@@ -327,7 +327,7 @@ def load_journal(
         for batch in batches
         for line in batch.lines
     ]
-    return _insert_new(
+    return insert_new(
         conn,
         schemas.ledger,
         "journal_lines",
@@ -372,7 +372,7 @@ def load_external_records(
         )
         for r in records
     ]
-    return _insert_new(
+    return insert_new(
         conn,
         schemas.raw,
         "external_records",
@@ -429,7 +429,7 @@ def load_calendar_days(
         )
         for d in days
     ]
-    return _insert_new(
+    return insert_new(
         conn,
         schemas.raw,
         "market_calendar_days",
@@ -440,7 +440,7 @@ def load_calendar_days(
     )
 
 
-def _insert_new(
+def insert_new(
     conn: psycopg.Connection[Any],
     schema: str,
     table: str,
@@ -449,6 +449,13 @@ def _insert_new(
     content: Sequence[str],
     rows: Sequence[tuple[Any, ...]],
 ) -> int:
+    """Insert rows whose ``key`` is not stored yet; return how many were inserted.
+
+    ``rows`` are tuples in ``columns`` order, with the key first and the run ID
+    last. A key repeated in the input with different content, or a stored row
+    whose ``content`` columns differ, is refused with ``LoadConflictError``:
+    nothing is overwritten.
+    """
     by_key: dict[Any, tuple[Any, ...]] = {}
     for row in rows:
         previous = by_key.setdefault(row[0], row)
