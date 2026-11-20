@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Written and validated; not applied.** Each apply needs the owner's approval of its plan |
+| Status | **Applied 2026-11-20** after owner approval (20 resources, then a one-change fix to the state machine). The image of `75057f0` is in ECR. A non-business-day run skips correctly; a full close waits for Redshift's daily usage limit and the task user's grant. Each apply needs the owner's approval of its plan |
 | Region | `ca-central-1`, as the data stack |
 | Depends on | the data stack: its VPC, security group, workgroup, bronze bucket, and alerts topic, looked up by name. Apply the data stack's 4G changes first |
 | Decision | [ADR 010](../../../docs/adr/010-cloud-batch-runtime.md): EventBridge Scheduler, Step Functions, and ECS Fargate |

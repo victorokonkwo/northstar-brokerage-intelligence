@@ -43,9 +43,8 @@ Option 3 (owner decision 2026-11-20). It is checkable in `infrastructure/terrafo
   - ingest and load run as one task, because the load needs the ingestion run's ID, and Step Functions can't read a container's output the way Airflow's XCom does
   - the script holds no business logic: each step calls the `northstar` CLI or dbt
 - **Step Functions** (`northstar-daily-close`, standard, JSONata) runs the tasks in order:
-  - every task is followed by a check that continues only on exit code 0
-  - exit code 99 from the business-day check ends the run successfully, as the DAG skips it
-  - any other exit code, and any failure of the ECS integration, sends an email with the business date and the step, then fails the execution
+  - a non-zero exit fails the task. Its Catch reads the exit code from the error. Exit code 99 from the business-day check ends the run successfully, as the DAG skips it
+  - any other exit code, and any failure of the ECS integration, sends an email with the business date, the step, and the exit code or error, then fails the execution
 - **Business date:**
   - an execution started by hand takes `{"business_date": "YYYY-MM-DD"}`, the way a backfill does
   - a scheduled one closes the day before its scheduled time
@@ -75,13 +74,12 @@ Option 3 (owner decision 2026-11-20). It is checkable in `infrastructure/terrafo
   - every variable the script reads is set
   - a step continues only after exit code 0
 - **Retries differ from Airflow's.** Step Functions retries integration errors (two more attempts, with backoff). A non-zero exit code is not retried. It is a deterministic failure, such as a blocked publication, and it alerts at once.
-- **Verified only by a real run:**
-  - how `ecs:runTask.sync` reports a non-zero exit code (AWS's integration pages don't say; the checks above handle both cases)
-  - the JSONata context fields `Execution.Name` and `State.RetryCount`
-  - the task role's database user name
-  - Redshift traffic through the private address
-
-  The date logic was checked with `TestState`: 2026-03-03T11:00Z closes 2026-03-02, and 2026-07-01T10:00Z closes 2026-06-30.
+- **Verified by real runs** (2026-11-20, for business date 2026-01-17, a Saturday):
+  - `ecs:runTask.sync` **fails the state** (`States.TaskFailed`) when the container exits non-zero. The error's Cause is the stopped task as JSON, with `Containers[0].ExitCode`. So every Catch reads the exit code from it, and exit code 99 from the date check ends the run successfully. The first run took the failure path, which is how this was found.
+  - The JSONata context fields resolve: the run ID was `cloud-<execution>-check_business_day-try0`.
+  - Pulling the image over the no-NAT network, and writing logs to CloudWatch, work.
+  - The date logic was checked with `TestState`: 2026-03-03T11:00Z closes 2026-03-02, and 2026-07-01T10:00Z closes 2026-06-30.
+- **Not yet verified:** a full close, which waits for Redshift's daily usage limit. It includes the task role's database user name, and Redshift traffic through the private address.
 - **The private address can change.** The workgroup's ENI address is read at apply time, and a workgroup change can move it, which needs another apply of the batch stack.
 
 ## Revisit when
