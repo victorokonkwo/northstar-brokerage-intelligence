@@ -40,5 +40,5 @@ unit_tests:
           where not (a.n = 3 and b.n = 6)
     expect:
       rows:
-        - {business_date: 2026-03-02, currency: CAD, execution_count: 128, matched_count: 1, match_rate: 0.007812}
-        - {business_date: 2026-03-03, currency: CAD, execution_count: 18, matched_count: 17, match_rate: 0.944444}
+        - {business_date: 2026-03-02, currency: CAD, execution_count: 128, matched_count: 1, match_rate: 0.007812, notional_match_rate: 0.007812}
+        - {business_date: 2026-03-03, currency: CAD, execution_count: 18, matched_count: 17, match_rate: 0.944444, notional_match_rate: 0.944444}

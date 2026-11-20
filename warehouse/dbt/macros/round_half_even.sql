@@ -39,3 +39,17 @@
         ) * {{ "0." ~ ("0" * (scale - 1)) ~ "1" }}
     )::numeric(18, {{ scale }})
 {%- endmacro %}
+
+{#- A ratio of two non-negative money amounts with 2 decimal places, rounded
+    half-even to `scale` places. Exact, like count_ratio_half_even: both amounts
+    are whole numbers of cents, so the ratio is a ratio of integer counts.
+    Dividing the decimals directly isn't portable: Redshift keeps just 4
+    decimal places for numeric(18, 2) / numeric(18, 2) (found by the 4F-c
+    parity run). A null denominator gives null. -#}
+{% macro amount_ratio_half_even(numerator, denominator, scale) -%}
+    {{ count_ratio_half_even(
+        "round((" ~ numerator ~ ") * 100)",
+        "round((" ~ denominator ~ ") * 100)",
+        scale,
+    ) }}
+{%- endmacro %}

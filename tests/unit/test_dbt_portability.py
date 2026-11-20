@@ -36,6 +36,9 @@ FORBIDDEN_SQL = {
 # use count_ratio_half_even.
 FORBIDDEN_IN_MACRO_ARGUMENTS = {
     "precision-38 integer division": re.compile(r"numeric\(38,\s*0\)\s*/", re.IGNORECASE),
+    # Redshift keeps 4 decimal places when dividing decimals: use
+    # count_ratio_half_even or amount_ratio_half_even.
+    "division inside round_half_even": re.compile(r"round_half_even\(\s*'[^']*/"),
 }
 FORBIDDEN_YAML = re.compile(r"data_type:\s*(text|uuid|numeric|jsonb?)\s*[,}\n]", re.IGNORECASE)
 # In a YAML flow mapping, an unquoted `numeric(38, 2)` splits at its comma.
@@ -66,7 +69,7 @@ def test_sql_uses_only_portable_constructs(path: Path) -> None:
     assert not found, f"{path.relative_to(DBT)} uses {found}; see macros/dialect.sql"
     with_jinja = re.sub(r"--[^\n]*", "", path.read_text(encoding="utf-8"))
     hidden = [n for n, p in FORBIDDEN_IN_MACRO_ARGUMENTS.items() if p.search(with_jinja)]
-    assert not hidden, f"{path.relative_to(DBT)} uses {hidden}; see count_ratio_half_even"
+    assert not hidden, f"{path.relative_to(DBT)} uses {hidden}; see the ratio macros"
 
 
 @pytest.mark.parametrize("path", YAML, ids=lambda p: str(p.relative_to(DBT)))
@@ -99,9 +102,15 @@ def test_the_guard_catches_each_construct(snippet: str, name: str) -> None:
 
 def test_the_guard_sees_inside_macro_arguments() -> None:
     old = "{{ round_half_even('failed_count::numeric(38, 0) / obligations_due', 6) }}"
-    (pattern,) = FORBIDDEN_IN_MACRO_ARGUMENTS.values()
-    assert pattern.search(old)
-    assert not pattern.search("{{ count_ratio_half_even('failed_count', 'obligations_due', 6) }}")
+    assert FORBIDDEN_IN_MACRO_ARGUMENTS["precision-38 integer division"].search(old)
+    division = FORBIDDEN_IN_MACRO_ARGUMENTS["division inside round_half_even"]
+    assert division.search("{{ round_half_even('value_failed / nullif(value_due, 0)', 6) }}")
+    for portable in (
+        "{{ count_ratio_half_even('failed_count', 'obligations_due', 6) }}",
+        "{{ amount_ratio_half_even('value_failed', 'nullif(value_due, 0)', 6) }}",
+        "{{ round_half_even('quantity * price * multiplier', 2) }}",
+    ):
+        assert not any(p.search(portable) for p in FORBIDDEN_IN_MACRO_ARGUMENTS.values())
 
 
 def test_the_guard_allows_the_portable_forms() -> None:
