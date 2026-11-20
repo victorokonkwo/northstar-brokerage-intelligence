@@ -260,7 +260,7 @@ jobs:
           }
           af dags list-import-errors | tee import-errors.txt
           grep -q "No data found" import-errors.txt
-          test "$(af tasks list northstar_daily | tr '\n' ' ')" = "check_business_day dbt_build dbt_controls ingest load publish publish_controls reconcile "
+          test "$(af tasks list northstar_daily | tr '\n' ' ')" = "check_business_day dbt_build dbt_controls ingest load publish publish_controls reconcile serving "
           af dags unpause northstar_daily
           af dags trigger northstar_daily --logical-date 2026-01-07T11:00:00+00:00 \
             --run-id ci-daily --conf '{"published_schema": "published_af_daily", "controls_schema": "published_af_daily_controls", "recon_schema": "recon_af"}'
