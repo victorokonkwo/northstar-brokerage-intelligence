@@ -16,5 +16,6 @@ An ADR records one significant decision: its context, the options considered, th
 | [010](010-cloud-batch-runtime.md) | Cloud batch runtime: EventBridge Scheduler, Step Functions, and ECS Fargate | Accepted |
 | [011](011-looker-studio-dashboards.md) | Dashboards in Looker Studio, reading serving views of the published snapshots | Accepted |
 | [012](012-market-risk-models.md) | Market risk models: historical simulation on a synthetic history, and model-consistent options | Accepted |
+| [013](013-corporate-events.md) | Corporate events: cash dividends, and option exercise and expiry | Accepted |
 
 New ADRs copy [template.md](template.md) and take the next number.
