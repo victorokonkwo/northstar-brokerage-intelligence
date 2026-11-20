@@ -1,0 +1,7 @@
+format: 0.3
+title: "NBI bootstrap stack: budget and Terraform state (ca-central-1)"
+update:
+  aws_budgets_budget.monthly:
+    label: "Budget USD 10/mo"
+  aws_s3_bucket.state:
+    label: "Terraform state"
