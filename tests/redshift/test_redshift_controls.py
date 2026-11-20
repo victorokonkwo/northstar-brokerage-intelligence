@@ -216,3 +216,26 @@ def test_the_pipeline_user_records_versions_but_cannot_change_them(
         for statement in ("update {} set business_date = '2026-01-01'", "delete from {}"):
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(sql.SQL(statement).format(sql.Identifier(target, table)))
+
+
+def test_repeated_queries_survive_alter_and_rollback(settings: RedshiftSettings) -> None:
+    # psycopg prepares a query after 5 runs and then sends DEALLOCATE ALL after
+    # ALTER or ROLLBACK; Redshift rejects that, so prepares must stay off.
+    schema = f"t_prep_{uuid.uuid4().hex[:8]}"
+    with settings.connect_admin(os.environ["NBI_RS_ADMIN_SECRET_ARN"]) as admin:
+        admin.autocommit = True
+        admin.execute(sql.SQL("create schema {}").format(sql.Identifier(schema)))
+        try:
+            table = sql.Identifier(schema, "t")
+            admin.execute(sql.SQL("create table {} (a integer)").format(table))
+            for _ in range(6):
+                admin.execute(
+                    "select 1 from information_schema.columns where table_name = %s", ("t",)
+                )
+            admin.execute(sql.SQL("alter table {} add column b integer").format(table))
+            admin.autocommit = False
+            admin.execute(sql.SQL("insert into {} values (1, 2)").format(table))
+            admin.rollback()
+            admin.autocommit = True
+        finally:
+            admin.execute(sql.SQL("drop schema {} cascade").format(sql.Identifier(schema)))
