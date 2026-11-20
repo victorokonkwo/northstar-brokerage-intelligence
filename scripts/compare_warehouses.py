@@ -8,9 +8,10 @@ Each model's rows are compared as multisets, leaving out the lineage columns
 that identify a run rather than the data (``_ingestion_run_id``,
 ``_ingested_at``, ``_dbt_invocation_id``, ``_build_seq``). The build log tables
 (``dbt_build_log``, ``dbt_model_builds``) record builds, not data, and are
-skipped. Values are normalised only where the two drivers return the same value
-as different Python types: a ``uuid`` as an object or a string, a JSON value as
-a list or as JSON text, and ``char(n)`` padding. Amounts are compared exactly.
+skipped, as is Redshift's empty ``lifecycle_lock``. Values are normalised only
+where the two drivers return the same value as different Python types: a
+``uuid`` as an object or a string, a JSON value as a list or as JSON text, and
+``char(n)`` padding. Amounts are compared exactly.
 
 Usage (from the repository root; Redshift needs ``aws login``)::
 
@@ -41,6 +42,8 @@ LINEAGE: frozenset[str] = frozenset(
     {"_dbt_invocation_id", "_ingestion_run_id", "_ingested_at", "_build_seq"}
 )
 BUILD_LOG_TABLES: frozenset[str] = frozenset({"dbt_build_log", "dbt_model_builds"})
+# Redshift's stand-in for SELECT ... FOR UPDATE: an empty table that exists there only.
+WAREHOUSE_SPECIFIC_TABLES: frozenset[str] = frozenset({"lifecycle_lock"})
 WAREHOUSES = ("postgres", "redshift")
 
 
@@ -85,7 +88,7 @@ def _tables(conn: psycopg.Connection[Any], schema: str) -> list[str]:
             "select table_name from information_schema.tables where table_schema = %s order by 1",
             (schema,),
         ).fetchall()
-        if r[0] not in BUILD_LOG_TABLES
+        if r[0] not in BUILD_LOG_TABLES | WAREHOUSE_SPECIFIC_TABLES
     ]
 
 

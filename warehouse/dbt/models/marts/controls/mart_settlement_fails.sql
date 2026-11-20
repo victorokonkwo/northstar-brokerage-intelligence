@@ -44,7 +44,7 @@ select
     asset_class,
     obligations_due::integer as obligations_due,
     failed_count::integer as failed_count,
-    {{ round_half_even('failed_count::numeric(38, 0) / obligations_due', 6) }} as fail_rate,
+    {{ count_ratio_half_even('failed_count', 'obligations_due', 6) }} as fail_rate,
     value_due::numeric(18, 2) as value_due,
     value_failed::numeric(18, 2) as value_failed,
     {{ round_half_even('value_failed / nullif(value_due, 0)', 6) }} as value_fail_rate,
