@@ -50,10 +50,24 @@ unit_tests:
       - input: ref('stg_brokerage__trade_settled')
         rows:
           - {settlement_id: s_done, quantity: 10, amount: 520.00, event_timestamp: "2026-03-03 17:00:00+00"}
+      # An exercise is an obligation too (roadmap 5C-b): no order, no executions;
+      # the underlying's market; PENDING until exercise_settled.
+      - input: ref('stg_brokerage__option_exercised')
+        rows:
+          - {settlement_id: s_ex, account_id: a1, underlying_instrument_id: u1, option_right: PUT, underlying_quantity: 200, currency: USD, exercise_date: 2026-03-04, settlement_date: 2026-03-05}
+          - {settlement_id: s_ex_open, account_id: a1, underlying_instrument_id: u1, option_right: CALL, underlying_quantity: 100, currency: USD, exercise_date: 2026-03-05, settlement_date: 2026-03-06}
+      - input: ref('stg_brokerage__exercise_settled')
+        rows:
+          - {settlement_id: s_ex, quantity: 200, amount: 9000.00, event_timestamp: "2026-03-05 16:00:00+00"}
+      - input: ref('stg_brokerage__instrument_listed')
+        rows:
+          - {instrument_id: u1, market: XNYS}
     expect:
       rows:
-        - {settlement_id: s_done, executed_quantity: 10, execution_count: 2, settled_quantity: 10, settled_amount: 520.00, settlement_status: SETTLED}
-        - {settlement_id: s_open, executed_quantity: 5, execution_count: 1, settled_quantity: null, settled_amount: null, settlement_status: PENDING}
+        - {settlement_id: s_done, order_id: o1, side: null, market: null, executed_quantity: 10, execution_count: 2, settled_quantity: 10, settled_amount: 520.00, settlement_status: SETTLED, obligation_type: EXECUTION}
+        - {settlement_id: s_open, order_id: o2, side: null, market: null, executed_quantity: 5, execution_count: 1, settled_quantity: null, settled_amount: null, settlement_status: PENDING, obligation_type: EXECUTION}
+        - {settlement_id: s_ex, order_id: null, side: SELL, market: XNYS, executed_quantity: 200, execution_count: 0, settled_quantity: 200, settled_amount: 9000.00, settlement_status: SETTLED, obligation_type: EXERCISE}
+        - {settlement_id: s_ex_open, order_id: null, side: BUY, market: XNYS, executed_quantity: 100, execution_count: 0, settled_quantity: null, settled_amount: null, settlement_status: PENDING, obligation_type: EXERCISE}
 
   - name: account_versions_chain_by_event_time
     model: dim_account

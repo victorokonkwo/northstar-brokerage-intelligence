@@ -50,15 +50,16 @@ All simulated data is **synthetic**. Instruments, prices, FX rates, and client b
 | Account lifecycle | With `margin_approval_probability`, a CASH account is approved for margin on a random later business day. With `restriction_probability`, an account is restricted from trading on a random later business day, and the restriction is lifted `restriction_business_days` ledger business days later if that falls in the window. An update keeps whatever its reason doesn't change, so an approval during a restriction leaves the account restricted. Updates are processed at 08:00 Toronto time (†). |
 | Deposits | On ledger business days, with probability `daily_probability × seasonal[month]`. |
 | Withdrawals | Probability × `month_end_multiplier` on the last `month_end_days` business days of each month. At most `max_fraction` of CAD cash. |
-| Orders | Poisson count per account and day, with intensity `daily_rate × (1 + volatility_sensitivity × (activity/mean − 1))`, where activity is the day's average absolute price move. |
+| Orders | Poisson count per account and day, with intensity `daily_rate × (1 + volatility_sensitivity × (activity/mean − 1))`, where activity is the day's average absolute price move across the equities. Options are left out: they only echo their underlyings' moves, levered. |
 | Order details | Buys are sized as a random fraction of buying power (cash, plus `margin_headroom_use` of the remaining guard headroom for MARGIN accounts). Sells take part of a position. Each order has 1–3 partial fills near the last close (`price_noise`), and with `cancel_probability` it is cancelled after a partial fill. A USD buy without USD cash first converts `usd_conversion_fraction` of CAD. |
 | Dividends | `dividends` in the dataset config (illustrative): each is declared at 07:30 Toronto on its declaration date (`dividend_declared`). The equity's price drops by the dividend on the record (ex-)date. Entitlements are fixed from settled holdings at the end of the record date, and `dividend_paid` credits each holder at 09:00 on the pay date ([ADR 013](../adr/013-corporate-events.md)). Options on the equity are priced with the dividends declared by the pricing day. |
+| Option exercise and expiry | Roadmap 5C-b ([ADR 013](../adr/013-corporate-events.md)). **Early:** after each close (17:00 Toronto), where the model says exercising an American option beats waiting a day (its tree with one step per calendar day to expiry; for a call, the day before a large enough dividend goes ex; for a deep put, sooner), each holder who can exercise does so with `option_exercise.early_exercise_probability`. **Expiry day:** nobody buys the option. Before the close (16:00), the brokerage sells, at that day's close, every in-the-money holding that couldn't be exercised after the exercises processed before it (`SimulationEngine.expiry_close_outs`, under `config/brokerage/option_expiry_policy.yaml`). At 17:30 each remaining option $0.01 or more in the money is exercised (`option_exercised`, reason `EXPIRY`), and the rest expire (`option_expired`), as `NOT_EXERCISABLE` when a restricted account couldn't trade it. Each exercise settles the next business day on its underlying's calendar (`exercise_settled`). |
 | Prices and FX | A daily close for each instrument on its market's trading days (`price_updated`). An equity's close walks log-normally from `start_price` with `daily_vol`. An option's close is its model price (roadmap 5B, [ADR 012](../adr/012-market-risk-models.md)): the binomial tree of `domain.market_risk.options` on its underlying's close that day, at the option's annual `implied_vol` and its currency's rate (`config/risk/rates.yaml`), with time to expiry in calendar days / 365. A day without an underlying close has no option close. A synthetic reference rate for each ledger business day plus an opening rate for the day before the window, each published as `fx_rate_published`. Other days use the most recent prior rate (FX fallback policy v1). |
 
-These patterns are FR-SIM-05, and they are tested on generated data (`tests/unit/simulation/test_generator.py`). Measured on 2026-11-20 with that test logic on the code of roadmap 5C-a:
-- With 400 accounts (seed 1), 59 of 143 withdrawals fall on the 6 month-end days out of 62 business days. The dev dataset has only 14 withdrawals, too few to show the pattern, so the test uses the larger sample.
-- On the dev dataset (seed 42), orders per day correlate with the day's average absolute price move at 0.80.
-- With 400 accounts (seed 1), February deposits run at 1.32× March per business day (factors 1.4 vs 1.0); the test requires more than 1.2×.
+These patterns are FR-SIM-05, and they are tested on generated data (`tests/unit/simulation/test_generator.py`). Measured on 2026-11-20 with that test logic on the code of roadmap 5C-b:
+- With 400 accounts (seed 1), 46 of 132 withdrawals fall on the 6 month-end days out of 62 business days. The dev dataset has only 14 withdrawals, too few to show the pattern, so the test uses the larger sample.
+- On the dev dataset (seed 42), orders per day correlate with the day's average absolute equity move at 0.76.
+- With 400 accounts (seed 1), February deposits run at 1.47× March per business day (factors 1.4 vs 1.0); the test requires more than 1.2×.
 
 ### Determinism
 
@@ -68,7 +69,7 @@ Note that the event IDs come from global sequences. Adding an account therefore 
 
 ### The dev dataset (seed 42)
 
-`make simulate` produces 5,242 events (since roadmap 5C-a's dividends). All 15 event types appear, along with dividends, partial fills, cancellations, sells, CAD and USD trades, options, clearing fees, FX conversions, withdrawals, margin interest, margin approvals, and trading restrictions. The events file's SHA-256 is printed by the command, and CI regenerates and compares it (Phase 2E).
+`make simulate` produces 5,352 events (since roadmap 5C-b). All 18 event types appear, along with dividends, early and automatic option exercises, worthless expiries, partial fills, cancellations, sells, CAD and USD trades, options, clearing fees, FX conversions, withdrawals, margin interest, margin approvals, and trading restrictions. The events file's SHA-256 is printed by the command, and CI regenerates and compares it (Phase 2E).
 
 ## External records (FR-SIM-02)
 
@@ -122,7 +123,7 @@ The dev dataset with seed 42 has 76 defects: 20 dropped, 8 duplicates, 19 wrong 
 - Clearing-fee invoices are not paid (2200 accumulates the fees).
 - FX covering trades are not simulated (2300 holds the open position).
 - The generator converts CAD → USD only. The engine and posting rules support both directions, which the scripted and property tests exercise.
-- Options expire after the window. Exercise, assignment, and expiry are Phase 5 (roadmap 5C).
+- Clients only hold long options, so nobody is assigned (ADR 013).
 - Every option of a currency is priced at that currency's single illustrative rate.
 - Dividends are paid gross: no withholding tax is modelled (ADR 013).
 - The reference rate for day D is published at the start of D, and account updates are processed at 08:00. Both are simulation conventions, not the behaviour of a real rate source or back office.

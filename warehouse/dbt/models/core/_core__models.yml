@@ -230,15 +230,16 @@ models:
   - name: fct_settlements
     description: >
       One row per settlement obligation (grain): an order's executions on one trade
-      date (INV-06). Primary key settlement_id. settled_* columns and lineage are null
-      while PENDING; the amount is posted by Python and never recomputed here.
+      date (INV-06), or an option exercise (roadmap 5C-b; no order, no executions).
+      Primary key settlement_id. settled_* columns and lineage are null while
+      PENDING; the amount is posted by Python and never recomputed here.
     config:
       contract: {enforced: true}
     columns:
       - {name: settlement_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
       - name: order_id
+        description: The order, for an EXECUTION obligation; null for an EXERCISE.
         data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
-        constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('fct_orders'), field: order_id}}
       - {name: account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
@@ -262,6 +263,11 @@ models:
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [PENDING, SETTLED]}}
+      - name: obligation_type
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [EXECUTION, EXERCISE]}}
       - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: _ingested_at, data_type: timestamp with time zone}

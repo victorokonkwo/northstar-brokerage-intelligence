@@ -16,8 +16,11 @@ from northstar.domain.events import (
     CashDeposited,
     CashWithdrawn,
     DividendPaid,
+    ExerciseSettled,
     FxConverted,
     MarginInterestAccrued,
+    OptionExercised,
+    OptionRight,
     Side,
     TradeExecuted,
     TradeSettled,
@@ -31,9 +34,11 @@ from factories import (
     dividend_paid,
     engine,
     execution,
+    exercise_settled,
     expected_client_cash,
     fx_conversion,
     interest,
+    option_exercised,
     positive_amounts,
     settlement,
     withdrawal,
@@ -47,6 +52,8 @@ type ClientEvent = (
     | TradeExecuted
     | TradeSettled
     | DividendPaid
+    | OptionExercised
+    | ExerciseSettled
 )
 
 ACCOUNTS = ("acc_s1_000001", "acc_s1_000002", "acc_s1_000003")
@@ -62,7 +69,17 @@ def client_events(draw: st.DrawFn) -> list[ClientEvent]:
         event_id = f"evt_s1_{n + 1:06d}"
         kind = draw(
             st.sampled_from(
-                ("deposit", "withdraw", "fx", "interest", "buy", "sell", "settle", "dividend")
+                (
+                    "deposit",
+                    "withdraw",
+                    "fx",
+                    "interest",
+                    "buy",
+                    "sell",
+                    "settle",
+                    "dividend",
+                    "exercise",
+                )
             )
         )
         if kind == "deposit":
@@ -115,6 +132,17 @@ def client_events(draw: st.DrawFn) -> list[ClientEvent]:
                     event_id=event_id,
                 )
             )
+        elif kind == "exercise":
+            exercised = option_exercised(
+                draw(st.sampled_from(OptionRight)),
+                str(draw(st.integers(1, 50))),
+                str(Decimal(draw(st.integers(1, 10**5))).scaleb(-2)),
+                draw(st.sampled_from(Currency)),
+                account_id=account,
+                when=when,
+                event_id=event_id,
+            )
+            events.extend([exercised, exercise_settled(exercised, f"{event_id}s")])
         elif kind == "dividend":
             holders = draw(st.lists(st.sampled_from(ACCOUNTS), min_size=1, max_size=3, unique=True))
             events.append(

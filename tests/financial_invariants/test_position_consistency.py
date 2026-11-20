@@ -12,10 +12,17 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from northstar.domain.events import Side, TradeExecuted, TradeSettled
+from northstar.domain.events import OptionRight, Side, TradeExecuted, TradeSettled
 from northstar.domain.positions import PositionBook, SettlementError, ShortSaleError
 
-from factories import at_toronto, execution, settlement
+from factories import (
+    at_toronto,
+    execution,
+    exercise_settled,
+    option_exercised,
+    option_expired,
+    settlement,
+)
 
 ACCOUNTS = ("acc_s1_000001", "acc_s1_000002")
 INSTRUMENTS = ("ins_s1_000001", "ins_s1_000002")
@@ -153,3 +160,73 @@ def test_settling_more_than_in_flight_is_refused() -> None:
     )
     with pytest.raises(SettlementError, match="only 5 is pending"):
         PositionBook().apply_all([buy, too_much])
+
+
+OPTION, UNDERLYING = "ins_s1_000009", "ins_s1_000005"  # as in factories.option_exercised
+HOLDER = "acc_s1_000001"
+
+
+def _held(instrument: str, quantity: str, n: int) -> list[TradeExecuted | TradeSettled]:
+    """A settled BUY of ``quantity`` of ``instrument`` by the holder."""
+    bought = _with(
+        execution(quantity=quantity, event_id=f"evt_s1_{n:06d}", execution_id=f"exe_s1_{n:06d}"),
+        HOLDER,
+        instrument,
+    )
+    return [bought, _settles(bought, f"evt_s1_{n + 1:06d}")]
+
+
+class TestExerciseAndExpiry:
+    """Exercise and expiry keep INV-03 and INV-04 (roadmap 5C-b, ADR 013)."""
+
+    def test_an_exercised_call_retires_the_option_and_receives_the_shares(self) -> None:
+        exercised = option_exercised(OptionRight.CALL, contracts="2")
+        book = PositionBook().apply_all([*_held(OPTION, "3", 1), exercised])
+        assert book.trade_date_quantity(HOLDER, OPTION) == 1
+        assert book.settled_quantity(HOLDER, OPTION) == 1
+        assert book.trade_date_quantity(HOLDER, UNDERLYING) == 200  # 2 contracts x 100
+        assert book.settled_quantity(HOLDER, UNDERLYING) == 0  # until it settles
+        assert all(line.balanced for line in book.stock_record())
+        book.apply(exercise_settled(exercised))
+        assert book.settled_quantity(HOLDER, UNDERLYING) == 200
+        assert all(line.balanced for line in book.stock_record())
+
+    def test_an_exercised_put_delivers_the_shares(self) -> None:
+        exercised = option_exercised(OptionRight.PUT, contracts="2")
+        book = PositionBook().apply_all(
+            [*_held(UNDERLYING, "300", 1), *_held(OPTION, "2", 3), exercised]
+        )
+        assert book.trade_date_quantity(HOLDER, UNDERLYING) == 100
+        assert book.settled_quantity(HOLDER, UNDERLYING) == 300
+        assert book.positions().get((HOLDER, OPTION)) is None
+        assert all(line.balanced for line in book.stock_record())
+        book.apply(exercise_settled(exercised))
+        assert book.settled_quantity(HOLDER, UNDERLYING) == 100
+        assert all(line.balanced for line in book.stock_record())
+
+    def test_a_put_needs_the_shares_it_delivers(self) -> None:
+        book = PositionBook().apply_all([*_held(UNDERLYING, "199", 1), *_held(OPTION, "2", 3)])
+        with pytest.raises(ShortSaleError):
+            book.apply(option_exercised(OptionRight.PUT, contracts="2"))
+
+    def test_only_settled_contracts_can_be_exercised(self) -> None:
+        bought = _with(execution(quantity="2"), HOLDER, OPTION)  # premium not yet settled
+        with pytest.raises(SettlementError, match="settled"):
+            PositionBook().apply_all([bought, option_exercised(OptionRight.CALL, contracts="2")])
+
+    def test_an_expiry_retires_what_is_still_owned(self) -> None:
+        # 5 held; 2 sold on the expiry day (settling after it); the other 3 expire.
+        sold = _with(
+            execution(side=Side.SELL, quantity="2", event_id="evt_s1_000005"), HOLDER, OPTION
+        )
+        book = PositionBook().apply_all([*_held(OPTION, "5", 1), sold, option_expired("3")])
+        assert book.trade_date_quantity(HOLDER, OPTION) == 0
+        assert book.settled_quantity(HOLDER, OPTION) == 2  # the sale still to settle
+        assert all(line.balanced for line in book.stock_record())
+        book.apply(_settles(sold, "evt_s1_000006"))
+        assert book.positions().get((HOLDER, OPTION)) is None
+        assert all(line.balanced for line in book.stock_record())
+
+    def test_more_than_is_owned_cannot_expire(self) -> None:
+        with pytest.raises(SettlementError):
+            PositionBook().apply_all([*_held(OPTION, "2", 1), option_expired("3")])

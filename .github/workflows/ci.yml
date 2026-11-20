@@ -239,10 +239,12 @@ jobs:
           make dashboard-check
 
       - name: Airflow runs the daily close, backfills, retries, alerts, and records lineage (FR-M1-07)
-        # A daily run (business date 2026-01-06) and a backfill (2026-01-09, a
-        # Friday, and 2026-01-10, a Saturday that must be skipped) publish into
-        # their own schemas; every published date must equal the CLI
-        # publication above. A run pointed at a missing dataset must fail after
+        # A daily run (the first business date the CLI published above) and a
+        # backfill (the next published Friday, and the Saturday after it, which
+        # must be skipped) publish into their own schemas; every published date
+        # must equal the CLI publication above. The dates come from that
+        # publication (financial-1.txt), since which dates the synthetic defects
+        # block depends on the dataset. A run pointed at a missing dataset must fail after
         # its retry and leave an alert. dbt lineage must be archived.
         run: |
           af() { docker compose --env-file .env --file infrastructure/docker/compose.yaml \
@@ -261,11 +263,25 @@ jobs:
           af dags list-import-errors | tee import-errors.txt
           grep -q "No data found" import-errors.txt
           test "$(af tasks list northstar_daily | tr '\n' ' ')" = "check_business_day dbt_build dbt_controls ingest load publish publish_controls reconcile serving "
+          read -r daily friday < <(python3 - <<'PY'
+          import datetime as dt, re
+          text = open("financial-1.txt").read()
+          published = sorted(
+              dt.date.fromisoformat(d)
+              for d in re.findall(r"^ *(\d{4}-\d{2}-\d{2}) v1 PUBLISHED", text, re.M)
+          )
+          daily = published[0]
+          print(daily, next(d for d in published if d.weekday() == 4 and d > daily))
+          PY
+          )
+          day_after() { date -u -I -d "$1 + $2 day"; }  # a run's logical date is its business date + 1
+          saturday=$(day_after "$friday" 1)
+          echo "daily run: $daily; backfill: $friday and $saturday (skipped)"
           af dags unpause northstar_daily
-          af dags trigger northstar_daily --logical-date 2026-01-07T11:00:00+00:00 \
+          af dags trigger northstar_daily --logical-date "$(day_after "$daily" 1)T11:00:00+00:00" \
             --run-id ci-daily --conf '{"published_schema": "published_af_daily", "controls_schema": "published_af_daily_controls", "recon_schema": "recon_af"}'
-          af backfill create --dag-id northstar_daily --from-date 2026-01-10 \
-            --to-date 2026-01-11T12:00:00+00:00 --max-active-runs 1 \
+          af backfill create --dag-id northstar_daily --from-date "$saturday" \
+            --to-date "$(day_after "$friday" 2)T12:00:00+00:00" --max-active-runs 1 \
             --dag-run-conf '{"published_schema": "published_af_backfill", "controls_schema": "published_af_backfill_controls", "recon_schema": "recon_af"}'
           af dags trigger northstar_daily --logical-date 2026-01-13T11:00:00+00:00 \
             --run-id ci-fails --conf '{"dataset_dir": "/opt/northstar/data/generated/missing"}'
@@ -273,7 +289,7 @@ jobs:
           python3 -c "import json; print({x['run_id']: x['state'] for x in json.load(open('runs.json'))})"
           python3 -c "import json,sys; s={x['run_id']: x['state'] for x in json.load(open('runs.json'))}; \
             sys.exit(0 if s.pop('ci-fails') == 'failed' and set(s.values()) == {'success'} else 1)"
-          af tasks states-for-dag-run northstar_daily "backfill__2026-01-11T11:00:00+00:00" -o json \
+          af tasks states-for-dag-run northstar_daily "backfill__$(day_after "$friday" 2)T11:00:00+00:00" -o json \
             | python3 -c "import json,sys; sys.exit(0 if {t['state'] for t in json.load(sys.stdin)} == {'skipped'} else 1)"
           set -a && . ./.env && set +a
           uv run python - <<'PY'

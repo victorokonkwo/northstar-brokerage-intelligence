@@ -1,5 +1,7 @@
 -- INV-06: every execution belongs to exactly one settlement obligation, and a
 -- settled obligation's quantity and amount equal the sums over its executions.
+-- An exercise obligation (roadmap 5C-b) settles its exercise's shares and
+-- strike amount exactly.
 -- The amount is recomputed here, half-even like Python's gross_amount (ADR 004),
 -- only to check Python's posting (ADR 007).
 -- Returns the obligations that break it.
@@ -45,8 +47,25 @@ amount_breaks as (
     where
         f.settlement_status = 'SETTLED'
         and (f.settled_quantity != s.quantity or f.settled_amount != s.amount)
+),
+
+exercise_breaks as (
+    -- An exercise obligation settles its exercise's shares and strike amount exactly.
+    select f.settlement_id
+    from {{ ref('fct_settlements') }} as f
+    inner join {{ ref('stg_brokerage__option_exercised') }} as x
+        on f.settlement_id = x.settlement_id
+    where
+        f.obligation_type != 'EXERCISE'
+        or f.executed_quantity != x.underlying_quantity
+        or (
+            f.settlement_status = 'SETTLED'
+            and (f.settled_quantity != x.underlying_quantity or f.settled_amount != x.strike_amount)
+        )
 )
 
 select settlement_id from membership_breaks
 union
 select settlement_id from amount_breaks
+union
+select settlement_id from exercise_breaks

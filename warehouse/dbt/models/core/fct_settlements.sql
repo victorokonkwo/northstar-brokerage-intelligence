@@ -9,6 +9,9 @@
         'inputs': [
             'stg_brokerage__trade_executed',
             'stg_brokerage__trade_settled',
+            'stg_brokerage__option_exercised',
+            'stg_brokerage__exercise_settled',
+            'stg_brokerage__instrument_listed',
         ],
     }},
 ) }}
@@ -20,6 +23,9 @@
 -- fill. It is SETTLED once its trade_settled event arrives, PENDING before.
 -- The amount is posted by Python (ADR 007) and known only from trade_settled,
 -- so it is null while PENDING rather than recomputed here.
+-- An option exercise is an obligation too (roadmap 5C-b, ADR 013): the
+-- underlying against the strike amount, from the exercise date, with no order
+-- and no executions (obligation_type EXERCISE).
 with executions as (
     select
         settlement_id,
@@ -35,7 +41,7 @@ with executions as (
     from {{ ref('stg_brokerage__trade_executed') }}
 ),
 
-obligations as (
+execution_obligations as (
     select
         settlement_id,
         min(order_id) as order_id,
@@ -52,6 +58,66 @@ obligations as (
     group by settlement_id
 ),
 
+listed as (
+    select distinct
+        instrument_id,
+        market
+    from {{ ref('stg_brokerage__instrument_listed') }}
+),
+
+exercise_obligations as (
+    select
+        x.settlement_id,
+        null as order_id,
+        x.account_id,
+        x.underlying_instrument_id as instrument_id,
+        l.market,
+        case when x.option_right = 'CALL' then 'BUY' else 'SELL' end as side,
+        x.currency,
+        x.exercise_date as trade_date,
+        x.settlement_date as contractual_settlement_date,
+        x.underlying_quantity as executed_quantity,
+        0 as execution_count
+    from {{ ref('stg_brokerage__option_exercised') }} as x
+    inner join listed as l on x.underlying_instrument_id = l.instrument_id
+),
+
+obligations as (
+    select
+        *,
+        'EXECUTION' as obligation_type
+    from execution_obligations
+    union all
+    select
+        *,
+        'EXERCISE' as obligation_type
+    from exercise_obligations
+),
+
+settled_events as (
+    select
+        settlement_id,
+        quantity,
+        amount,
+        event_timestamp,
+        event_id,
+        schema_version,
+        _ingestion_run_id,
+        _ingested_at
+    from {{ ref('stg_brokerage__trade_settled') }}
+    union all
+    select
+        settlement_id,
+        quantity,
+        amount,
+        event_timestamp,
+        event_id,
+        schema_version,
+        _ingestion_run_id,
+        _ingested_at
+    from {{ ref('stg_brokerage__exercise_settled') }}
+),
+
 settled as (
     select
         settlement_id,
@@ -62,7 +128,7 @@ settled as (
         schema_version,
         _ingestion_run_id,
         _ingested_at
-    from {{ ref('stg_brokerage__trade_settled') }}
+    from settled_events
 )
 
 select
@@ -81,6 +147,7 @@ select
     s.amount as settled_amount,
     s.settled_at,
     case when s.settlement_id is null then 'PENDING' else 'SETTLED' end as settlement_status,
+    o.obligation_type,
     s.event_id as _source_event_id,
     s._ingestion_run_id,
     s._ingested_at,

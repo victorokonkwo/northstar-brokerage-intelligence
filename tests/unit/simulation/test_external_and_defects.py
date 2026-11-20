@@ -13,6 +13,7 @@ from northstar.domain.events import (
     CashWithdrawn,
     DividendPaid,
     Event,
+    ExerciseSettled,
     FxConverted,
     PriceUpdated,
     TradeExecuted,
@@ -53,12 +54,16 @@ class TestExactTransformation:
         kinds = Counter(type(e) for e in events)
         executions = [e for e in events if isinstance(e, TradeExecuted)]
         assert len(exact.clearing_confirmations) == kinds[TradeExecuted]
-        assert len(exact.settlement_confirmations) == kinds[TradeSettled]
+        assert len(exact.settlement_confirmations) == kinds[TradeSettled] + kinds[ExerciseSettled]
         assert len(exact.fee_records) == sum(1 for e in executions if e.payload.clearing_fee > 0)
         assert len(exact.fx_confirmations) == kinds[FxConverted]
         assert len(exact.price_feed) == kinds[PriceUpdated]
         assert len(exact.bank_statement_lines) == (
-            kinds[CashDeposited] + kinds[CashWithdrawn] + kinds[TradeSettled] + kinds[DividendPaid]
+            kinds[CashDeposited]
+            + kinds[CashWithdrawn]
+            + kinds[TradeSettled]
+            + kinds[ExerciseSettled]
+            + kinds[DividendPaid]
         )
 
     def test_clearing_confirmations_restate_the_executions(

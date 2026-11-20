@@ -26,6 +26,7 @@ from northstar.domain.market_risk.options import (
     binomial,
     black_scholes,
     black_scholes_greeks,
+    exercise_is_optimal,
     greeks,
     implied_vol,
     price,
@@ -274,3 +275,59 @@ def _replace(o: OptionInputs, field: str, value: float) -> OptionInputs:
         case "rate":
             return replace(o, rate=value)
     raise AssertionError(field)
+
+
+class TestEarlyExercise:
+    """Exercising now beats waiting a day only just before a large enough dividend
+    goes ex (calls), or deep in the money (puts) (roadmap 5C-b)."""
+
+    @staticmethod
+    def call(
+        spot: float, days: int, dividends: tuple[Dividend, ...] = (), strike: float = 45.0
+    ) -> OptionInputs:
+        return option(
+            CALL,
+            AMERICAN,
+            spot=spot,
+            strike=strike,
+            rate=0.04,
+            vol=0.27,
+            expiry=days / 365,
+            dividends=dividends,
+        )
+
+    def test_a_deep_call_is_exercised_the_day_before_a_dividend_goes_ex(self) -> None:
+        o = self.call(61.0, 23, (Dividend(1 / 365, 0.40),))
+        assert exercise_is_optimal(o, steps=23)
+
+    @pytest.mark.parametrize(
+        ("spot", "days", "dividends", "strike"),
+        [
+            (65.0, 23, (), 45.0),  # no dividend: never early (r > 0)
+            (65.0, 1, (), 45.0),  # a day before expiry: wait for it
+            (61.0, 29, (Dividend(7 / 365, 0.40),), 45.0),  # a week before the ex-date
+            (
+                61.0,
+                23,
+                (Dividend(1 / 365, 0.40),),
+                60.0,
+            ),  # near the money: the option is worth more
+            (40.0, 23, (Dividend(1 / 365, 0.40),), 45.0),  # out of the money
+        ],
+    )
+    def test_otherwise_holding_is_worth_more(
+        self, spot: float, days: int, dividends: tuple[Dividend, ...], strike: float
+    ) -> None:
+        assert not exercise_is_optimal(self.call(spot, days, dividends, strike), steps=days)
+
+    def test_a_deep_put_is_exercised_early(self) -> None:
+        o = option(PUT, AMERICAN, spot=10.0, strike=40.0, rate=0.04, vol=0.41, expiry=16 / 365)
+        assert exercise_is_optimal(o, steps=16)
+
+    def test_at_expiry_in_the_money_means_exercise(self) -> None:
+        assert exercise_is_optimal(self.call(46.0, 0), steps=1)
+        assert not exercise_is_optimal(self.call(44.0, 0), steps=1)
+
+    def test_a_european_option_cant_be_exercised_early(self) -> None:
+        with pytest.raises(PricingError, match="only American"):
+            exercise_is_optimal(option(CALL), steps=10)

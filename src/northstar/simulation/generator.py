@@ -46,9 +46,11 @@ from northstar.domain.events import (
     AccountType,
     AccountUpdateReason,
     Event,
+    ExerciseStyle,
     OrderType,
     Side,
 )
+from northstar.domain.market_risk.options import OptionInputs
 from northstar.domain.market_risk.policy import RiskFreeRates
 from northstar.domain.settlement import AssetClass
 from northstar.simulation.engine import (
@@ -57,11 +59,13 @@ from northstar.simulation.engine import (
     Convert,
     DeclareDividend,
     Deposit,
+    ExerciseOption,
     Fill,
     InstrumentSpec,
     OpenAccount,
     PlaceOrder,
     Policies,
+    ProcessExpiry,
     SimulationEngine,
     UpdateAccount,
     Withdraw,
@@ -70,8 +74,10 @@ from northstar.simulation.market import (
     PRICE_TICK,
     RATE_PLACES,
     absolute_returns,
+    early_exercise_optimal,
     log_normal_path,
-    model_option_close,
+    model_close,
+    model_inputs,
 )
 
 Probability = Annotated[Decimal, Field(ge=0, le=1)]
@@ -213,6 +219,18 @@ class OrderActivity(_Frozen):
     price_noise: Decimal = Field(ge=0, lt=Decimal("0.1"))
 
 
+class OptionExerciseBehaviour(_Frozen):
+    """How clients exercise American options early (roadmap 5C-b; illustrative).
+
+    When the model says exercising beats holding (an option's close equals its
+    intrinsic value above zero, as for a deep in-the-money call the day before
+    its underlying goes ex-dividend), each holder who can exercise does so with
+    ``early_exercise_probability``.
+    """
+
+    early_exercise_probability: Probability
+
+
 class DividendSpec(_Frozen):
     """A synthetic cash dividend an issuer declares in the window (roadmap 5C-a; illustrative).
 
@@ -249,6 +267,7 @@ class DatasetConfig(_Frozen):
     orders: OrderActivity
     history: HistoryWindow | None = None
     dividends: tuple[DividendSpec, ...] = ()
+    option_exercise: OptionExerciseBehaviour | None = None
 
     @model_validator(mode="after")
     def _dividends_on_equities_in_the_window(self) -> "DatasetConfig":
@@ -304,8 +323,10 @@ class DatasetConfig(_Frozen):
 class MarketData:
     """The synthetic market a dataset runs on: closes, reference rates, and daily activity.
 
-    ``activity`` is the average absolute close-to-close move across instruments
-    per day, which scales order intensity (FR-SIM-05).
+    ``activity`` is the average absolute close-to-close move across the equities
+    per day, which scales order intensity (FR-SIM-05). Options are left out:
+    their model prices move with their underlyings, so they would count the same
+    move again, levered (a cheap option near expiry moves tens of percent a day).
     """
 
     closes: dict[str, dict[date, Decimal]]
@@ -315,6 +336,9 @@ class MarketData:
     opening: dict[str, Decimal]
     """Each instrument's price before its first close: an equity's start price, an
     option's model price on its underlying's start price the day before the window."""
+    exercise_optimal: dict[str, frozenset[date]]
+    """For each American option, the days after whose close exercising early is
+    optimal in the model (roadmap 5C-b)."""
 
 
 def _days(start: date, end: date) -> list[date]:
@@ -361,9 +385,14 @@ def build_market(
             )
             opening[spec.key] = start_price
     priced: dict[str, dict[date, Decimal]] = {}
+    optimal: dict[str, frozenset[date]] = {}
     for spec in config.instruments:
         if spec.option is not None:
-            trading = [d for d in days if calendars[spec.market].is_trading_day(d)]
+            trading = [
+                d
+                for d in days
+                if calendars[spec.market].is_trading_day(d) and d <= spec.option.expiry
+            ]  # no price after expiry: the option is gone
             underlying = walked[spec.option.underlying]
             priced[spec.key] = {
                 d: _option_close(spec, rates_policy, d, underlying[d], config.dividends)
@@ -374,6 +403,17 @@ def build_market(
             opening[spec.key] = _option_close(
                 spec, rates_policy, before, opening[spec.option.underlying], config.dividends
             )
+            if spec.option.exercise_style is ExerciseStyle.AMERICAN:
+                optimal[spec.key] = frozenset(
+                    d
+                    for d in priced[spec.key]
+                    if d < spec.option.expiry
+                    and early_exercise_optimal(
+                        _option_inputs(spec, rates_policy, d, underlying[d], config.dividends),
+                        spec.option.expiry,
+                        d,
+                    )
+                )
     closes = {spec.key: walked.get(spec.key) or priced[spec.key] for spec in config.instruments}
     ledger = calendars[LEDGER_CALENDAR_MARKET]
     # The reference rate needs a value at or before the first day.
@@ -382,12 +422,75 @@ def build_market(
     ]
     rates = log_normal_path(rng, config.fx.start_rate, config.fx.daily_vol, rate_days, RATE_PLACES)
     moves: dict[date, list[Decimal]] = {}
-    for path in closes.values():
+    for path in walked.values():  # equities: options only echo them, levered
         for day, move in absolute_returns(path).items():
             moves.setdefault(day, []).append(move)
     activity = {day: sum(m, Decimal(0)) / len(m) for day, m in moves.items()}
     mean = sum(activity.values(), Decimal(0)) / len(activity) if activity else Decimal(1)
-    return MarketData(closes, rates, activity, mean or Decimal(1), opening)
+    return MarketData(closes, rates, activity, mean or Decimal(1), opening, optimal)
+
+
+type _Accounts = list[tuple[str, AccountType, date, np.random.Generator]]
+
+
+def _close_out_expiring(
+    engine: SimulationEngine,
+    market: MarketData,
+    day: date,
+    clock: "_Clock",
+) -> None:
+    """On an expiry day, sell at the close what is in the money but can't be exercised.
+
+    The engine plans it (``SimulationEngine.expiry_close_outs``, ADR 013): a put
+    without the shares to deliver, or a call the account can't fund, after the
+    exercises processed before it.
+    """
+    closes = {k: path[day] for k, path in market.closes.items() if day in path}
+    sells = engine.expiry_close_outs(day, closes, closes)  # underlyings' and options' closes
+    at = max(clock.now, _local(day, _CLOSE_OUT_TIME))
+    for account, option, contracts in sells:
+        if at >= _local(day, CLOSE_PUBLICATION):
+            msg = f"{day}: the close-outs ran past the {CLOSE_PUBLICATION} close publication"
+            raise ScenarioError(msg)
+        fill = Fill(at, contracts, market.closes[option][day])
+        engine.submit(
+            PlaceOrder(at, account, option, Side.SELL, OrderType.MARKET, contracts, (fill,))
+        )
+        at += timedelta(seconds=1)
+
+
+def _early_exercises(
+    config: DatasetConfig,
+    engine: SimulationEngine,
+    market: MarketData,
+    accounts: _Accounts,
+    day: date,
+) -> None:
+    """After the close, holders exercise where the model says exercising is optimal."""
+    behaviour = config.option_exercise
+    if behaviour is None:
+        return
+    at = _local(day, _EARLY_EXERCISE_TIME)
+    for spec in config.instruments:
+        terms = spec.option
+        if terms is None or terms.exercise_style is not ExerciseStyle.AMERICAN:
+            continue
+        if day >= terms.expiry:
+            continue
+        if day not in market.exercise_optimal.get(spec.key, frozenset()):
+            continue  # holding is worth more than exercising
+        for key, _, opens_on, rng in accounts:
+            if opens_on > day:
+                continue
+            contracts = min(
+                engine.trade_date_quantity(key, spec.key), engine.settled_quantity(key, spec.key)
+            )
+            if contracts < 1 or _uniform(rng) >= behaviour.early_exercise_probability:
+                continue
+            if engine.exercise_shortfall(key, spec.key, contracts, day) is not None:
+                continue
+            engine.submit(ExerciseOption(at, key, spec.key, contracts))
+            at += timedelta(seconds=1)
 
 
 def _option_close(
@@ -401,10 +504,21 @@ def _option_close(
 
     The model knows the underlying's dividends declared by ``day`` (roadmap 5C-a).
     """
+    return model_close(_option_inputs(spec, rates_policy, day, underlying_close, dividends))
+
+
+def _option_inputs(
+    spec: GeneratedInstrument,
+    rates_policy: RiskFreeRates,
+    day: date,
+    underlying_close: Decimal,
+    dividends: Sequence[DividendSpec],
+) -> OptionInputs:
+    """An option's model inputs on ``day`` (its terms, implied vol, rate, known dividends)."""
     if spec.option is None or spec.implied_vol is None:
         msg = f"instrument {spec.key} is not an option"
         raise ValueError(msg)
-    return model_option_close(
+    return model_inputs(
         spec.option.right,
         spec.option.exercise_style,
         spec.option.strike,
@@ -430,6 +544,12 @@ def _month_end_days(config: DatasetConfig, ledger: MarketCalendar) -> set[date]:
         by_month.setdefault((day.year, day.month), []).append(day)
     return {d for days in by_month.values() for d in days[-config.withdrawals.month_end_days :]}
 
+
+_CLOSE_OUT_TIME = time(16, 0)
+"""When the brokerage sells unexercisable options on their expiry day: at the close."""
+
+_EARLY_EXERCISE_TIME = time(17, 0)
+"""When clients' early exercise notices are processed (after the close publication)."""
 
 _DECLARATION_TIME = time(7, 30)
 """When dividend declarations arrive (simulation convention, before the back office)."""
@@ -496,7 +616,7 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
     business_days = [
         d for d in _days(config.window.start, config.window.end) if ledger.is_settlement_day(d)
     ]
-    accounts = []
+    accounts: _Accounts = []
     changes: dict[date, list[tuple[str, _Change]]] = {}
     for index, (rng, sequence) in enumerate(zip(rngs, streams[1:], strict=True)):
         key = f"a{index:04d}"
@@ -550,6 +670,7 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
                 )
                 engine.submit(Deposit(clock.step(rng), key, Money(amount, Currency.CAD)))
             _day_activity(config, policies, engine, market, key, rng, day, clock, month_ends)
+        _close_out_expiring(engine, market, day, clock)
         if clock.now >= _local(day, CLOSE_PUBLICATION):
             msg = (
                 f"{day}: the day's actions ran to {clock.now.isoformat()}, past the "
@@ -560,6 +681,10 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
             close = market.closes[spec.key].get(day)
             if close is not None:
                 engine.submit(ClosePrice(_local(day, CLOSE_PUBLICATION), spec.key, day, close))
+        _early_exercises(config, engine, market, accounts, day)
+        if any(i.option is not None and i.option.expiry == day for i in config.instruments):
+            at = _local(day, policies.option_expiry.processing_time_local)
+            engine.submit(ProcessExpiry(at, day))
     return engine.finish(config.window.end)
 
 
@@ -700,6 +825,8 @@ def _one_order(
     reference = _last_close(market, spec, day)
     held = engine.trade_date_quantity(key, spec.key)
     sell = held >= 1 and _uniform(rng) < orders.sell_probability
+    if not sell and spec.option is not None and day >= spec.option.expiry:
+        return  # nobody buys an option on its expiry day
     if sell:
         quantity = Decimal(int(rng.integers(1, int(held) + 1)))
     else:
