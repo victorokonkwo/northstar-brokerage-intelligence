@@ -59,9 +59,7 @@ Redshift has no triggers and no CHECK constraints, and doesn't enforce unique ke
 
 | Run | Result |
 |---|---|
-| Seed-42 dev dataset plus the late-deposit fixture, loaded into both warehouses; `make dbt-build-redshift` (239 of 239 pass); 2026-11-20 | **41 of 49 models identical**. The other 8 are the reconciliation models (`stg_recon__*`, `fct_reconciliation_exceptions`, and the KPI-02, -03/-04, and -05 marts), which are empty on Redshift until reconciliation runs there (4F-c) |
-
-The commit is recorded in the roadmap.
+| Commit `fee1f1a`, 2026-11-20. The seed-42 dev dataset (`make simulate`) plus the late-deposit fixture, loaded into both warehouses. `make dbt-build-dataset` and `make dbt-build-redshift`: 241 of 241 pass on each. Then `make compare-warehouses` | **41 of 49 models identical**. The other 8 are the reconciliation models (`stg_recon__*`, `fct_reconciliation_exceptions`, and the KPI-02, -03/-04, and -05 marts), which are empty on Redshift until reconciliation runs there (4F-c) |
 
 **Known differences that don't change results:**
 - **Division precision.** It keeps 16 decimal places on Redshift against 20 on Postgres. The rate KPIs round to 6 (half-even), and the comparison shows no difference.
