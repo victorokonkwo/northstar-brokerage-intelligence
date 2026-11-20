@@ -77,6 +77,7 @@ from northstar.infrastructure.recon_store import (
     history,
 )
 from northstar.infrastructure.redshift import PIPELINE_ROLE, RedshiftSettings, grant_pipeline
+from northstar.infrastructure.snapshots import CONTROLS_MARTS, PUBLISHED_MARTS, ensure_published
 from northstar.infrastructure.snapshots import history as snapshot_history
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
 from northstar.simulation.engine import LEDGER_CALENDAR_MARKET
@@ -187,6 +188,18 @@ def build_parser() -> argparse.ArgumentParser:
     boot.add_argument("--raw-schema", default="raw")
     boot.add_argument("--ledger-schema", default="ledger")
     boot.add_argument("--recon-schema", default="recon")
+    boot.add_argument(
+        "--published-schema",
+        help="also create the financial snapshot's tables here (needs --dbt-schema)",
+    )
+    boot.add_argument(
+        "--published-controls-schema",
+        help="also create the controls snapshot's tables here (needs --dbt-schema)",
+    )
+    boot.add_argument(
+        "--dbt-schema",
+        help="the built dbt marts the published copies take their columns from",
+    )
     boot.add_argument(
         "--admin-secret-arn",
         default=os.environ.get("NBI_RS_ADMIN_SECRET_ARN"),
@@ -497,6 +510,18 @@ def _redshift_bootstrap(args: argparse.Namespace, out: TextIO) -> int:
     if not args.admin_secret_arn:
         sys.stderr.write("--admin-secret-arn (or $NBI_RS_ADMIN_SECRET_ARN) is required\n")
         return 2
+    # The published copies take the dbt marts' columns, so they need a dbt build first.
+    published = [
+        (schema, marts)
+        for schema, marts in (
+            (args.published_schema, PUBLISHED_MARTS),
+            (args.published_controls_schema, CONTROLS_MARTS),
+        )
+        if schema
+    ]
+    if published and not args.dbt_schema:
+        sys.stderr.write("--published-schema and --published-controls-schema need --dbt-schema\n")
+        return 2
     settings = RedshiftSettings.from_env()
     users = list(args.grant_to)
     if not users:  # connecting once creates the caller's IAM database user
@@ -508,14 +533,12 @@ def _redshift_bootstrap(args: argparse.Namespace, out: TextIO) -> int:
     with settings.connect_admin(args.admin_secret_arn) as admin:
         ensure_tables(admin, schemas)
         ensure_recon_tables(admin, schemas.recon)
-        grant_pipeline(
-            admin,
-            (schemas.raw, schemas.ledger, schemas.recon),
-            users,
-            lock_tables=[(schemas.recon, LOCK_TABLE)],
-        )
+        for schema, marts in published:
+            ensure_published(admin, schema, args.dbt_schema, marts)
+        owned = (schemas.raw, schemas.ledger, schemas.recon, *(schema for schema, _ in published))
+        grant_pipeline(admin, owned, users, lock_tables=[(schemas.recon, LOCK_TABLE)])
     out.write(
-        f"bootstrapped {schemas.raw}, {schemas.ledger}, {schemas.recon} "
+        f"bootstrapped {', '.join(owned)} "
         f"(owned by the admin); granted {PIPELINE_ROLE} to {', '.join(users)}\n"
     )
     return 0

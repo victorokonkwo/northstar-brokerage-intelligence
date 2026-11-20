@@ -95,10 +95,12 @@ def compare(
     left: str = "postgres",
     right: str = "redshift",
     right_schema: str | None = None,
+    ignore: frozenset[str] = frozenset(),
 ) -> list[str]:
-    """One line per model that differs (row counts on each side); empty when all match.
+    """One line per table that differs (row counts on each side); empty when all match.
 
-    ``left`` and ``right`` name the warehouses; ``right_schema`` defaults to ``schema``.
+    ``left`` and ``right`` name the warehouses; ``right_schema`` defaults to
+    ``schema``. ``ignore`` adds columns to leave out, beyond the lineage ones.
     """
     right_schema = right_schema or schema
     names = (f"{left}:{schema}", f"{right}:{right_schema}")
@@ -115,7 +117,7 @@ def compare(
                     "where table_schema = %s and table_name = %s order by ordinal_position",
                     (schema, table),
                 ).fetchall()
-                if r[0] not in LINEAGE
+                if r[0] not in LINEAGE | ignore
             ]
             ours = model_rows(lc, schema, table, columns)
             theirs = model_rows(rc, right_schema, table, columns)
@@ -127,7 +129,7 @@ def compare(
                     f"{sum((theirs - ours).values())} only in {names[1]}"
                 )
         sys.stdout.write(
-            f"{len(tables) - len(differences)} of {len(tables)} models identical "
+            f"{len(tables) - len(differences)} of {len(tables)} tables identical "
             f"({names[0]} vs {names[1]})\n"
         )
     return differences
@@ -140,9 +142,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--left", choices=WAREHOUSES, default="postgres")
     parser.add_argument("--right", choices=WAREHOUSES, default="redshift")
     parser.add_argument("--right-schema", help="the schema on the right (default: --schema)")
+    parser.add_argument(
+        "--ignore",
+        action="append",
+        default=[],
+        help="a column to leave out too, such as one that records when a run happened",
+    )
     args = parser.parse_args(argv)
     differences = compare(
-        args.schema, left=args.left, right=args.right, right_schema=args.right_schema
+        args.schema,
+        left=args.left,
+        right=args.right,
+        right_schema=args.right_schema,
+        ignore=frozenset(args.ignore),
     )
     for line in differences:
         sys.stdout.write(f"  differs: {line}\n")
