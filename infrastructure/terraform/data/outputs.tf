@@ -22,6 +22,6 @@ output "redshift_copy_role_arn" {
 }
 
 output "usage_limits_rpu_hours" {
-  description = "Compute caps that turn off user queries when reached."
+  description = "Compute limits: daily turns off user queries, monthly emits a metric."
   value       = { daily = var.daily_rpu_hours, monthly = var.monthly_rpu_hours }
 }

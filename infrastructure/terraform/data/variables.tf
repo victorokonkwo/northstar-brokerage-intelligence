@@ -33,7 +33,7 @@ variable "daily_rpu_hours" {
 }
 
 variable "monthly_rpu_hours" {
-  description = "Monthly compute limit in RPU-hours. On breach, Redshift turns off user queries until the next period."
+  description = "Monthly compute limit in RPU-hours. On breach, Redshift emits a CloudWatch metric (AWS allows only one deactivating limit)."
   type        = number
   default     = 60
 

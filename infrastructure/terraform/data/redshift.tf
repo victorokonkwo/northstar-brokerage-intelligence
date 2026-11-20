@@ -34,8 +34,8 @@ resource "aws_redshiftserverless_workgroup" "warehouse" {
   depends_on = [aws_route_table_association.warehouse]
 }
 
-# Hard caps on compute: when reached, Redshift turns off user queries until
-# the period ends (breach action `deactivate`).
+# The hard cap on compute: when the daily limit is reached, Redshift turns off
+# user queries until the day ends (breach action `deactivate`).
 resource "aws_redshiftserverless_usage_limit" "daily" {
   resource_arn  = aws_redshiftserverless_workgroup.warehouse.arn
   usage_type    = "serverless-compute"
@@ -44,10 +44,13 @@ resource "aws_redshiftserverless_usage_limit" "daily" {
   breach_action = "deactivate"
 }
 
+# AWS allows one `deactivate` limit per feature ("Only one DISABLE usage
+# limit allowed per feature", CreateUsageLimit, 2026-11-20), so the monthly
+# limit emits a CloudWatch metric instead (owner decision 2026-11-20).
 resource "aws_redshiftserverless_usage_limit" "monthly" {
   resource_arn  = aws_redshiftserverless_workgroup.warehouse.arn
   usage_type    = "serverless-compute"
   period        = "monthly"
   amount        = var.monthly_rpu_hours
-  breach_action = "deactivate"
+  breach_action = "emit-metric"
 }
