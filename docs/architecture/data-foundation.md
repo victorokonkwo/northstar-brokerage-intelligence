@@ -45,6 +45,8 @@ In that last case, every copy of the ID is quarantined, including identical ones
 | `fx_confirmations` | `bank` | `trade_date` |
 | `custody_snapshots` | `custody` | `snapshot_date` |
 | `price_feed` | `market_data` | `price_date` |
+| `price_history` (synthetic history before the window, roadmap 5A) | `market_data` | `price_date` |
+| `fx_rate_history` (synthetic history before the window, roadmap 5A) | `market_data` | `rate_date` |
 
 **Threshold.** `config/ingestion/quarantine_policy.yaml` (illustrative, versioned) sets the maximum share of a run's lines that may be quarantined: 0.5%. Above it, the run writes only its quarantine objects and a `FAILED` manifest, and raises `QuarantineThresholdError`. A failed run cannot be loaded.
 

@@ -92,7 +92,7 @@ These are the first 20 KPIs. Each entry states the decision it supports, its exa
 ### KPI-09 Account 1-day 99% historical VaR
 - **Decision supported:** risk-based monitoring of margin accounts and review of margin policy adequacy.
 - **Definition:** the 99th percentile loss of the account's current portfolio, revalued under each historical 1-day scenario in the lookback window. Reported as a positive amount. Options are fully revalued rather than delta-approximated.
-- **Deferred parameters (Phase 5, OQ-08):** the lookback window length and the quantile interpolation method are **not yet fixed**. They will be set in the VaR methodology doc before KPI-09 is implemented, and every result will record them. Apart from those two parameters, the definition is complete.
+- **Window and quantile (OQ-08, resolved by the owner 2026-11-20; [ADR 012](../adr/012-market-risk-models.md)):** 250 one-day historical scenarios. VaR is the 3rd worst loss, k = ceil(250 × 0.01), an order statistic with no interpolation. Every result records the model version (`config/risk/var_method.yaml`).
 - **Grain:** account × business date × model version. **Unit:** CAD.
 - **Owner:** RISK. **Calculation owner:** Python `domain/market_risk/value_at_risk`.
 - **Source:** `fct_positions_daily`, historical `fct_market_prices_daily`, `dim_instrument` (option terms for revaluation).
@@ -101,7 +101,7 @@ These are the first 20 KPIs. Each entry states the decision it supports, its exa
 
 ### KPI-10 Account 1-day 97.5% Expected Shortfall
 - **Decision supported:** tail-risk monitoring beyond VaR.
-- **Definition:** the mean of scenario losses at or beyond the 97.5% quantile, using the same scenarios as KPI-09. It inherits KPI-09's deferred parameters (OQ-08).
+- **Definition:** the mean of scenario losses at or beyond the 97.5% quantile, using the same scenarios as KPI-09. With 250 scenarios, that is the mean of the 7 worst losses, k = ceil(250 × 0.025) (OQ-08, as KPI-09).
 - **Grain:** account × business date × model version. **Unit:** CAD.
 - **Owner:** RISK. **Calculation owner:** Python `domain/market_risk/expected_shortfall`.
 - **Source:** the same scenario set as KPI-09 (`fct_positions_daily`, historical `fct_market_prices_daily`, `dim_instrument`). **Output:** `fct_portfolio_risk_daily`.

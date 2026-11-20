@@ -15,5 +15,6 @@ An ADR records one significant decision: its context, the options considered, th
 | [009](009-local-telemetry-backend.md) | Local telemetry backend: OpenTelemetry Collector with the debug exporter | Accepted |
 | [010](010-cloud-batch-runtime.md) | Cloud batch runtime: EventBridge Scheduler, Step Functions, and ECS Fargate | Accepted |
 | [011](011-looker-studio-dashboards.md) | Dashboards in Looker Studio, reading serving views of the published snapshots | Accepted |
+| [012](012-market-risk-models.md) | Market risk models: historical simulation on a synthetic history, and model-consistent options | Accepted |
 
 New ADRs copy [template.md](template.md) and take the next number.

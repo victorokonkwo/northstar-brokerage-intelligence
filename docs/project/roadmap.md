@@ -35,10 +35,35 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | 2 Brokerage simulation + accounting | 3–4 | Deterministic generators, posting rules, ledger, settlement calendar, stock record, external-record simulators, defect injection | **Financial correctness gate:** the simulator produces a fully balanced ledger, traceable trades and positions, correct settlement obligations, and repeatable output | Done (2026-11-19). Gate evidence: [CI run on `main` 8895a82](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44608534995) |
 | 3 Data foundation | 5–7 | Ingestion (validation, dedup, quarantine, manifests, backfill), dbt staging/core/marts, Airflow/dbt OpenLineage events, snapshots, data-quality tests, load-test benchmark | **Trusted data gate:** daily cash, position, execution, and finance marts pass quality tests; historical snapshots are reproducible | Done (2026-11-20). Gate evidence: [CI run on `main` acc9227](https://github.com/victorokonkwo/northstar-brokerage-intelligence/actions/runs/44654267221); the 1M-execution load test is deferred to Phase 8 |
 | 4 Reconciliation + controls | 8–9 | Staged matching, exception classification and lifecycle, audit trail, publication gate, operations dashboard | **Operations gate:** all injected defect scenarios detected; source evidence unaltered; no resolution without an auditable rule or override | In progress |
-| 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
+| 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | In progress |
 | 6 Treasury forecasting | 13–14 | Known vs. uncertain flows, baseline/statistical/GBM models, walk-forward evaluation, intervals, scenarios, MLflow | **Forecast evaluation gate:** reproducible forecasts evaluated against the baseline, with error, bias, coverage, and stress results documented | Not started |
 | 7 Finance intelligence | 15–16 | Profitability mart, allocation method, KPI restatements, drilldown, simulated reporting package, executive dashboard | **Reporting gate:** every finance KPI has a documented formula, passes tie-outs, and drills down to transactions | Not started |
 | 8 Production readiness | 17–18 | Load tests (including the 1M-execution run deferred from Phase 3: streaming generation and loading), failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
+
+## Phase 5 (weeks 10–12)
+
+Plan approved by the owner on 2026-11-20, as eight PRs. The Market Risk dashboard, option exercise and expiry, and dividends were added to the scope. [ADR 012](../adr/012-market-risk-models.md) records the model decisions.
+
+| PR | Scope | Status |
+|---|---|---|
+| 5A foundations | `config/risk/` policies (owner-approved, illustrative); the 2025 synthetic market history and its dbt models; ADR 012 | **In progress** (this PR): the policies and their validated models; `price_history` and `fx_rate_history` (2,080 equity closes and 260 rates on the seed-42 dev dataset, continuous with the window); `fct_price_history_daily` and `fct_fx_rate_history_daily` |
+| 5B pricing | Black–Scholes and CRR (American, escrowed dividends), Greeks, implied vol; model-consistent option prices in the simulator | Not started |
+| 5C corporate events | Dividends and option exercise and expiry: a design note for owner approval first (events, posting rules, accounts) | Not started |
+| 5D margin and collateral | KPI-07, KPI-08; the risk run and its store | Not started |
+| 5E VaR and ES | KPI-09, KPI-10; the VaR methodology doc | Not started |
+| 5F stress, exposure, limits, alerts | KPI-11 to 13; FR-M3-06/08 | Not started |
+| 5G backtesting | KPI-14 (Kupiec, Christoffersen) on a fixed reference portfolio | Not started |
+| 5H pipeline, cloud, dashboard, gate | The risk run in the DAG and cloud, the Market Risk dashboard, the model validation gate | Not started |
+
+### Phase 5 decisions (owner, 2026-11-20)
+
+| Decision | Outcome |
+|---|---|
+| Price history | A year of synthetic history before the window (2025), on a synthetic weekday calendar: verified 2025 exchange calendars weren't available. The window's prices are unchanged |
+| OQ-08 | 250 one-day scenarios. VaR at 99% is the 3rd worst loss and ES at 97.5% the mean of the 7 worst, with no interpolation |
+| Option prices | Model-consistent: CRR on the underlying, with a configured implied volatility |
+| Backtest | A fixed reference portfolio over the history plus the window; account-level backtests over the window are flagged as insufficient |
+| Policy values | Margin 30% for equities (50% for SYNH) and 100% for options; seven stress scenarios including ZERO; limits of 25% account and 20% firm issuer concentration, and VaR at 10% of equity; rates of 3% CAD and 4% USD. All illustrative |
 
 ## Phase 4 (weeks 8–9)
 

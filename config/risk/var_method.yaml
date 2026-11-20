@@ -1,6 +1,6 @@
 # Historical-simulation VaR and Expected Shortfall (FR-M3-03; KPI-09, KPI-10).
 # Owner decision 2026-11-20 resolving OQ-08: a 250-day window and order
-# statistics without interpolation (docs/methodology/value-at-risk.md). Every
+# statistics without interpolation (docs/adr/012-market-risk-models.md). Every
 # result records model_version.
 model_version: var-hs-2026.1
 effective_from: 2026-11-20
