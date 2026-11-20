@@ -1,3 +1,19 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': '_source_event_id',
+        'arrival': 'record_id',
+        'inputs': [
+            'stg_brokerage__fx_rate_published',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- One row per published reference rate (currency pair x rate date). The source
 -- is the simulator's synthetic USD/CAD path (owner decision 2026-11-19), not
 -- Bank of Canada data. Rates are quote currency per 1 unit of base.
@@ -31,3 +47,6 @@ select
     schema_version as _schema_version,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from published
+{% if is_incremental() %}
+    where {{ rebuild_filter('event_id') }}
+{% endif %}

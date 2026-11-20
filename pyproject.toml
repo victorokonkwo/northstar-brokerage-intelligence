@@ -65,7 +65,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-local-folder = ["factories"]
+known-local-folder = ["factories", "incremental_scenario"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

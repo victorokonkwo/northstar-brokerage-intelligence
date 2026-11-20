@@ -1,3 +1,20 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': 'account_id',
+        'arrival': 'account_id',
+        'inputs': [
+            'stg_brokerage__account_created',
+            'stg_brokerage__account_updated',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- Account history as SCD Type 2, built from the event log (FR-M1-05).
 -- One row per account version: the opening, then each account_updated event.
 -- valid_from is the event timestamp (inclusive) and valid_to the next version's
@@ -77,3 +94,6 @@ select
     schema_version as _schema_version,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from final
+{% if is_incremental() %}
+    where {{ rebuild_filter('account_id') }}
+{% endif %}

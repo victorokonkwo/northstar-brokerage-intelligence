@@ -1,3 +1,19 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': 'instrument_id',
+        'arrival': 'instrument_id',
+        'inputs': [
+            'stg_brokerage__instrument_listed',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- Instruments in SCD Type 2 shape. Today each instrument has exactly one
 -- version (its listing): no event changes an instrument yet. Option terms are
 -- null for equities.
@@ -46,3 +62,6 @@ select
     schema_version as _schema_version,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from listed
+{% if is_incremental() %}
+    where {{ rebuild_filter('instrument_id') }}
+{% endif %}

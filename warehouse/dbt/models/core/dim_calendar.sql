@@ -1,3 +1,19 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': 'calendar_day_id',
+        'arrival': 'record_id',
+        'inputs': [
+            'stg_reference__market_calendar_days',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- One row per market and calendar date. Every flag and neighbouring settlement
 -- day is computed by northstar.domain.calendar (ADR 007) and loaded as
 -- reference data; this model only exposes it.
@@ -33,3 +49,6 @@ select
     _ingested_at,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from days
+{% if is_incremental() %}
+    where {{ rebuild_filter('calendar_day_id') }}
+{% endif %}

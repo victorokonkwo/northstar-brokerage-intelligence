@@ -1,13 +1,18 @@
-"""Compare every dbt model in one schema between local Postgres and Redshift, row for row.
+"""Compare every dbt model in two schemas, row for row, on one warehouse or across two.
+
+By default it compares a schema on local Postgres with the same schema on
+Redshift. ``--right postgres --right-schema dbt_dataset_full`` instead compares
+an incremental build with a full-refresh build of the same data (roadmap 4F-b).
 
 Each model's rows are compared as multisets, leaving out the lineage columns
 that identify a run rather than the data (``_ingestion_run_id``,
-``_ingested_at``, ``_dbt_invocation_id``). Values are normalised only where
-the two drivers return the same value as different Python types: a ``uuid``
-as an object or a string, a JSON value as a list or as JSON text, and
-``char(n)`` padding. Amounts are compared exactly.
+``_ingested_at``, ``_dbt_invocation_id``, ``_build_seq``). The build log tables
+(``dbt_build_log``, ``dbt_model_builds``) record builds, not data, and are
+skipped. Values are normalised only where the two drivers return the same value
+as different Python types: a ``uuid`` as an object or a string, a JSON value as
+a list or as JSON text, and ``char(n)`` padding. Amounts are compared exactly.
 
-Usage (from the repository root, after ``aws login``)::
+Usage (from the repository root; Redshift needs ``aws login``)::
 
     set -a && . ./.env && set +a
     eval "$(aws configure export-credentials --format env)"
@@ -32,7 +37,11 @@ from psycopg import sql
 from northstar.infrastructure.postgres import PostgresSettings
 from northstar.infrastructure.redshift import RedshiftSettings
 
-LINEAGE: frozenset[str] = frozenset({"_dbt_invocation_id", "_ingestion_run_id", "_ingested_at"})
+LINEAGE: frozenset[str] = frozenset(
+    {"_dbt_invocation_id", "_ingestion_run_id", "_ingested_at", "_build_seq"}
+)
+BUILD_LOG_TABLES: frozenset[str] = frozenset({"dbt_build_log", "dbt_model_builds"})
+WAREHOUSES = ("postgres", "redshift")
 
 
 def normalise(value: Any) -> Any:
@@ -63,48 +72,78 @@ def model_rows(
     return Counter(tuple(normalise(v) for v in row) for row in conn.execute(query).fetchall())
 
 
-def compare(schema: str) -> list[str]:
-    """One line per model that differs (row counts on each side); empty when all match."""
+def _connect(warehouse: str) -> psycopg.Connection[Any]:
+    if warehouse == "redshift":
+        return RedshiftSettings.from_env().connect()
+    return PostgresSettings.from_env().connect()
+
+
+def _tables(conn: psycopg.Connection[Any], schema: str) -> list[str]:
+    return [
+        str(r[0])
+        for r in conn.execute(
+            "select table_name from information_schema.tables where table_schema = %s order by 1",
+            (schema,),
+        ).fetchall()
+        if r[0] not in BUILD_LOG_TABLES
+    ]
+
+
+def compare(
+    schema: str,
+    *,
+    left: str = "postgres",
+    right: str = "redshift",
+    right_schema: str | None = None,
+) -> list[str]:
+    """One line per model that differs (row counts on each side); empty when all match.
+
+    ``left`` and ``right`` name the warehouses; ``right_schema`` defaults to ``schema``.
+    """
+    right_schema = right_schema or schema
+    names = (f"{left}:{schema}", f"{right}:{right_schema}")
     differences: list[str] = []
-    with PostgresSettings.from_env().connect() as pg, RedshiftSettings.from_env().connect() as rs:
-        tables = [
-            str(r[0])
-            for r in pg.execute(
-                "select table_name from information_schema.tables where table_schema = %s "
-                "order by 1",
-                (schema,),
-            ).fetchall()
-        ]
-        for table in tables:
+    with _connect(left) as lc, _connect(right) as rc:
+        tables = _tables(lc, schema)
+        missing = sorted(set(tables) ^ set(_tables(rc, right_schema)))
+        differences += [f"{t}: in only one of {names[0]} and {names[1]}" for t in missing]
+        for table in (t for t in tables if t not in missing):
             columns = [
                 str(r[0])
-                for r in pg.execute(
+                for r in lc.execute(
                     "select column_name from information_schema.columns "
                     "where table_schema = %s and table_name = %s order by ordinal_position",
                     (schema, table),
                 ).fetchall()
                 if r[0] not in LINEAGE
             ]
-            local, cloud = (
-                model_rows(pg, schema, table, columns),
-                model_rows(rs, schema, table, columns),
-            )
-            if local != cloud:
+            ours = model_rows(lc, schema, table, columns)
+            theirs = model_rows(rc, right_schema, table, columns)
+            if ours != theirs:
                 differences.append(
-                    f"{table}: {sum(local.values())} rows in Postgres, {sum(cloud.values())} in "
-                    f"Redshift; {sum((local - cloud).values())} only in Postgres, "
-                    f"{sum((cloud - local).values())} only in Redshift"
+                    f"{table}: {sum(ours.values())} rows in {names[0]}, "
+                    f"{sum(theirs.values())} in {names[1]}; "
+                    f"{sum((ours - theirs).values())} only in {names[0]}, "
+                    f"{sum((theirs - ours).values())} only in {names[1]}"
                 )
-        sys.stdout.write(f"{len(tables) - len(differences)} of {len(tables)} models identical\n")
+        sys.stdout.write(
+            f"{len(tables) - len(differences)} of {len(tables)} models identical "
+            f"({names[0]} vs {names[1]})\n"
+        )
     return differences
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Compare and report."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--schema", required=True, help="the dbt schema on both warehouses")
+    parser.add_argument("--schema", required=True, help="the dbt schema (on both sides by default)")
+    parser.add_argument("--left", choices=WAREHOUSES, default="postgres")
+    parser.add_argument("--right", choices=WAREHOUSES, default="redshift")
+    parser.add_argument("--right-schema", help="the schema on the right (default: --schema)")
     args = parser.parse_args(argv)
-    differences = compare(args.schema)
+    differences = compare(
+        args.schema, left=args.left, right=args.right, right_schema=args.right_schema
+    )
     for line in differences:
         sys.stdout.write(f"  differs: {line}\n")
     return 1 if differences else 0

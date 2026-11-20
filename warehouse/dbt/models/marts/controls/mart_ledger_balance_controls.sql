@@ -1,3 +1,18 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'date': 'business_date',
+        'inputs': [
+            'stg_ledger__journal_lines',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- KPI-01 control mart (KPI dictionary): ledger balance controls per business
 -- date and currency. Grain: business_date x currency.
 -- unbalanced_batch_count is KPI-01 and must be 0 (it is also enforced by the
@@ -36,4 +51,7 @@ select
     sum(case when total_debit <> total_credit then 1 else 0 end)::bigint as unbalanced_batch_count,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from batches
+{% if is_incremental() %}
+    where {{ rebuild_filter('business_date') }}
+{% endif %}
 group by business_date, currency

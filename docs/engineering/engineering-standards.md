@@ -75,7 +75,7 @@ The working rules (honesty, financial correctness, boundaries) are in [CONTRIBUT
 | Staging | `models/staging/<source>/` | `stg_<source>__<entity>` | 1:1 with a source table; rename, cast, and standardize only; no joins | view |
 | Intermediate | `models/intermediate/` | `int_<entity>_<verb>` | reusable business logic; not exposed to consumers | ephemeral or view |
 | Core | `models/core/` | `dim_<entity>`, `fct_<entity>` | canonical model (domain model §3); **contracts enforced** | table or incremental |
-| Marts | `models/marts/<domain>/` | `mart_<subject>` | consumer-facing; **contracts enforced**; carries snapshot version | table |
+| Marts | `models/marts/<domain>/` | `mart_<subject>` | consumer-facing; **contracts enforced**; carries snapshot version | table or incremental |
 
 Model folders are created when their first real model is added, not before.
 
@@ -85,7 +85,7 @@ Model folders are created when their first real model is added, not before.
 - Foreign keys have `relationships` tests.
 - Monetary, price, quantity, and rate columns use the `numeric` precisions from ADR 004. **Never use `float`.** Every amount column has an adjacent currency column.
 - Use CTEs: import CTEs first, then logical CTEs, then a final `select`. No `select *` in core or marts.
-- Incremental models state their `unique_key`, their strategy, and how late-arriving data is handled. Published history is never merged over (ADR 006).
+- Incremental models use the `rebuild` strategy (`warehouse/dbt/macros/incremental.sql`), with `on_schema_change: fail` and the `record_build()` post-hook. Each declares in `meta.rebuild` whether it rebuilds by date or by key, and the staging models whose records trigger a rebuild, so late-arriving data rebuilds every date or key it affects. `tests/unit/test_dbt_incremental.py` checks the inputs against the models each one reads ([incremental models](../architecture/incremental-models.md)). Published history is never merged over (ADR 006).
 - Dialect differences go through the macros in `warehouse/dbt/macros/dialect.sql` (`json_text`, `json_value`, `json_array_texts`, `string_type`, `distinct_from`). Every `numeric` states its precision, because Redshift reads a bare `numeric` as numeric(18, 0). `tests/unit/test_dbt_portability.py` enforces this in CI ([cloud warehouse](../architecture/cloud-warehouse.md)).
 - Financial invariants are singular tests in `tests/` named `assert_<invariant>.sql` (domain model §8).
 - Every mart row carries lineage columns (domain model §4.3).

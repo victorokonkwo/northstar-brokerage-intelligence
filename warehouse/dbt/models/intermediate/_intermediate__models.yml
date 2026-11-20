@@ -29,3 +29,27 @@ models:
           - unique
           - not_null
           - relationships: {arguments: {to: ref('fct_executions'), field: execution_id}}
+
+  - name: int_arrivals
+    description: >
+      Every raw record the incremental models read, recorded once, with the
+      build that first saw it (macros/incremental.sql). Grain and key =
+      source_model x record_id. effective_date is the first business date the
+      record can change (null = any date); the keys say what it touches.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: source_model, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: record_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: effective_date, data_type: date}
+      - {name: account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: order_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: settlement_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: instrument_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - name: _build_seq
+        description: >
+          The build that first saw the record. NOT NULL is enforced, so a build
+          that was not registered fails here instead of recording a record
+          that no model would ever pick up.
+        data_type: integer
+        constraints: [{type: not_null}]

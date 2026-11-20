@@ -1,3 +1,20 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'date': 'business_date',
+        'inputs': [
+            'stg_ledger__journal_lines',
+            'stg_brokerage__fx_rate_published',
+            'stg_reference__market_calendar_days',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- Daily revenue and direct costs per posting date x currency, from the journal
 -- (ADR 002: the ledger is the system of record). Revenue accounts are
 -- credit-normal (credits - debits), expense accounts debit-normal. FX
@@ -48,10 +65,13 @@ select
             '(d.commission_revenue + d.fx_conversion_revenue + d.margin_interest_revenue'
             ~ ' - d.clearing_costs) * fx.rate', 2) }}
     end as net_contribution_cad,
-    case when d.currency = 'USD' then fx.rate end as fx_rate,
+    (case when d.currency = 'USD' then fx.rate end)::numeric(18, 10) as fx_rate,
     case when d.currency = 'USD' then fx.fx_rate_date end as fx_rate_date,
     case when d.currency = 'USD' then fx.fx_policy_version end as fx_policy_version,
     d.line_count::integer as _journal_line_count,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from daily as d
 left join {{ ref('int_fx_rates_applicable') }} as fx on d.business_date = fx.calendar_date
+{% if is_incremental() %}
+    where {{ rebuild_filter('d.business_date') }}
+{% endif %}

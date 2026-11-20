@@ -24,7 +24,9 @@ select
     ({{ json_text('payload', 'commission') }})::numeric(18, 2) as commission,
     -- trade_executed v1 has no clearing_fee field; its contract fixes the fee at 0.00
     -- (northstar.domain.events.TradeExecutedPayload default), so this is not a fill-in.
-    coalesce(({{ json_text('payload', 'clearing_fee') }})::numeric(18, 2), 0.00) as clearing_fee,
+    coalesce(
+        ({{ json_text('payload', 'clearing_fee') }})::numeric(18, 2), 0.00
+    )::numeric(18, 2) as clearing_fee,
     ({{ json_text('payload', 'trade_date') }})::date as trade_date,
     ({{ json_text('payload', 'settlement_date') }})::date as settlement_date,
     {{ json_text('payload', 'settlement_id') }} as settlement_id,

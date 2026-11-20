@@ -1,3 +1,19 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': 'journal_line_id',
+        'arrival': 'record_id',
+        'inputs': [
+            'stg_ledger__journal_lines',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- Canonical journal lines (domain model §3). One row per journal line.
 -- Posting is owned by Python (ADR 007); this model only reshapes the ledger
 -- into debit and credit columns for set-based checks such as KPI-01.
@@ -45,3 +61,6 @@ select
     _ingested_at,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from journal_lines
+{% if is_incremental() %}
+    where {{ rebuild_filter('journal_line_id') }}
+{% endif %}

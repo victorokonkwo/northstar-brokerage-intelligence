@@ -3,11 +3,15 @@ version: 2
 unit_tests:
   - name: a_price_is_stale_only_when_its_market_traded_since
     model: fct_market_prices_daily
+    # The full computation; incremental builds are proven against it in CI.
+    overrides: {macros: {is_incremental: false}}
     description: >
       2026-02-16 is Family Day on the TSX and Washington's Birthday on the NYSE
       (config/calendars), so both are closed. On 02-17 both trade: the CAD stock has a
       02-17 close, but the USD stock's latest close is 02-13, so only it is stale.
     given:
+      - input: ref('int_arrivals')  # read only by incremental builds
+        rows: []
       - input: ref('stg_brokerage__price_updated')
         rows:
           - {instrument_id: cad, price_date: 2026-02-13, close_price: 10.00, currency: CAD, price_source: synthetic}
@@ -38,7 +42,11 @@ unit_tests:
 
   - name: a_closed_market_carries_its_price_without_staleness
     model: fct_market_prices_daily
+    # The full computation; incremental builds are proven against it in CI.
+    overrides: {macros: {is_incremental: false}}
     given:
+      - input: ref('int_arrivals')  # read only by incremental builds
+        rows: []
       - input: ref('stg_brokerage__price_updated')
         rows:
           - {instrument_id: usd, price_date: 2026-11-10, close_price: 20.00, currency: USD, price_source: synthetic}
@@ -59,7 +67,11 @@ unit_tests:
 
   - name: positions_round_half_even_flag_missing_prices_and_translate_usd
     model: fct_positions_daily
+    # The full computation; incremental builds are proven against it in CI.
+    overrides: {macros: {is_incremental: false}}
     given:
+      - input: ref('int_arrivals')  # read only by incremental builds
+        rows: []
       - input: ref('stg_brokerage__trade_executed')
         rows:
           - {account_id: a1, instrument_id: tie_down, side: BUY, quantity: 1, trade_date: 2026-03-02}
@@ -127,7 +139,11 @@ unit_tests:
 
   - name: client_cash_rolls_balances_through_quiet_days_and_shows_loans
     model: mart_daily_client_cash
+    # The full computation; incremental builds are proven against it in CI.
+    overrides: {macros: {is_incremental: false}}
     given:
+      - input: ref('int_arrivals')  # read only by incremental builds
+        rows: []
       - input: ref('fct_journal_lines')
         rows:
           - {gl_account: "2100", client_account_id: a1, currency: CAD, posting_date: 2026-03-02, credit_amount: 1000.00, debit_amount: 0.00}
@@ -149,7 +165,11 @@ unit_tests:
 
   - name: an_account_with_an_unpriced_position_has_no_total
     model: mart_daily_positions
+    # The full computation; incremental builds are proven against it in CI.
+    overrides: {macros: {is_incremental: false}}
     given:
+      - input: ref('int_arrivals')  # read only by incremental builds
+        rows: []
       - input: ref('fct_positions_daily')
         rows:
           - {account_id: a1, business_date: 2026-03-02, market_value_cad: 100.00, is_price_missing: false, is_price_stale: false}

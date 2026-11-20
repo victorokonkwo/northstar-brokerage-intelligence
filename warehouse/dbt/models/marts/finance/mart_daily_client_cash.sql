@@ -1,3 +1,20 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'date': 'business_date',
+        'inputs': [
+            'stg_ledger__journal_lines',
+            'stg_brokerage__fx_rate_published',
+            'stg_reference__market_calendar_days',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- Client cash per account x currency x reporting date, from the GL 2100
 -- sub-ledger (INV-05). Client cash is a liability: credits add to the client's
 -- balance and debits reduce it, so a negative closing balance is a margin loan.
@@ -78,10 +95,13 @@ select
         when b.currency = 'CAD' then b.closing_balance::numeric(18, 2)
         else {{ round_half_even('b.closing_balance * fx.rate', 2) }}
     end as closing_balance_cad,
-    case when b.currency = 'USD' then fx.rate end as fx_rate,
+    (case when b.currency = 'USD' then fx.rate end)::numeric(18, 10) as fx_rate,
     case when b.currency = 'USD' then fx.fx_rate_date end as fx_rate_date,
     case when b.currency = 'USD' then fx.fx_policy_version end as fx_policy_version,
     b.line_count::integer as _journal_line_count,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from balances as b
 left join {{ ref('int_fx_rates_applicable') }} as fx on b.business_date = fx.calendar_date
+{% if is_incremental() %}
+    where {{ rebuild_filter('b.business_date') }}
+{% endif %}

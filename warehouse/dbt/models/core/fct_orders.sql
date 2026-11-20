@@ -1,3 +1,21 @@
+{{ config(
+    materialized='incremental',
+    incremental_strategy='rebuild',
+    on_schema_change='fail',
+    post_hook="{{ record_build() }}",
+    meta={'rebuild': {
+        'key': 'order_id',
+        'arrival': 'order_id',
+        'inputs': [
+            'stg_brokerage__order_placed',
+            'stg_brokerage__order_cancelled',
+            'stg_brokerage__trade_executed',
+        ],
+    }},
+) }}
+
+-- depends_on: {{ ref('int_arrivals') }}
+
 -- One row per order. Filled quantity is the sum of its executions; a
 -- cancellation closes the unfilled remainder.
 -- Status: FILLED (fully executed), CANCELLED (remainder cancelled, with or
@@ -67,3 +85,6 @@ select
 from orders as o
 left join fills as f on o.order_id = f.order_id
 left join cancellations as c on o.order_id = c.order_id
+{% if is_incremental() %}
+    where {{ rebuild_filter('o.order_id') }}
+{% endif %}

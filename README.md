@@ -55,6 +55,7 @@ make publish            # publish controls, then financial snapshots; open block
 # Airflow (http://localhost:8080) runs the same daily close as the DAG northstar_daily
 make test-integration   # loader tests against the running warehouse
 make dbt-build          # build and test the dbt models
+make dbt-build-full     # full-refresh build of the dev dataset, then compare-incremental checks the incremental one equals it
 make sql-lint           # SQLFluff (needs the running warehouse)
 
 # Cloud (S3 bronze, Redshift Serverless; needs `aws login` and the applied Terraform data stack)

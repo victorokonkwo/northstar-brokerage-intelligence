@@ -2,7 +2,7 @@
 
 This is the warehouse transformation layer for Northstar Brokerage Intelligence (module M1, Data Foundation).
 
-**Status:** created with `dbt init` (the generated example models were deleted). The first real models exist: sources for the raw events and the ledger, three staging models, and two core models with enforced contracts (`fct_journal_lines`, `fct_executions`), plus the INV-01 test `tests/assert_balanced_journals.sql`.
+**Status:** created with `dbt init` (the generated example models were deleted). It holds the staging, intermediate, core, and mart models of Phases 3 and 4, with contracts on core and marts, and runs on Postgres and Redshift ([cloud warehouse](../../docs/architecture/cloud-warehouse.md)). The core facts, dimensions, and daily marts are incremental: a build rewrites only what new or late records change ([incremental models](../../docs/architecture/incremental-models.md)).
 
 ## How this project was created
 
@@ -23,7 +23,7 @@ Use the same approach for new dbt projects or packages. Run `dbt init` and keep 
 |---|---|---|
 | dbt Core | 1.12.7 | dbt v2 is now dbt's default for new installs. We stay on v1.x until v2 adapter support for Postgres and Redshift is confirmed. See [ADR 005](../../docs/adr/005-local-postgres-cloud-redshift.md). |
 | dbt-postgres | 1.11.0 | Local development target |
-| dbt-redshift | not installed | Added in Phase 3 |
+| dbt-redshift | 1.11.2 | Cloud target (`NBI_DBT_TARGET=redshift`), added in Phase 4F-a |
 
 dbt is now pinned in the `dbt` dependency group of the root `pyproject.toml` and locked in `uv.lock`. Run it through `uv` from the repository root, for example `make dbt-parse`, rather than through ad-hoc `uvx` calls.
 
@@ -39,6 +39,7 @@ From the repository root:
 | `make dbt-parse` | parses the project (no database needed) |
 | `make dbt-build` | builds and tests every model against the local warehouse |
 | `make sql-lint` | SQLFluff with the dbt templater. It needs the running database, because the templater compiles through dbt |
+| `make dbt-build-full` / `make compare-incremental` | full-refresh build into `dbt_dataset_full`, then every model compared with the incremental `dbt_dataset`, row for row |
 
 The raw and ledger tables are created and filled by the Python loader (`northstar.infrastructure.postgres`).
 
@@ -56,3 +57,7 @@ models/
 ```
 
 Each model's YAML states its grain and primary key, and the key is tested for `unique` and `not_null`. Monetary columns use `numeric`, never `float`. Financial invariant tests live in `tests/` as singular tests named `assert_<invariant>.sql`.
+
+## Incremental models
+
+An incremental model uses the `rebuild` strategy and declares in `meta.rebuild` whether it rebuilds by date or by key, and which staging models trigger it. `tests/unit/test_dbt_incremental.py` fails if that list differs from what the model reads. A change to a model's own SQL file rebuilds it in full on its next build. A change to anything it reads (a staging view, an intermediate model, a macro) or to a contract needs `dbt build --full-refresh`. See [incremental models](../../docs/architecture/incremental-models.md).
