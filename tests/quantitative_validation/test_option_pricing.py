@@ -17,12 +17,11 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from northstar.domain.events import ExerciseStyle, OptionRight
 from northstar.domain.market_risk.options import (
     Dividend,
-    ExerciseStyle,
     OptionInputs,
     PricingError,
-    Right,
     aged,
     binomial,
     black_scholes,
@@ -34,11 +33,11 @@ from northstar.domain.market_risk.options import (
 )
 
 EUROPEAN, AMERICAN = ExerciseStyle.EUROPEAN, ExerciseStyle.AMERICAN
-CALL, PUT = Right.CALL, Right.PUT
+CALL, PUT = OptionRight.CALL, OptionRight.PUT
 
 
 def option(
-    right: Right = CALL,
+    right: OptionRight = CALL,
     style: ExerciseStyle = EUROPEAN,
     *,
     spot: float = 100.0,
@@ -52,7 +51,10 @@ def option(
 
 
 def drawn(
-    right: Right, style: ExerciseStyle, i: dict[str, float], dividends: tuple[Dividend, ...] = ()
+    right: OptionRight,
+    style: ExerciseStyle,
+    i: dict[str, float],
+    dividends: tuple[Dividend, ...] = (),
 ) -> OptionInputs:
     """An option from a Hypothesis draw of ``inputs``."""
     return OptionInputs(
@@ -138,7 +140,7 @@ class TestNoArbitrage:
 class TestTreeAgainstBlackScholes:
     @pytest.mark.parametrize("right", [CALL, PUT])
     @pytest.mark.parametrize("strike", [80.0, 100.0, 120.0])
-    def test_the_tree_converges_to_black_scholes(self, right: Right, strike: float) -> None:
+    def test_the_tree_converges_to_black_scholes(self, right: OptionRight, strike: float) -> None:
         o = option(right, strike=strike)
         errors = [abs(binomial(o, steps=n) - black_scholes(o)) for n in (50, 2000)]
         assert errors[1] < 0.01
@@ -157,7 +159,7 @@ class TestGreeks:
     @pytest.mark.parametrize("right", [CALL, PUT])
     @pytest.mark.parametrize("dividends", [(), (Dividend(0.2, 2.0), Dividend(0.4, 2.0))])
     def test_analytic_greeks_match_bumping_and_repricing(
-        self, right: Right, dividends: tuple[Dividend, ...]
+        self, right: OptionRight, dividends: tuple[Dividend, ...]
     ) -> None:
         o = option(right, strike=105, dividends=dividends)
         g = black_scholes_greeks(o)
@@ -182,7 +184,7 @@ class TestGreeks:
     @pytest.mark.parametrize("right", [CALL, PUT])
     @pytest.mark.parametrize("strike", [90.0, 100.0, 120.0])
     def test_tree_greeks_match_the_analytic_ones_with_dividends(
-        self, right: Right, strike: float
+        self, right: OptionRight, strike: float
     ) -> None:
         # European exercise, so the tree and Black-Scholes price the same thing.
         o = option(right, strike=strike, dividends=(Dividend(0.2, 2.0), Dividend(0.4, 2.0)))

@@ -15,28 +15,25 @@ These are model calculations in float64, which ADR 004 allows for risk
 analytics. Callers convert the results to Decimal at the boundary and record
 them as model outputs. Rates are annual and continuously compounded, and times
 are in years.
+
+**The tree is bit-identical on every platform.** It uses only operations IEEE
+754 rounds correctly (+, -, *, /, and sqrt) plus ``exp`` taken from Decimal,
+which is correctly rounded too, and it builds the lattice's powers by
+multiplication instead of ``pow``. The simulator prices options with it, and
+the synthetic dataset must be byte-identical on every machine (NFR-06).
+Black-Scholes uses libm's ``exp``, ``log``, and ``erf``, so its last bits can
+differ by platform.
 """
 
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from enum import StrEnum
+from decimal import ROUND_HALF_EVEN, Context, Decimal
 
 from northstar.common.exceptions import NorthstarError
+from northstar.domain.events import ExerciseStyle, OptionRight
 
-
-class Right(StrEnum):
-    """Call or put."""
-
-    CALL = "CALL"
-    PUT = "PUT"
-
-
-class ExerciseStyle(StrEnum):
-    """When the holder may exercise."""
-
-    EUROPEAN = "EUROPEAN"
-    AMERICAN = "AMERICAN"
+_EXP_CONTEXT = Context(prec=40, rounding=ROUND_HALF_EVEN)
 
 
 class PricingError(NorthstarError):
@@ -60,7 +57,7 @@ class OptionInputs:
     time to expiry in years; ``dividends`` the known cash dividends before it.
     """
 
-    right: Right
+    right: OptionRight
     style: ExerciseStyle
     spot: float
     strike: float
@@ -113,9 +110,9 @@ class Greeks:
     rho: float
 
 
-def payoff(right: Right, spot: float, strike: float) -> float:
+def payoff(right: OptionRight, spot: float, strike: float) -> float:
     """max(spot - strike, 0) for a call, max(strike - spot, 0) for a put."""
-    return max(spot - strike, 0.0) if right is Right.CALL else max(strike - spot, 0.0)
+    return max(spot - strike, 0.0) if right is OptionRight.CALL else max(strike - spot, 0.0)
 
 
 def norm_cdf(x: float) -> float:
@@ -141,7 +138,7 @@ def black_scholes(o: OptionInputs) -> float:
     if t == 0:
         return payoff(o.right, s, k)
     d1, d2 = _d1_d2(s, k, r, v, t)
-    if o.right is Right.CALL:
+    if o.right is OptionRight.CALL:
         return s * norm_cdf(d1) - k * math.exp(-r * t) * norm_cdf(d2)
     return k * math.exp(-r * t) * norm_cdf(-d2) - s * norm_cdf(-d1)
 
@@ -167,7 +164,7 @@ def black_scholes_greeks(o: OptionInputs) -> Greeks:
     gamma = norm_pdf(d1) / (s * v * math.sqrt(t))
     vega = s * norm_pdf(d1) * math.sqrt(t)
     decay = -s * norm_pdf(d1) * v / (2 * math.sqrt(t))
-    if o.right is Right.CALL:
+    if o.right is OptionRight.CALL:
         delta = norm_cdf(d1)
         theta = decay - r * k * discount * norm_cdf(d2)
         rho = k * t * discount * norm_cdf(d2)
@@ -335,20 +332,25 @@ def _tree(o: OptionInputs, steps: int) -> _Tree:
     if v <= min_tree_vol(r, t, steps):
         msg = f"vol {v} is too low for an arbitrage-free tree of {steps} steps"
         raise PricingError(msg)
-    up = math.exp(v * math.sqrt(dt))
+    up = exact_exp(v * math.sqrt(dt))
     down = 1 / up
-    grow = math.exp(r * dt)
+    grow = exact_exp(r * dt)
     p = (grow - down) / (up - down)
     disc = 1 / grow
     american = o.style is ExerciseStyle.AMERICAN
-    values = [payoff(o.right, s0 * up ** (steps - 2 * j), k) for j in range(steps + 1)]
+    # power[steps + n] = up ** n for n in -steps..steps, by multiplication.
+    power = [1.0] * (2 * steps + 1)
+    for n in range(1, steps + 1):
+        power[steps + n] = power[steps + n - 1] * up
+        power[steps - n] = power[steps - n + 1] * down
+    values = [payoff(o.right, s0 * power[2 * steps - 2 * j], k) for j in range(steps + 1)]
     kept: dict[int, tuple[float, ...]] = {steps: tuple(values[:3])}
     for step in range(steps - 1, -1, -1):
-        remaining = _pv_dividends_after(o.dividends, step * dt, t, r)
+        remaining = _pv_dividends_after(o.dividends, step * dt, t, r) if american else 0.0
         for j in range(step + 1):
             held = disc * (p * values[j] + (1 - p) * values[j + 1])
             if american:
-                spot = s0 * up ** (step - 2 * j) + remaining
+                spot = s0 * power[steps + step - 2 * j] + remaining
                 held = max(held, payoff(o.right, spot, k))
             values[j] = held
         if step <= 2:
@@ -364,6 +366,11 @@ def _tree(o: OptionInputs, steps: int) -> _Tree:
     )
 
 
+def exact_exp(x: float) -> float:
+    """``e ** x`` from Decimal: correctly rounded, so the same on every platform."""
+    return float(_EXP_CONTEXT.exp(Decimal(x)))
+
+
 def _d1_d2(s: float, k: float, r: float, v: float, t: float) -> tuple[float, float]:
     d1 = (math.log(s / k) + (r + v * v / 2) * t) / (v * math.sqrt(t))
     return d1, d1 - v * math.sqrt(t)
@@ -377,7 +384,7 @@ def _pv_dividends_after(
     At ``now == 0`` a dividend at time 0 counts: it hasn't been paid yet.
     """
     return sum(
-        d.amount * math.exp(-rate * (d.time - now))
+        d.amount * exact_exp(-rate * (d.time - now))
         for d in dividends
         if (now < d.time or d.time == now == 0) and d.time <= expiry
     )
