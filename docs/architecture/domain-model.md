@@ -290,4 +290,4 @@ For a sale, the ownership side gains "clearing: pending delivery" on T, and on s
 | OQ-05 | **Resolved (owner, 2026-11-19):** corporate actions, including dividends, are out of scope until Phase 5 | Done |
 | OQ-06 | Definition of `available_liquidity` for KPI-16 (deferred by owner decision on 2026-11-18) | Phase 6 |
 | OQ-07 | Severity thresholds and SLA values for exceptions | Phase 4 |
-| OQ-08 | VaR lookback window and quantile interpolation method | Phase 5 |
+| OQ-08 | **Resolved (owner, 2026-11-20):** 250 one-day historical scenarios. VaR at 99% is the 3rd worst loss, and ES at 97.5% is the mean of the 7 worst. Order statistics, no interpolation ([ADR 012](../adr/012-market-risk-models.md)) | Done |

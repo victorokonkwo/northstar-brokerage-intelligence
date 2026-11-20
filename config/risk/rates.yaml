@@ -1,0 +1,12 @@
+# Risk-free rates for option pricing (FR-M3-05), continuously compounded,
+# annual. Owner decision 2026-11-20: these values. ILLUSTRATIVE: not market data
+# (no Bank of Canada or US Treasury series is used).
+version: "2026.1"
+# Effective from the first day any risk calculation reads (the start of the
+# synthetic history), not the decision date (2026-11-20).
+effective_from: 2025-01-01
+illustrative: true
+
+continuous_rates:
+  CAD: "0.0300"
+  USD: "0.0400"

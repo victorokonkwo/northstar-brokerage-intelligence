@@ -24,6 +24,7 @@ from northstar.ingestion.pipeline import (
 )
 from northstar.ingestion.sources import EXTERNAL_DOMAINS
 from northstar.simulation.external import RECORD_MODELS
+from northstar.simulation.history import HISTORY_MODELS
 
 from factories import CONFIG, policies
 
@@ -109,6 +110,8 @@ class TestCleanDataset:
             "fx_confirmations": "trade_date",
             "custody_snapshots": "snapshot_date",
             "price_feed": "price_date",
+            "price_history": "price_date",
+            "fx_rate_history": "rate_date",
         }
         events = {str(t) for t in EventType}
         for o in manifest.raw_objects():
@@ -131,7 +134,8 @@ class TestCleanDataset:
                     assert domain == EXTERNAL_DOMAINS[o.entity]
                     day = date.fromisoformat(record[date_fields[o.entity]])
                 assert day == o.event_date
-        assert {o.entity for o in manifest.raw_objects()} == events | set(RECORD_MODELS)
+        expected = events | set(RECORD_MODELS) | set(HISTORY_MODELS)
+        assert {o.entity for o in manifest.raw_objects()} == expected
 
     def test_a_replay_writes_no_data_objects(self, dataset: Path) -> None:
         store = MemoryStore()

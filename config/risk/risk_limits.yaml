@@ -1,0 +1,13 @@
+# Risk limits that raise alerts (FR-M3-06; KPI-13). Owner decision 2026-11-20:
+# these values. ILLUSTRATIVE. A breach is a "genuine exposure increase" alert,
+# separate from calculation failures and missing or stale data.
+version: "2026.1"
+# Effective from the first day any risk calculation reads (the start of the
+# synthetic history), not the decision date (2026-11-20).
+effective_from: 2025-01-01
+illustrative: true
+
+account_issuer_concentration: "0.25"   # an issuer's share of an account's long market value
+firm_issuer_concentration: "0.20"      # an issuer's share of all margin collateral
+account_var_to_equity: "0.10"          # 1-day 99% VaR as a share of account equity
+margin_deficit: true                   # any margin deficit (KPI-07) raises an alert

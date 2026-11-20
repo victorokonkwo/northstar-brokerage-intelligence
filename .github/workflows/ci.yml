@@ -129,7 +129,7 @@ jobs:
           make simulate | grep ' sha256 ' > first.txt
           make simulate | grep ' sha256 ' > second.txt
           diff first.txt second.txt
-          test "$(wc -l < first.txt)" -eq 9
+          test "$(wc -l < first.txt)" -eq 11  # events, manifest, 7 external sets, 2 history sets
           make simulate-load RUN_ID=ci-first
           make ingest RUN_ID=ci-replay | tee replay-ingest.txt
           grep -q "(0 new)" replay-ingest.txt

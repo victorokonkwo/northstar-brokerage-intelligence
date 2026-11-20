@@ -1,0 +1,19 @@
+# Stress scenarios (FR-M3-04; KPI-11, KPI-12). Owner decision 2026-11-20: these
+# scenarios. ILLUSTRATIVE. Equity shocks are relative price moves applied to the
+# day's close; options are fully repriced on the shocked underlying, with their
+# implied volatility multiplied by vol_multiplier. FX rates are not shocked.
+# ZERO must reproduce KPI-07 exactly (its verification).
+version: "2026.1"
+# Effective from the first day any risk calculation reads (the start of the
+# synthetic history), not the decision date (2026-11-20).
+effective_from: 2025-01-01
+illustrative: true
+
+scenarios:
+  - {name: ZERO, equity_shock: "0", vol_multiplier: "1"}
+  - {name: EQ_DOWN_10, equity_shock: "-0.10", vol_multiplier: "1"}
+  - {name: EQ_DOWN_20, equity_shock: "-0.20", vol_multiplier: "1"}
+  - {name: EQ_UP_10, equity_shock: "0.10", vol_multiplier: "1"}
+  - {name: SINGLE_SYNH_30, equity_shock: "0", symbol_shocks: {SYNH: "-0.30"}, vol_multiplier: "1"}
+  - {name: VOL_UP_50, equity_shock: "0", vol_multiplier: "1.5"}
+  - {name: EQ_DOWN_20_VOL, equity_shock: "-0.20", vol_multiplier: "1.5"}

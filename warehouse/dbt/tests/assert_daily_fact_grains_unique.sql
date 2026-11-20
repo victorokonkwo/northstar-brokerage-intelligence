@@ -48,3 +48,17 @@ select
 from {{ ref('mart_daily_positions') }}
 group by account_id, business_date
 having count(*) > 1
+union all
+select
+    'fct_price_history_daily' as model_name,
+    instrument_id || ':' || price_date as grain_key
+from {{ ref('fct_price_history_daily') }}
+group by instrument_id, price_date
+having count(*) > 1
+union all
+select
+    'fct_fx_rate_history_daily' as model_name,
+    base_currency || ':' || quote_currency || ':' || rate_date as grain_key
+from {{ ref('fct_fx_rate_history_daily') }}
+group by base_currency, quote_currency, rate_date
+having count(*) > 1

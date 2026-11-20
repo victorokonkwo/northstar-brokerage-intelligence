@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The vendor's synthetic daily USD/CAD reference rate (CAD per USD), before the window.",
+  "properties": {
+    "base_currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "quote_currency": {
+      "$ref": "#/$defs/Currency"
+    },
+    "rate": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "decimal_places": 10,
+      "gt": 0,
+      "max_digits": 18,
+      "title": "Rate"
+    },
+    "rate_date": {
+      "format": "date",
+      "title": "Rate Date",
+      "type": "string"
+    },
+    "record_id": {
+      "title": "Record Id",
+      "type": "string"
+    },
+    "record_type": {
+      "const": "fx_rate_history_record",
+      "default": "fx_rate_history_record",
+      "title": "Record Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "base_currency",
+    "quote_currency",
+    "rate_date",
+    "rate"
+  ],
+  "title": "FxRateHistoryRecord",
+  "type": "object"
+}

@@ -79,6 +79,13 @@ class Window(_Frozen):
     end: date
 
 
+class HistoryWindow(_Frozen):
+    """The synthetic market history before the window (``simulation.history``), inclusive."""
+
+    start: date
+    end: date
+
+
 class AccountMix(_Frozen):
     """How many accounts, and the share that are MARGIN accounts."""
 
@@ -180,6 +187,18 @@ class DatasetConfig(_Frozen):
     deposits: DepositActivity
     withdrawals: WithdrawalActivity
     orders: OrderActivity
+    history: HistoryWindow | None = None
+
+    @model_validator(mode="after")
+    def _history_before_the_window(self) -> "DatasetConfig":
+        # The window's FX path starts the day before the window, from fx.start_rate, so
+        # the history (which ends at that anchor) must end before that day.
+        if self.history is not None and not (
+            self.history.start <= self.history.end < self.window.start - timedelta(days=1)
+        ):
+            msg = "history must run from start to end, ending before the day before the window"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _consistent(self) -> "DatasetConfig":
