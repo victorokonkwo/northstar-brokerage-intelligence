@@ -542,3 +542,15 @@ def history(
             (exception_id,),
         )
         return [TransitionRecord(*r) for r in cur.fetchall()]
+
+
+def source_corrected_ids(conn: psycopg.Connection[Any], schema: str) -> frozenset[str]:
+    """IDs of exceptions resolved as SOURCE_CORRECTED (the break no longer exists)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                "select distinct exception_id::text from {} "
+                "where resolution_type = 'SOURCE_CORRECTED'"
+            ).format(sql.Identifier(schema, "exception_transitions"))
+        )
+        return frozenset(r[0] for r in cur.fetchall())

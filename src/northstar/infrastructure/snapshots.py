@@ -31,7 +31,15 @@ PUBLISHED_MARTS: Final = (
     "mart_daily_finance",
     "mart_daily_positions",
 )
-"""The trusted-data gate marts, published per business date."""
+"""The financial snapshot: the trusted-data gate marts, published per business date."""
+
+CONTROLS_MARTS: Final = (
+    "mart_cash_breaks",
+    "mart_exception_monitoring",
+    "mart_match_rates",
+    "mart_settlement_fails",
+)
+"""The controls snapshot: reconciliation KPIs (KPI-02 to KPI-06)."""
 
 LINEAGE_ONLY_COLUMNS: Final = frozenset({"_dbt_invocation_id"})
 """Columns kept in published copies but left out of content hashes: they
@@ -109,7 +117,12 @@ class VersionRecord:
     restatement_reason: str | None
 
 
-def ensure_published(conn: psycopg.Connection[Any], published: str, source: str) -> None:
+def ensure_published(
+    conn: psycopg.Connection[Any],
+    published: str,
+    source: str,
+    marts: tuple[str, ...] = PUBLISHED_MARTS,
+) -> None:
     """Create the published schema, its tables, the timeline view, and append-only triggers.
 
     Each mart copy is created like the dbt mart in ``source``. A mart whose
@@ -121,7 +134,7 @@ def ensure_published(conn: psycopg.Connection[Any], published: str, source: str)
         cur.execute(sql.SQL(_VERSIONS_DDL).format(**names))
         cur.execute(sql.SQL(_STATUS_DDL).format(**names))
         cur.execute(sql.SQL(_TIMELINE_DDL).format(**names))
-        for mart in PUBLISHED_MARTS:
+        for mart in marts:
             copy = sql.Identifier(published, mart)
             cur.execute(
                 sql.SQL("create table if not exists {copy} (like {mart})").format(
@@ -133,7 +146,7 @@ def ensure_published(conn: psycopg.Connection[Any], published: str, source: str)
                     "alter table {copy} add column if not exists snapshot_version integer"
                 ).format(copy=copy)
             )
-    for table in ("snapshot_versions", "snapshot_status_log", *PUBLISHED_MARTS):
+    for table in ("snapshot_versions", "snapshot_status_log", *marts):
         make_append_only(conn, published, table)
 
 
@@ -228,6 +241,7 @@ def record_version(
     code_version: str,
     source: str,
     created_at: datetime,
+    marts: tuple[str, ...] = PUBLISHED_MARTS,
 ) -> None:
     """Insert the version row and copy each mart's rows for the date from ``source``."""
     with conn.cursor() as cur:
@@ -251,7 +265,7 @@ def record_version(
                 created_at,
             ),
         )
-        for mart in PUBLISHED_MARTS:
+        for mart in marts:
             columns = [
                 *content_columns(conn, source, mart),
                 *sorted(LINEAGE_ONLY_COLUMNS),

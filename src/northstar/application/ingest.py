@@ -36,6 +36,7 @@ from northstar.infrastructure.postgres import (
     load_external_records,
     load_journal,
 )
+from northstar.infrastructure.recon_store import ensure_recon_tables
 from northstar.ingestion.pipeline import (
     IngestionManifest,
     ObjectStore,
@@ -150,6 +151,9 @@ def load_run(
         inserted_lines = load_journal(conn, batches, run_id, schemas)
         inserted_records = load_external_records(conn, records, run_id, schemas)
         load_calendar_days(conn, calendar_days(policies.calendars), run_id, schemas)
+        # The recon tables exist from the first load, so dbt can build its
+        # controls models before any reconciliation has run.
+        ensure_recon_tables(conn, schemas.recon)
     return RunLoad(
         len(ordered), len(records), len(batches), inserted_events, inserted_lines, inserted_records
     )

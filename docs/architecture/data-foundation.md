@@ -168,7 +168,10 @@ Daily models are reported for **reporting dates**: every ledger business day (an
 - **Same hash as the latest version:** nothing is created. Rerunning with identical inputs and code gives identical results (INV-09).
 - **Different hash, or no version yet:** version n+1 is created. Version 1 has no restatement reason. Every later version does, naming the marts that changed and any operator note (`--note`). For example: `restates v1: mart_daily_client_cash changed; late deposit cm_late_000001`.
 
-**The publication gate.** A new version starts as `DRAFT` and becomes `PUBLISHED` only if KPI-01 = 0 for the date (domain model §7.4). At the same instant, the previously published version becomes `SUPERSEDED`. A failing gate leaves the draft recorded, keeps the last publication in force, and exits with an error. The second gate condition, no blocking reconciliation exception, is added in Phase 4 when exceptions exist.
+**The publication gate.** A new version starts as `DRAFT` and becomes `PUBLISHED` only if its gate passes. At the same instant, the previously published version becomes `SUPERSEDED`. A failing gate leaves the draft recorded, keeps the last publication in force, and exits with an error.
+- **Financial snapshot:** gated by KPI-01 = 0 and no open CRITICAL or HIGH reconciliation exception for the date (domain model §7.4, Phase 4D).
+- **Controls snapshot:** the reconciliation KPI marts, gated by KPI-01 only.
+- **Releasing a draft:** a draft whose gate later passes is published as it is. See [reconciliation](reconciliation.md#publication-gate-fr-m2-08).
 
 **Everything is append-only.**
 - `snapshot_versions` holds one immutable row per version: hashes per mart and overall, KPI-01, reason, run ID, code version, source schema, and creation time.

@@ -53,7 +53,7 @@ from northstar.application.operations import (
     record_alert,
 )
 from northstar.application.policies import load_policies
-from northstar.application.publish import publish_all, publish_date
+from northstar.application.publish import Gate, Outcome, Stream, publish_all, publish_date
 from northstar.application.reconcile import reconcile_warehouse, verify_against_manifest
 from northstar.application.simulate import simulate_dataset
 from northstar.application.sprint1 import (
@@ -64,10 +64,12 @@ from northstar.application.sprint1 import (
 )
 from northstar.common.exceptions import PublicationBlockedError
 from northstar.domain.lifecycle import IllegalTransitionError, Resolution, Status
+from northstar.domain.reconciliation import ReconciliationPolicy
 from northstar.infrastructure.build_info import code_version
+from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectStore
 from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas
-from northstar.infrastructure.recon_store import history
+from northstar.infrastructure.recon_store import current_states, history
 from northstar.infrastructure.snapshots import history as snapshot_history
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
 from northstar.simulation.engine import LEDGER_CALENDAR_MARKET
@@ -117,6 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     load.add_argument(
         "--ledger-schema", required=True, help="schema for the journal, e.g. ledger_dev"
     )
+    load.add_argument("--recon-schema", default="recon", help="schema for reconciliation results")
     load.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
 
     pub = commands.add_parser("publish", help="publish business dates as versioned snapshots")
@@ -124,6 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     pub.add_argument("--published-schema", required=True, help="schema of published snapshots")
     pub.add_argument("--business-date", type=date.fromisoformat, help="one date (default: all)")
     pub.add_argument("--note", help="operator note appended to any restatement reason")
+    pub.add_argument("--stream", choices=[s.value for s in Stream], default="financial")
+    pub.add_argument("--recon-schema", help="reconciliation results (financial stream gate)")
+    pub.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
 
     hist = commands.add_parser("snapshot-history", help="print every version of a business date")
     hist.add_argument("--published-schema", required=True, help="schema of published snapshots")
@@ -151,9 +157,10 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
 
     exc = commands.add_parser("exception", help="change or show an exception's status")
-    exc.add_argument("action", choices=["transition", "history"])
+    exc.add_argument("action", choices=["transition", "history", "list"])
     exc.add_argument("--recon-schema", required=True)
-    exc.add_argument("--exception-id", required=True)
+    exc.add_argument("--exception-id", help="for transition and history")
+    exc.add_argument("--business-date", type=date.fromisoformat, help="for list")
     exc.add_argument("--to", choices=[s.value for s in Status], help="target status")
     exc.add_argument("--actor", help="user:<name> for a person")
     exc.add_argument("--reason", help="why (required for every change)")
@@ -235,7 +242,9 @@ def _run(args: argparse.Namespace) -> int:
     schemas = WarehouseSchemas()
     if args.command == "load-run":
         store = S3ObjectStore(ObjectStoreSettings.from_env())
-        dataset_schemas = WarehouseSchemas(raw=args.raw_schema, ledger=args.ledger_schema)
+        dataset_schemas = WarehouseSchemas(
+            raw=args.raw_schema, ledger=args.ledger_schema, recon=args.recon_schema
+        )
         with settings.connect() as conn:
             loaded = load_run(conn, store, args.config, args.run_id, dataset_schemas)
         out.write(
@@ -250,6 +259,16 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "publish":
         run_id = f"publish-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
+        stream = Stream(args.stream)
+        gate = None
+        if stream is Stream.FINANCIAL:
+            if not args.recon_schema:
+                sys.stderr.write("the financial stream needs --recon-schema\n")
+                return 2
+            policy = load_policy(
+                args.config / "reconciliation" / "policy.yaml", ReconciliationPolicy
+            )
+            gate = Gate(args.recon_schema, policy)
         try:
             with settings.connect() as conn:
                 if args.business_date is not None:
@@ -263,6 +282,8 @@ def _run(args: argparse.Namespace) -> int:
                             code_version(),
                             now,
                             args.note,
+                            stream,
+                            gate,
                         )
                     ]
                 else:
@@ -274,23 +295,26 @@ def _run(args: argparse.Namespace) -> int:
                         code_version(),
                         now,
                         args.note,
+                        stream,
+                        gate,
                     )
         except PublicationBlockedError as error:
             sys.stderr.write(f"blocked: {error}\n")
             return 2
         outcomes = Counter(r.outcome for r in results)
         out.write(
-            f"run {run_id}: {len(results)} business dates; "
+            f"run {run_id} ({stream}): {len(results)} business dates; "
             + ", ".join(f"{k.lower()} {v}" for k, v in sorted(outcomes.items()))
             + "\n"
         )
         for r in results:
             if r.outcome != "UNCHANGED":
+                blocked = f" blocked by {', '.join(r.blocked_by)}" if r.blocked_by else ""
                 out.write(
                     f"  {r.business_date} v{r.snapshot_version} {r.outcome} "
-                    f"{r.content_sha256[:12]} {r.restatement_reason or ''}\n"
+                    f"{r.content_sha256[:12]} {r.restatement_reason or ''}{blocked}\n"
                 )
-        return 0
+        return 2 if outcomes.get(Outcome.BLOCKED) else 0
     if args.command == "snapshot-history":
         with settings.connect() as conn:
             for v in snapshot_history(conn, args.published_schema, args.business_date):
@@ -328,6 +352,20 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     if args.command == "exception":
         with settings.connect() as conn:
+            if args.action == "list":
+                for s in sorted(
+                    current_states(conn, args.recon_schema).values(),
+                    key=lambda s: (s.business_date, s.exception_type, s.exception_id),
+                ):
+                    if args.business_date is None or s.business_date == args.business_date:
+                        out.write(
+                            f"{s.exception_id} {s.business_date} {s.exception_type} "
+                            f"{s.severity} {s.status} {s.reference}\n"
+                        )
+                return 0
+            if not args.exception_id:
+                sys.stderr.write("--exception-id is required\n")
+                return 2
             if args.action == "history":
                 for t in history(conn, args.recon_schema, args.exception_id):
                     resolution = f" ({t.resolution_type})" if t.resolution_type else ""

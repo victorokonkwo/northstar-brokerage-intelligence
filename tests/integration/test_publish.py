@@ -8,16 +8,37 @@ controls mart and reporting dates. No dbt run is needed.
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import psycopg
 import pytest
 from psycopg import sql
 
-from northstar.application.publish import Outcome, publish_date
+from northstar.application.lifecycle import apply_rules, transition_exception
+from northstar.application.publish import Gate, Outcome, Stream, publish_date
 from northstar.common.exceptions import PublicationBlockedError
+from northstar.common.money import Currency
+from northstar.domain.lifecycle import Resolution, Status
+from northstar.domain.reconciliation import (
+    ExceptionType,
+    ReconciliationPolicy,
+    ReconException,
+    Severity,
+)
+from northstar.infrastructure.config_loader import load_policy
 from northstar.infrastructure.postgres import PostgresSettings
-from northstar.infrastructure.snapshots import PUBLISHED_MARTS, history, read_as_published
+from northstar.infrastructure.recon_store import RunRecord, ensure_recon_tables, store_run
+from northstar.infrastructure.snapshots import (
+    CONTROLS_MARTS,
+    PUBLISHED_MARTS,
+    history,
+    read_as_published,
+)
+
+from factories import CONFIG, xtse
+
+POLICY = load_policy(CONFIG / "reconciliation" / "policy.yaml", ReconciliationPolicy)
 
 pytestmark = pytest.mark.integration
 
@@ -38,7 +59,7 @@ def schemas(conn: psycopg.Connection[Any]) -> Iterator[tuple[str, str]]:
     source, published = f"it_dbt_{suffix}", f"it_pub_{suffix}"
     with conn.cursor() as cur:
         cur.execute(sql.SQL("create schema {}").format(sql.Identifier(source)))
-        for mart in PUBLISHED_MARTS:
+        for mart in (*PUBLISHED_MARTS, *CONTROLS_MARTS):
             cur.execute(
                 sql.SQL(
                     "create table {} (business_date date not null, account_id text, "
@@ -68,9 +89,10 @@ def schemas(conn: psycopg.Connection[Any]) -> Iterator[tuple[str, str]]:
             ),
             (D,),
         )
+    ensure_recon_tables(conn, f"{source}_recon")
     yield source, published
     with conn.cursor() as cur:
-        for name in (source, published):
+        for name in (source, published, f"{source}_recon", f"{published}_controls"):
             cur.execute(sql.SQL("drop schema if exists {} cascade").format(sql.Identifier(name)))
 
 
@@ -83,11 +105,17 @@ def _insert(
     )
 
 
+def _gate(schemas: tuple[str, str]) -> Gate:
+    return Gate(f"{schemas[0]}_recon", POLICY)
+
+
 def _publish(
     conn: psycopg.Connection[Any], schemas: tuple[str, str], at: datetime, note: str | None = None
 ) -> Any:
     source, published = schemas
-    return publish_date(conn, source, published, D, "run", "test-sha", at, note)
+    return publish_date(
+        conn, source, published, D, "run", "test-sha", at, note, Stream.FINANCIAL, _gate(schemas)
+    )
 
 
 def test_first_publication_then_identical_reruns_change_nothing(
@@ -221,4 +249,90 @@ def test_only_reporting_dates_can_be_published(
 ) -> None:
     source, published = schemas
     with pytest.raises(ValueError, match="not a reporting date"):
-        publish_date(conn, source, published, D + timedelta(days=5), "run", "sha", T0)
+        publish_date(
+            conn,
+            source,
+            published,
+            D + timedelta(days=5),
+            "run",
+            "sha",
+            T0,
+            stream=Stream.FINANCIAL,
+            gate=_gate(schemas),
+        )
+
+
+def _blocking(conn: psycopg.Connection[Any], schemas: tuple[str, str], severity: Severity) -> str:
+    recon = f"{schemas[0]}_recon"
+    x = ReconException(
+        exception_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"gate-{severity}")),
+        reconciliation="cash",
+        exception_type=ExceptionType.FEE_MISMATCH,
+        severity=severity,
+        reference="ref",
+        business_date=D,
+        impact_amount=Decimal("1.00"),
+        impact_currency=Currency.CAD,
+        impact_basis="amount",
+        impact_cad=Decimal("1.00"),
+        fx_rate_date=None,
+        fx_policy_version=None,
+        external_record_ids=(),
+        detail="t",
+        policy_version="2026.1",
+    )
+    with conn.transaction():
+        store_run(conn, recon, RunRecord("r", D, "s", "2026.1", "t", T0), (), (x,))
+        apply_rules(
+            conn, recon, frozenset({x.exception_id}), frozenset(), POLICY, xtse(), D, "r", T0
+        )
+    return x.exception_id
+
+
+def test_an_open_blocking_exception_holds_publication_until_resolved(
+    conn: psycopg.Connection[Any], schemas: tuple[str, str]
+) -> None:
+    exception_id = _blocking(conn, schemas, Severity.HIGH)
+    with pytest.raises(PublicationBlockedError, match="1 open blocking exception"):
+        _publish(conn, schemas, T0)
+    _, published = schemas
+    assert [v.status for v in history(conn, published, D)] == ["DRAFT"]
+    # Resolving it (a person investigates, then overrides with a reason) releases
+    # the same version: the content did not change, so there is no v2.
+    recon = f"{schemas[0]}_recon"
+    transition_exception(
+        conn, recon, exception_id, Status.INVESTIGATING, "user:test", "looking", None, T0
+    )
+    transition_exception(
+        conn,
+        recon,
+        exception_id,
+        Status.RESOLVED,
+        "user:test",
+        "fee confirmed",
+        Resolution.MANUAL_OVERRIDE,
+        T0,
+    )
+    released = _publish(conn, schemas, T0 + timedelta(hours=1))
+    assert (released.outcome, released.snapshot_version) == (Outcome.PUBLISHED, 1)
+    assert [v.status for v in history(conn, published, D)] == ["PUBLISHED"]
+
+
+def test_low_and_medium_exceptions_do_not_block(
+    conn: psycopg.Connection[Any], schemas: tuple[str, str]
+) -> None:
+    _blocking(conn, schemas, Severity.LOW)
+    assert _publish(conn, schemas, T0).outcome is Outcome.PUBLISHED
+
+
+def test_the_controls_stream_ignores_exceptions_and_the_financial_one_needs_a_gate(
+    conn: psycopg.Connection[Any], schemas: tuple[str, str]
+) -> None:
+    _blocking(conn, schemas, Severity.CRITICAL)
+    source, published = schemas
+    controls = publish_date(
+        conn, source, f"{published}_controls", D, "run", "sha", T0, stream=Stream.CONTROLS
+    )
+    assert controls.outcome is Outcome.PUBLISHED
+    with pytest.raises(ValueError, match="needs a gate"):
+        publish_date(conn, source, published, D, "run", "sha", T0)

@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_recon__runs
+    description: One row per reconciliation run. Grain and primary key = run_id.
+    columns:
+      - name: run_id
+        data_tests: [unique, not_null]
+  - name: stg_recon__match_results
+    description: One row per match. Grain and primary key = match_id.
+    columns:
+      - name: match_id
+        data_tests: [unique, not_null]
+  - name: stg_recon__exceptions
+    description: One row per exception. Grain and primary key = exception_id.
+    columns:
+      - name: exception_id
+        data_tests: [unique, not_null]
+  - name: stg_recon__exception_transitions
+    description: One row per transition. Grain and primary key = transition_id.
+    columns:
+      - name: transition_id
+        data_tests: [unique, not_null]

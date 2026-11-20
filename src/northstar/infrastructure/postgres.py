@@ -80,6 +80,7 @@ class WarehouseSchemas:
 
     raw: str = "raw"
     ledger: str = "ledger"
+    recon: str = "recon"
 
 
 _EVENTS_DDL: Final = """

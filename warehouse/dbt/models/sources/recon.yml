@@ -1,0 +1,29 @@
+version: 2
+
+sources:
+  - name: recon
+    description: >
+      Reconciliation results written by northstar.application.reconcile (Python owns
+      matching, classification, impact, and severity; ADR 007). Append-only.
+    schema: "{{ var('recon_schema', 'recon') }}"
+    tables:
+      - name: runs
+        description: One row per reconciliation run. Grain = run_id.
+        columns:
+          - name: run_id
+            data_tests: [unique, not_null]
+      - name: match_results
+        description: One row per match. Grain = match_id.
+        columns:
+          - name: match_id
+            data_tests: [unique, not_null]
+      - name: exceptions
+        description: One row per classified exception. Grain = exception_id.
+        columns:
+          - name: exception_id
+            data_tests: [unique, not_null]
+      - name: exception_transitions
+        description: One row per lifecycle transition. Grain = transition_id.
+        columns:
+          - name: transition_id
+            data_tests: [unique, not_null]

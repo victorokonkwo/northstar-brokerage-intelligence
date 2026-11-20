@@ -32,6 +32,8 @@ models:
   northstar:
     staging:
       +materialized: view
+      recon:
+        +tags: [controls]
     intermediate:
       +materialized: view
     core:

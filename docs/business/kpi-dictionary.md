@@ -34,7 +34,7 @@ These are the first 20 KPIs. Each entry states the decision it supports, its exa
 - **Decision supported:** whether internal trade records can be trusted for the day, and how much exception workload to expect.
 - **Definition:** internal executions matched to a clearing confirmation (by exact, composite, or tolerance rule) ÷ all internal executions with that trade date. Also reported notional-weighted: Σ matched `abs(quantity × price)` ÷ Σ all.
 - **Grain:** trade date × currency. **Unit:** %.
-- **Owner:** OPS. **Calculation owner:** Python reconciliation service produces match results; dbt aggregates them in `mart_exception_monitoring`.
+- **Owner:** OPS. **Calculation owner:** Python reconciliation (`northstar.domain.matching`) produces match results; dbt aggregates them in `mart_match_rates`.
 - **Source:** reconciliation match results, `fct_executions`.
 - **Verification:** on a seeded dataset with a known injected-defect manifest, the computed rate equals the rate derived from the manifest.
 
@@ -42,24 +42,24 @@ These are the first 20 KPIs. Each entry states the decision it supports, its exa
 - **Decision supported:** where operations should focus, and whether publication is blocked.
 - **Definition:** the count of exceptions with status not in (`RESOLVED`) at end of day, and Σ `abs(financial_impact_cad)`, by exception type and severity.
 - **Grain:** business date × exception type × severity. **Unit:** count, CAD.
-- **Owner:** OPS. **Calculation owner:** dbt.
+- **Owner:** OPS. **Calculation owner:** dbt (`mart_exception_monitoring`); the impact in CAD is Python's.
 - **Source:** `fct_reconciliation_exceptions`.
 - **Verification:** fixture-based test with a known exception set and expected counts and sums.
 
 ### KPI-04 Exceptions past SLA
 - **Decision supported:** escalation.
-- **Definition:** the count of open exceptions whose age in business days exceeds the SLA configured for their severity. The SLA values are in config, not code.
-- **Grain:** business date × severity. **Unit:** count.
-- **Owner:** OPS. **Calculation owner:** dbt.
-- **Source:** `fct_reconciliation_exceptions`, `dim_calendar`.
+- **Definition:** the count of open exceptions whose age in business days exceeds the SLA configured for their severity. The SLA values are in config (`config/reconciliation/policy.yaml`), not code.
+- **Grain:** business date × severity (the mart also splits by reconciliation and type). **Unit:** count.
+- **Owner:** OPS. **Calculation owner:** Python (`northstar.domain.lifecycle.breaches_sla`, ledger business days), because the age drives escalation. Each breach is recorded as an `ESCALATED` transition by `rule:sla_breach@1`, and dbt counts open escalated exceptions in `mart_exception_monitoring`. Changed in Phase 4C (ADR 007: one owner).
+- **Source:** `fct_reconciliation_exceptions` (current status from the transition trail).
 - **Verification:** a test across a holiday boundary confirms that age is counted in business days.
 
 ### KPI-05 Settlement fail rate
 - **Decision supported:** counterparty and operational follow-up, and treasury funding for failed deliveries.
 - **Definition:** obligations with contractual `settlement_date = d` that were not settled by end of day `d` ÷ all obligations due on `d`. Reported by count and by value.
 - **Grain:** settlement date × currency × asset class. **Unit:** %.
-- **Owner:** OPS. **Calculation owner:** dbt.
-- **Source:** `fct_settlements`.
+- **Owner:** OPS. **Calculation owner:** dbt (`mart_settlement_fails`).
+- **Source:** `fct_settlements`, plus `fct_reconciliation_exceptions` for what the depository reported. The ledger settles every obligation on its contractual date, so a fail is a `SETTLEMENT_LATE` or a missing settlement confirmation.
 - **Verification:** injected late-settlement scenarios produce the expected numerator.
 
 ### KPI-06 Cash break amount
@@ -67,7 +67,7 @@ These are the first 20 KPIs. Each entry states the decision it supports, its exa
 - **Definition:** for each bank account and currency, `abs(GL cash account closing balance − external bank statement closing balance)`.
 - **Target:** 0 after explained timing differences. Any unexplained difference is an exception.
 - **Grain:** business date × bank account × currency. **Unit:** original currency, plus CAD.
-- **Owner:** OPS, FIN. **Calculation owner:** Python reconciliation service (statement matching); dbt for the balance roll-forward.
+- **Owner:** OPS, FIN. **Calculation owner:** Python reconciliation (statement matching); dbt for the balance roll-forward (`mart_cash_breaks`).
 - **Source:** `fct_journal_lines`, external bank statement records.
 - **Verification:** a cash-conservation invariant test, plus injected cash-break scenarios.
 

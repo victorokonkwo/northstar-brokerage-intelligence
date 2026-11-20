@@ -11,15 +11,21 @@ holds no business logic (system overview §4).
   try number, because each ingestion run writes a manifest exactly once.
 - ``load`` loads that ingestion run into the warehouse.
 - ``dbt_build`` runs ``dbt-ol build`` (dbt plus OpenLineage events in a file)
-  and stores the events under ``audit/lineage/dbt-<run>.jsonl``.
-- ``publish`` publishes D as a versioned snapshot (ADR 006).
+  and stores the events under ``audit/lineage/dbt-core-<run>.jsonl``.
+- ``reconcile`` reconciles as of D and applies the lifecycle rules.
+- ``dbt_controls`` rebuilds the controls marts from the new results (lineage
+  under ``dbt-controls-<run>``).
+- ``publish_controls`` publishes D's controls snapshot (gate: KPI-01).
+- ``publish`` publishes D's financial snapshot (gate: KPI-01 and no open
+  CRITICAL/HIGH exception for D). A blocked date fails the task, which then
+  retries and alerts: publication is held until operations resolve it.
 
 Retries come from ``NBI_AIRFLOW_RETRIES`` and ``NBI_AIRFLOW_RETRY_DELAY_SECONDS``.
 When a task fails after its last retry, ``alert`` runs ``northstar
 record-alert``, which logs it and stores it under ``audit/alerts/``. A
 backfill uses the same tasks, so N backfilled dates equal N daily runs.
 
-Tasks that write the warehouse (load, dbt_build, publish) share the one-slot
+Tasks that write the warehouse (everything after ingest) share the one-slot
 ``warehouse`` pool, so concurrent runs, such as a backfill next to a triggered
 run, take turns instead of deadlocking.
 
@@ -52,8 +58,31 @@ run, and two concurrent dbt builds on one schema deadlock in Postgres."""
 BUSINESS_DATE = "{{ macros.ds_add(ds, -1) }}"
 RUN = "{{ run_id | replace(':', '-') | replace('+', '-') }}-try{{ ti.try_number }}"
 DATASET_VARS = (
-    '\'{"raw_schema": "{{ params.raw_schema }}", "ledger_schema": "{{ params.ledger_schema }}"}\''
+    '\'{"raw_schema": "{{ params.raw_schema }}", "ledger_schema": "{{ params.ledger_schema }}", '
+    '"recon_schema": "{{ params.recon_schema }}"}\''
 )
+
+
+def dbt_ol(command: str, suffix: str = "core") -> str:
+    """A ``dbt-ol`` run whose OpenLineage events are archived to the object store.
+
+    The events are archived even when dbt fails (FAIL events are lineage too);
+    the task then exits with dbt's status, or 1 if only the archiving failed.
+    """
+    events = f"/tmp/lineage/{RUN}-{suffix}.jsonl"  # noqa: S108 - task-private scratch
+    config = f"/tmp/lineage/{RUN}-{suffix}.yml"  # noqa: S108
+    return (
+        f"mkdir -p /tmp/lineage && rm -f {events} && "
+        f"printf 'transport:\\n  type: file\\n  log_file_path: {events}\\n"
+        f"  append: true\\n' > {config} && "
+        f"(cd {PROJECT}/warehouse/dbt && "
+        # dbt-ol runs `dbt` from PATH: the project's dbt, not anything else.
+        f"PATH={VENV_BIN}:$PATH OPENLINEAGE_CONFIG={config} OPENLINEAGE_NAMESPACE=northstar "
+        f"NBI_DBT_SCHEMA={{{{ params.dbt_schema }}}} {DBT_OL} {command} --vars {DATASET_VARS}); "
+        "status=$?; "
+        f'{NORTHSTAR} archive-lineage --file {events} --run-id "dbt-{suffix}-{RUN}" '
+        "|| { [ $status -eq 0 ] && status=1; }; exit $status"
+    )
 
 
 def alert(context: dict[str, Any]) -> None:
@@ -104,7 +133,9 @@ with DAG(
         "raw_schema": "raw_dev",
         "ledger_schema": "ledger_dev",
         "dbt_schema": "dbt_dataset",
+        "recon_schema": "recon_dev",
         "published_schema": "published_dev",
+        "controls_schema": "published_controls_dev",
     },
     default_args={
         "retries": int(os.environ.get("NBI_AIRFLOW_RETRIES", "2")),
@@ -135,36 +166,49 @@ with DAG(
         pool=WAREHOUSE_POOL,
         bash_command=(
             f"{NORTHSTAR} load-run --run-id \"{{{{ ti.xcom_pull(task_ids='ingest') }}}}\" "
-            "--raw-schema {{ params.raw_schema }} --ledger-schema {{ params.ledger_schema }}"
+            "--raw-schema {{ params.raw_schema }} --ledger-schema {{ params.ledger_schema }} "
+            "--recon-schema {{ params.recon_schema }}"
         ),
     )
-    # dbt-ol writes OpenLineage events to a file for this try; the events are
-    # archived even when dbt fails (FAIL events are lineage too), and the task
-    # then exits with dbt's status, or 1 if only the archiving failed.
-    dbt_build = BashOperator(
-        task_id="dbt_build",
+    dbt_build = BashOperator(task_id="dbt_build", pool=WAREHOUSE_POOL, bash_command=dbt_ol("build"))
+    reconcile = BashOperator(
+        task_id="reconcile",
         pool=WAREHOUSE_POOL,
         bash_command=(
-            f"mkdir -p /tmp/lineage && rm -f /tmp/lineage/{RUN}.jsonl && "
-            f"printf 'transport:\\n  type: file\\n  log_file_path: /tmp/lineage/{RUN}.jsonl\\n"
-            f"  append: true\\n' > /tmp/lineage/{RUN}.yml && "
-            f"(cd {PROJECT}/warehouse/dbt && "
-            # dbt-ol runs `dbt` from PATH: the project's dbt, not anything else.
-            f"PATH={VENV_BIN}:$PATH "
-            f"OPENLINEAGE_CONFIG=/tmp/lineage/{RUN}.yml OPENLINEAGE_NAMESPACE=northstar "
-            f"NBI_DBT_SCHEMA={{{{ params.dbt_schema }}}} {DBT_OL} build --vars {DATASET_VARS}); "
-            "status=$?; "
-            f'{NORTHSTAR} archive-lineage --file /tmp/lineage/{RUN}.jsonl --run-id "dbt-{RUN}" '
-            "|| { [ $status -eq 0 ] && status=1; }; exit $status"
+            f"{NORTHSTAR} reconcile --dbt-schema {{{{ params.dbt_schema }}}} "
+            f"--recon-schema {{{{ params.recon_schema }}}} --as-of {BUSINESS_DATE}"
+        ),
+    )
+    dbt_controls = BashOperator(
+        task_id="dbt_controls",
+        pool=WAREHOUSE_POOL,
+        bash_command=dbt_ol("build --select tag:controls", "controls"),
+    )
+    publish_controls = BashOperator(
+        task_id="publish_controls",
+        pool=WAREHOUSE_POOL,
+        bash_command=(
+            f"{NORTHSTAR} publish --stream controls --business-date {BUSINESS_DATE} "
+            "--dbt-schema {{ params.dbt_schema }} --published-schema {{ params.controls_schema }}"
         ),
     )
     publish = BashOperator(
         task_id="publish",
         pool=WAREHOUSE_POOL,
         bash_command=(
-            f"{NORTHSTAR} publish --business-date {BUSINESS_DATE} "
-            "--dbt-schema {{ params.dbt_schema }} --published-schema {{ params.published_schema }}"
+            f"{NORTHSTAR} publish --stream financial --business-date {BUSINESS_DATE} "
+            "--dbt-schema {{ params.dbt_schema }} --published-schema {{ params.published_schema }} "
+            "--recon-schema {{ params.recon_schema }}"
         ),
     )
 
-    check_business_day >> ingest >> load >> dbt_build >> publish
+    (
+        check_business_day
+        >> ingest
+        >> load
+        >> dbt_build
+        >> reconcile
+        >> dbt_controls
+        >> publish_controls
+        >> publish
+    )
