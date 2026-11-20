@@ -32,11 +32,12 @@ always give byte-identical events.
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_FLOOR, Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from northstar.common.exceptions import ScenarioError
 from northstar.common.money import Currency, Money
 from northstar.domain.calendar import BUSINESS_TIMEZONE, MarketCalendar
 from northstar.domain.events import (
@@ -100,6 +101,19 @@ class FxPath(_Frozen):
     daily_vol: Decimal = Field(gt=0, lt=1)
 
 
+class ClockStep(_Frozen):
+    """The random gap between one action and the next in the day's shared clock.
+
+    Each action moves the clock forward by a draw in [min, max) of ``unit``.
+    Larger datasets need smaller steps so a day's actions fit before the
+    16:30 close publication.
+    """
+
+    unit: Literal["seconds", "milliseconds"]
+    min: Annotated[int, Field(ge=1)]
+    max: Annotated[int, Field(ge=2)]
+
+
 class AccountLifecycle(_Frozen):
     """Account changes after opening (each probability is per account, over the window)."""
 
@@ -159,6 +173,7 @@ class DatasetConfig(_Frozen):
     window: Window
     settlement_time_local: time
     accounts: AccountMix
+    clock_step: ClockStep
     lifecycle: AccountLifecycle
     fx: FxPath
     instruments: tuple[GeneratedInstrument, ...]
@@ -174,6 +189,9 @@ class DatasetConfig(_Frozen):
         months = {d.month for d in _days(self.window.start, self.window.end)}
         if missing := months - set(self.deposits.seasonal):
             msg = f"seasonal deposit factors are missing for months {sorted(missing)}"
+            raise ValueError(msg)
+        if self.clock_step.min >= self.clock_step.max:
+            msg = "clock_step.min must be below clock_step.max"
             raise ValueError(msg)
         if self.orders.budget_min > self.orders.budget_max:
             msg = "budget_min exceeds budget_max"
@@ -248,15 +266,25 @@ _BACK_OFFICE_TIME = time(8, 0)
 """When account updates are processed (simulation convention, before the open)."""
 
 
+CLOSE_PUBLICATION = time(16, 30)
+"""When the day's closing prices are published; every action must come before."""
+
+
 class _Clock:
     """One global time order for the day's actions (the engine requires it)."""
 
-    def __init__(self, day: date) -> None:
+    def __init__(self, day: date, step: ClockStep) -> None:
         self.now = _local(day, time(9, 35))
         self.close = _local(day, time(15, 55))
+        self._step = step
 
     def step(self, rng: np.random.Generator) -> datetime:
-        self.now += timedelta(seconds=int(rng.integers(5, 90)))
+        draw = int(rng.integers(self._step.min, self._step.max))
+        self.now += (
+            timedelta(seconds=draw)
+            if self._step.unit == "seconds"
+            else timedelta(milliseconds=draw)
+        )
         return self.now
 
     @property
@@ -323,7 +351,7 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
                     change.reason,
                 )
             )
-        clock = _Clock(day)
+        clock = _Clock(day, config.clock_step)
         for key, account_type, opens_on, rng in accounts:
             if day < opens_on:
                 continue
@@ -336,10 +364,16 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
                 )
                 engine.submit(Deposit(clock.step(rng), key, Money(amount, Currency.CAD)))
             _day_activity(config, policies, engine, market, key, rng, day, clock, month_ends)
+        if clock.now >= _local(day, CLOSE_PUBLICATION):
+            msg = (
+                f"{day}: the day's actions ran to {clock.now.isoformat()}, past the "
+                f"{CLOSE_PUBLICATION} close publication; use a smaller clock_step"
+            )
+            raise ScenarioError(msg)
         for spec in config.instruments:  # closes after the market, in config order
             close = market.closes[spec.key].get(day)
             if close is not None:
-                engine.submit(ClosePrice(_local(day, time(16, 30)), spec.key, day, close))
+                engine.submit(ClosePrice(_local(day, CLOSE_PUBLICATION), spec.key, day, close))
     return engine.finish(config.window.end)
 
 

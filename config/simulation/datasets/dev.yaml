@@ -9,6 +9,9 @@ settlement_time_local: "12:00:00"
 
 accounts: {count: 50, margin_share: "0.40", base_currency: CAD}
 
+# Gap between consecutive actions in the day's shared clock (5-90 seconds).
+clock_step: {unit: seconds, min: 5, max: 90}
+
 # Account changes after opening (FR-M1-05 SCD2 history): margin approvals of
 # CASH accounts, and short trading restrictions.
 lifecycle:

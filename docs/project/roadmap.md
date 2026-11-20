@@ -38,7 +38,7 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
 | 6 Treasury forecasting | 13–14 | Known vs. uncertain flows, baseline/statistical/GBM models, walk-forward evaluation, intervals, scenarios, MLflow | **Forecast evaluation gate:** reproducible forecasts evaluated against the baseline, with error, bias, coverage, and stress results documented | Not started |
 | 7 Finance intelligence | 15–16 | Profitability mart, allocation method, KPI restatements, drilldown, simulated reporting package, executive dashboard | **Reporting gate:** every finance KPI has a documented formula, passes tie-outs, and drills down to transactions | Not started |
-| 8 Production readiness | 17–18 | Load tests, failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
+| 8 Production readiness | 17–18 | Load tests (including the 1M-execution run deferred from Phase 3: streaming generation and loading), failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
 
 ## Phase 3 (weeks 5–7)
 
@@ -55,6 +55,7 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 | Account history | new event `account_updated` (margin approvals, trading restrictions) drives SCD2 `dim_account`, built by event time rather than as a dbt snapshot (FR-M1-05 reworded) |
 | Quarantine threshold | 0.5% per load (illustrative, versioned config); a load above it fails |
 | Deferred | average cost in `fct_positions_daily` (Phase 5); the reconciliation-exception condition of the publication gate (Phase 4) |
+| Load test (3G) | measure the pipeline end to end at the largest size the 8 GB reference laptop handles; the 1M-execution target (FR-SIM-06, NFR-08) moves to Phase 8 with streaming generation and loading |
 
 | PR | Status |
 |---|---|
@@ -63,8 +64,23 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 | 3C dbt staging, dimensions, core facts | Done (#22): `dim_account` (event-sourced SCD2), `dim_instrument`, `dim_calendar`, `fct_orders`, `fct_settlements`, `fct_cash_movements`, extended `fct_executions`; INV-06 and point-in-time tests; append-only triggers (INV-11). External record staging moves to Phase 4 |
 | 3D daily facts and gate marts | Done (#23): FX rates and fallback, prices with staleness, daily positions valued in CAD, and the client cash, positions, executions, and finance marts with INV-03/07/08/10 tests ([data foundation](../architecture/data-foundation.md#daily-facts-and-marts)) |
 | 3E snapshots and restatements | Done (#24): content-addressed snapshot versions, publication gate (KPI-01), append-only status log, point-in-time reads, and a late-record restatement in CI ([data foundation](../architecture/data-foundation.md#published-snapshots-and-restatements-adr-006-fr-m1-06)) |
-| 3F orchestration and lineage | Built (this PR): `northstar_daily` DAG in a custom Airflow image (project venv), retries and stored alerts, backfill equal to daily runs, dbt and Airflow OpenLineage events as files ([data foundation](../architecture/data-foundation.md#orchestration-and-lineage-fr-m1-07-adr-008)) |
-| 3G load test and gate | Not started |
+| 3F orchestration and lineage | Done (#25): `northstar_daily` DAG in a custom Airflow image (project venv), retries and stored alerts, backfill equal to daily runs, dbt and Airflow OpenLineage events as files ([data foundation](../architecture/data-foundation.md#orchestration-and-lineage-fr-m1-07-adr-008)) |
+| 3G load test and gate | Built (this PR): `load.yaml` (6,400 accounts) measured end to end with `scripts/benchmark.py` ([load test](../performance/load-test.md)); three scaling fixes (generator clock, balance index, INV-10 tie-out). The 1M-execution target moves to Phase 8 (owner decision) |
+
+### Phase 3 gate evidence
+
+**Trusted data gate:** the daily cash, position, execution, and finance marts pass quality tests, and historical snapshots are reproducible.
+
+- **Marts pass their tests:** `mart_daily_client_cash`, `mart_daily_positions`, `mart_daily_executions`, and `mart_daily_finance`, with their facts, pass every dbt test on the dev dataset (174 nodes) and at load-test size (174 nodes, 6,400 accounts, run on `d05f7e7`). The tests include:
+  - enforced contracts, keys, and relationships
+  - INV-03, INV-06, INV-07, INV-08, and INV-10 tie-outs to the ledger
+  - half-even rounding and staleness
+  - dbt unit tests for the cases the data never produces
+- **Snapshots are reproducible:** in CI on every push, publishing all 63 reporting dates and then publishing again creates no new version (INV-09). A late deposit restates exactly the affected dates as v2 with a reason, and leaves v1 queryable. Two independent local runs gave identical hashes for 2026-03-02 v1 and v2. Airflow daily runs and backfills publish the same hashes as the CLI.
+- **Ingestion and orchestration:** a replayed ingestion writes nothing (FR-M1-03). A forced task failure retries and alerts. dbt and Airflow lineage are recorded.
+- **Open:** the 1M-execution load test (FR-SIM-06, NFR-08) is deferred to Phase 8. The pipeline is measured at 98,334 executions, and generation alone at 189,734.
+
+**Awaiting owner approval** to mark the gate passed.
 
 ## Phase 2 (weeks 3–4)
 

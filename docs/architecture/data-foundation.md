@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Partly implemented (Phase 3): ingestion and the warehouse load (3B); dbt staging, dimensions, and core trading facts (3C); daily facts and the gate marts (3D); published snapshots and restatements (3E); Airflow orchestration and lineage (3F). The load test follows in 3G ([roadmap](../project/roadmap.md#phase-3-weeks-57)). |
+| Status | Partly implemented (Phase 3): ingestion and the warehouse load (3B); dbt staging, dimensions, and core trading facts (3C); daily facts and the gate marts (3D); published snapshots and restatements (3E); Airflow orchestration and lineage (3F); the load test (3G, [results](../performance/load-test.md)) ([roadmap](../project/roadmap.md#phase-3-weeks-57)). |
 | Requirements | FR-M1-01 to FR-M1-07 ([requirements](../business/requirements.md)) |
 
 ## Ingestion (FR-M1-01 to FR-M1-03)

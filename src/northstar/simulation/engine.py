@@ -295,6 +295,9 @@ class SimulationEngine:
         self._drafts: list[_Draft] = []
         self._clock: datetime | None = None
         self._balances: dict[tuple[str, Currency], Decimal] = {}
+        # The same balances indexed by account, so funds checks look at one
+        # account's currencies instead of scanning every client (O(1) per order).
+        self._by_account: dict[str, dict[Currency, Decimal]] = {}
         self._accounts: dict[str, tuple[str, AccountType]] = {}
         self._account_order: list[str] = []
         self._obligations: dict[tuple[str, date], _Obligation] = {}
@@ -480,6 +483,7 @@ class SimulationEngine:
                         )
                         key = (line.client_account_id, line.amount.currency)
                         self._balances[key] = self._balances.get(key, Decimal(0)) + signed
+                        self._by_account.setdefault(key[0], {})[key[1]] = self._balances[key]
         self._drafts.append(draft)
 
     def _list_instruments(self, at: datetime) -> None:
@@ -540,7 +544,7 @@ class SimulationEngine:
         if (action.account_type, action.status) == (current_type, self._status[account_id]):
             msg = f"account {action.account!r} update changes nothing"
             raise ScenarioError(msg)
-        has_loan = any(b < 0 for (a, _), b in self._balances.items() if a == account_id)
+        has_loan = any(b < 0 for b in self._by_account.get(account_id, {}).values())
         if has_loan and (current_type, action.account_type) == (
             AccountType.MARGIN,
             AccountType.CASH,
@@ -792,8 +796,8 @@ class SimulationEngine:
 
     def _require_funds(self, account_id: str, account_type: AccountType, on: date) -> None:
         if account_type is AccountType.CASH:
-            for (acct, currency), balance in self._balances.items():
-                if acct == account_id and balance < 0:
+            for currency, balance in self._by_account.get(account_id, {}).items():
+                if balance < 0:
                     msg = f"CASH account {account_id} would be overdrawn in {currency} ({balance})"
                     raise ScenarioError(msg)
             return
@@ -808,8 +812,8 @@ class SimulationEngine:
 
     def _debit_cad(self, account_id: str, on: date) -> Money:
         total = Decimal(0)
-        for (acct, currency), balance in self._balances.items():
-            if acct != account_id or balance >= 0:
+        for currency, balance in self._by_account.get(account_id, {}).items():
+            if balance >= 0:
                 continue
             loan = -balance
             total += (
