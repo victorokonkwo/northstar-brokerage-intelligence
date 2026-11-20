@@ -125,3 +125,43 @@ def test_every_variable_the_script_reads_is_set() -> None:
     }
     assert overrides == SET_BY_STATE_MACHINE
     assert read <= task_definition | overrides, read - task_definition - overrides
+
+
+@pytest.mark.parametrize("command", ["archive-lineage", "record-alert"])
+def test_audit_records_go_to_the_warehouses_object_store(
+    command: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # In the cloud (NBI_WAREHOUSE=redshift) there is no local object store: lineage
+    # and alerts go to the bronze bucket's audit/ area, like the raw objects.
+    from northstar.application import cli
+
+    stores: list[str] = []
+
+    class CapturedError(Exception):
+        pass
+
+    def store_for(warehouse: str) -> object:
+        stores.append(warehouse)
+        raise CapturedError
+
+    monkeypatch.setattr(cli, "_object_store", store_for)
+    events = tmp_path / "events.jsonl"
+    events.write_text("{}\n")
+    args = {
+        "archive-lineage": ["--file", str(events), "--run-id", "r1"],
+        "record-alert": [
+            "--dag-id",
+            "d",
+            "--task-id",
+            "t",
+            "--run-id",
+            "r1",
+            "--try-number",
+            "1",
+            "--message",
+            "m",
+        ],
+    }[command]
+    with pytest.raises(CapturedError):
+        cli._run(build_parser().parse_args(["--warehouse", "redshift", command, *args]))
+    assert stores == ["redshift"]
