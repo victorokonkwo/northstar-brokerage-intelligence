@@ -24,7 +24,7 @@ variable "base_capacity_rpu" {
 variable "daily_rpu_hours" {
   description = "Daily compute limit in RPU-hours. On breach, Redshift turns off user queries until the next period."
   type        = number
-  default     = 4
+  default     = 8 # owner decision 2026-11-20 (was 4; raised for the 4F-c parity rerun and kept)
 
   validation {
     condition     = var.daily_rpu_hours > 0
