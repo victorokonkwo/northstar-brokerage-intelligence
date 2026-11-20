@@ -72,27 +72,25 @@
           "ErrorEquals": [
             "States.ALL"
           ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
           "Output": {
             "step": "check_business_day",
             "error": "{% $states.errorOutput.Error %}",
-            "cause": "{% $states.errorOutput.Cause %}"
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
           },
-          "Next": "NotifyFailure"
+          "Next": "CheckBusinessDayFailed"
         }
       ],
       "Next": "CheckBusinessDayExitCode"
     },
     "CheckBusinessDayExitCode": {
       "Type": "Choice",
-      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
           "Next": "IngestAndLoad"
-        },
-        {
-          "Condition": "{% $states.input.exit_code = 99 %}",
-          "Next": "NotABusinessDay"
         }
       ],
       "Default": "NotifyFailure"
@@ -157,10 +155,12 @@
           "ErrorEquals": [
             "States.ALL"
           ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
           "Output": {
             "step": "ingest_and_load",
             "error": "{% $states.errorOutput.Error %}",
-            "cause": "{% $states.errorOutput.Cause %}"
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
           },
           "Next": "NotifyFailure"
         }
@@ -169,7 +169,7 @@
     },
     "IngestAndLoadExitCode": {
       "Type": "Choice",
-      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
@@ -238,10 +238,12 @@
           "ErrorEquals": [
             "States.ALL"
           ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
           "Output": {
             "step": "dbt_build",
             "error": "{% $states.errorOutput.Error %}",
-            "cause": "{% $states.errorOutput.Cause %}"
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
           },
           "Next": "NotifyFailure"
         }
@@ -250,7 +252,7 @@
     },
     "DbtBuildExitCode": {
       "Type": "Choice",
-      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
@@ -319,10 +321,12 @@
           "ErrorEquals": [
             "States.ALL"
           ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
           "Output": {
             "step": "reconcile",
             "error": "{% $states.errorOutput.Error %}",
-            "cause": "{% $states.errorOutput.Cause %}"
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
           },
           "Next": "NotifyFailure"
         }
@@ -331,7 +335,7 @@
     },
     "ReconcileExitCode": {
       "Type": "Choice",
-      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
@@ -400,10 +404,12 @@
           "ErrorEquals": [
             "States.ALL"
           ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
           "Output": {
             "step": "dbt_controls",
             "error": "{% $states.errorOutput.Error %}",
-            "cause": "{% $states.errorOutput.Cause %}"
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
           },
           "Next": "NotifyFailure"
         }
@@ -412,7 +418,7 @@
     },
     "DbtControlsExitCode": {
       "Type": "Choice",
-      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
@@ -481,10 +487,12 @@
           "ErrorEquals": [
             "States.ALL"
           ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
           "Output": {
             "step": "publish_controls",
             "error": "{% $states.errorOutput.Error %}",
-            "cause": "{% $states.errorOutput.Cause %}"
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
           },
           "Next": "NotifyFailure"
         }
@@ -493,7 +501,7 @@
     },
     "PublishControlsExitCode": {
       "Type": "Choice",
-      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
@@ -562,10 +570,12 @@
           "ErrorEquals": [
             "States.ALL"
           ],
+          "Comment": "A non-zero exit lands here, with the exit code in the error's Cause.",
           "Output": {
             "step": "publish",
             "error": "{% $states.errorOutput.Error %}",
-            "cause": "{% $states.errorOutput.Cause %}"
+            "cause": "{% $substring($states.errorOutput.Cause, 0, 500) %}",
+            "exit_code": "{% $contains($states.errorOutput.Cause, '\"ExitCode\"') ? $parse($states.errorOutput.Cause).Containers[0].ExitCode : null %}"
           },
           "Next": "NotifyFailure"
         }
@@ -574,7 +584,7 @@
     },
     "PublishExitCode": {
       "Type": "Choice",
-      "Comment": "Whatever the integration does with a non-zero exit, only 0 continues.",
+      "Comment": "A successful task exited 0; this guards the next step anyway.",
       "Choices": [
         {
           "Condition": "{% $states.input.exit_code = 0 %}",
@@ -583,9 +593,20 @@
       ],
       "Default": "NotifyFailure"
     },
+    "CheckBusinessDayFailed": {
+      "Type": "Choice",
+      "Comment": "Exit code 99: not a ledger business day, so nothing to close (the DAG skips it).",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.exit_code = 99 %}",
+          "Next": "NotABusinessDay"
+        }
+      ],
+      "Default": "NotifyFailure"
+    },
     "NotABusinessDay": {
       "Type": "Succeed",
-      "Comment": "Not a ledger business day (exit 99): nothing to close."
+      "Comment": "Not a ledger business day: nothing to close."
     },
     "NotifyFailure": {
       "Type": "Task",
@@ -593,7 +614,7 @@
       "Arguments": {
         "TopicArn": "${alerts_topic_arn}",
         "Subject": "northstar daily close failed",
-        "Message": "{% 'Business date ' & $business_date & ': step ' & $states.input.step & ' failed (' & ($exists($states.input.exit_code) ? 'exit code ' & $string($states.input.exit_code) : $states.input.error & ': ' & $states.input.cause) & '). Execution ' & $states.context.Execution.Id %}"
+        "Message": "{% 'Business date ' & $business_date & ': step ' & $states.input.step & ' failed (' & ($states.input.exit_code != null ? 'exit code ' & $string($states.input.exit_code) : $states.input.error & ': ' & $states.input.cause) & '). Execution ' & $states.context.Execution.Id %}"
       },
       "Next": "Failed"
     },

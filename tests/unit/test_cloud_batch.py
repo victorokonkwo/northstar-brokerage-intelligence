@@ -90,19 +90,22 @@ def test_a_step_continues_only_after_exit_code_zero() -> None:
     tasks = {k: v for k, v in states.items() if v.get("Resource", "").endswith("runTask.sync")}
     assert len(tasks) == len(DAG_ORDER)
     for name, task in tasks.items():
-        assert task["Catch"][0]["ErrorEquals"] == ["States.ALL"]
-        assert task["Catch"][0]["Next"] == "NotifyFailure"
+        (catch,) = task["Catch"]
+        assert catch["ErrorEquals"] == ["States.ALL"]
+        assert "exit_code" in catch["Output"]
+        # runTask.sync fails the state on a non-zero exit (verified 2026-11-20), so
+        # every failure goes through the Catch; only the date check may skip on 99.
+        assert catch["Next"] == (
+            "CheckBusinessDayFailed" if name == "CheckBusinessDay" else "NotifyFailure"
+        )
         check = states[task["Next"]]
         assert check["Type"] == "Choice"
         assert check["Default"] == "NotifyFailure"
-        conditions = {c["Condition"]: c["Next"] for c in check["Choices"]}
-        assert "{% $states.input.exit_code = 0 %}" in conditions
-        others = set(conditions) - {"{% $states.input.exit_code = 0 %}"}
-        if name == "CheckBusinessDay":
-            assert others == {"{% $states.input.exit_code = 99 %}"}
-            assert states[conditions["{% $states.input.exit_code = 99 %}"]]["Type"] == "Succeed"
-        else:
-            assert others == set()
+        assert [c["Condition"] for c in check["Choices"]] == ["{% $states.input.exit_code = 0 %}"]
+    skip = states["CheckBusinessDayFailed"]
+    assert [c["Condition"] for c in skip["Choices"]] == ["{% $states.input.exit_code = 99 %}"]
+    assert states[skip["Choices"][0]["Next"]]["Type"] == "Succeed"
+    assert skip["Default"] == "NotifyFailure"
     assert states["NotifyFailure"]["Next"] == "Failed"
     assert states["Failed"]["Type"] == "Fail"
 
