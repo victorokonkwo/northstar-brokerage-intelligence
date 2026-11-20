@@ -79,7 +79,7 @@ Option 3 (owner decision 2026-11-20). It is checkable in `infrastructure/terrafo
   - The JSONata context fields resolve: the run ID was `cloud-<execution>-check_business_day-try0`.
   - Pulling the image over the no-NAT network, and writing logs to CloudWatch, work.
   - The date logic was checked with `TestState`: 2026-03-03T11:00Z closes 2026-03-02, and 2026-07-01T10:00Z closes 2026-06-30.
-- **Not yet verified:** a full close, which waits for Redshift's daily usage limit. It includes the task role's database user name, and Redshift traffic through the private address.
+- **Verified 2026-11-20:** a full close for 2026-01-06 ran all 8 steps on Redshift through the private address. The task role's database user is `IAMR:northstar-batch-task`, created on its first connection and then granted the pipeline role. The task role owns the dbt schema it rebuilds, so the dbt schema must not be built first by another user.
 - **The private address can change.** The workgroup's ENI address is read at apply time, and a workgroup change can move it, which needs another apply of the batch stack.
 
 ## Revisit when
