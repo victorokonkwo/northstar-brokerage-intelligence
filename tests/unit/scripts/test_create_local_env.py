@@ -76,3 +76,28 @@ def test_creates_owner_only_file_and_never_overwrites(tmp_path: Path) -> None:
 
     assert create_local_env.create_env_file(template, target) is False
     assert target.read_text(encoding="utf-8") == first
+
+
+def test_redshift_passwords_meet_its_rules() -> None:
+    for _ in range(200):
+        password = create_local_env.redshift_password()
+        assert 8 <= len(password) <= 64
+        assert any(c.isupper() for c in password)
+        assert any(c.islower() for c in password)
+        assert any(c.isdigit() for c in password)
+        assert password.isalnum()  # no quote, backslash, slash, @, or space
+
+
+def test_missing_keys_are_appended_and_existing_lines_kept(tmp_path: Path) -> None:
+    template = tmp_path / "template"
+    target = tmp_path / ".env"
+    template.write_text("A=<generate>\n# note\nB=plain\nC=<generate-redshift-password>\n")
+    target.write_text("A=in-use-secret\nOWN=mine", encoding="utf-8")  # no final newline
+
+    assert create_local_env.add_missing_keys(template, target) == ["B", "C"]
+    lines = target.read_text(encoding="utf-8").splitlines()
+    assert lines[:2] == ["A=in-use-secret", "OWN=mine"]
+    values = _parse("\n".join(lines))
+    assert values["B"] == "plain"
+    assert values["C"].isalnum()
+    assert create_local_env.add_missing_keys(template, target) == []

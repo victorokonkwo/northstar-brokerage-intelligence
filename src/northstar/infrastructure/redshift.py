@@ -253,6 +253,44 @@ def grant_pipeline(
             cur.execute(sql.SQL("grant role {} to {}").format(role, sql.Identifier(user)))
 
 
+DASHBOARD_READER: Final = "looker"
+"""The database user Looker Studio connects as (ADR 011): reads the serving schema only."""
+
+
+def grant_dashboard_reader(
+    conn: RedshiftConnection,
+    serving_schema: str,
+    pipeline_users: Sequence[str],
+    password: str,
+    reader: str = DASHBOARD_READER,
+) -> None:
+    """As the admin: let the pipeline build the serving views, and let ``reader`` read them only.
+
+    Looker Studio connects with a user name and password, not IAM, so ``reader``
+    is a password user. It gets USAGE on ``serving_schema`` and SELECT on its
+    views, nothing else. dbt replaces a view on every build, which drops grants
+    on it, so the SELECT comes from default privileges for each pipeline user
+    that builds them. Running this again resets the password to ``password``.
+    """
+    schema = sql.Identifier(serving_schema)
+    user = sql.Identifier(reader)
+    role = sql.Identifier(PIPELINE_ROLE)
+    with conn.cursor() as cur:
+        cur.execute(sql.SQL("create schema if not exists {}").format(schema))
+        cur.execute(sql.SQL("grant usage, create on schema {} to role {}").format(schema, role))
+        cur.execute("select 1 from pg_user where usename = %s", (reader,))
+        verb = "alter" if cur.fetchone() is not None else "create"
+        cur.execute(sql.SQL(verb + " user {} password {}").format(user, sql.Literal(password)))
+        cur.execute(sql.SQL("grant usage on schema {} to {}").format(schema, user))
+        cur.execute(sql.SQL("grant select on all tables in schema {} to {}").format(schema, user))
+        for builder in pipeline_users:
+            cur.execute(
+                sql.SQL(
+                    "alter default privileges for user {} in schema {} grant select on tables to {}"
+                ).format(sql.Identifier(builder), schema, user)
+            )
+
+
 def _iam_role(role: str) -> sql.Composable:
     """``default`` (the namespace's default role) as a keyword, any other ARN as a literal."""
     return sql.SQL("default") if role == "default" else sql.Literal(role)

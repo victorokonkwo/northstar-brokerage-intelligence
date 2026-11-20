@@ -27,7 +27,11 @@ from northstar.infrastructure.recon_store import (
     ensure_recon_tables,
     lock_exception,
 )
-from northstar.infrastructure.redshift import RedshiftSettings, grant_pipeline
+from northstar.infrastructure.redshift import (
+    RedshiftSettings,
+    grant_dashboard_reader,
+    grant_pipeline,
+)
 from northstar.infrastructure.snapshots import (
     PUBLISHED_MARTS,
     VersionRecord,
@@ -269,3 +273,64 @@ def test_lifecycle_transitions_are_recorded_with_their_derived_ids(
         (exception_id,),
     ).fetchone()
     assert stored == (str(derived_id("recon_transition", exception_id, 1)), "OPEN")
+
+
+def test_the_dashboard_reader_reads_serving_views_only(
+    settings: RedshiftSettings, schemas: WarehouseSchemas
+) -> None:
+    # A throwaway reader, not the real `looker`: this test must not reset its password.
+    suffix = uuid.uuid4().hex[:8]
+    serving, reader, password = f"t_serving_{suffix}", f"t_looker_{suffix}", f"Tl{suffix}9x"
+    secret = os.environ["NBI_RS_ADMIN_SECRET_ARN"]
+    with settings.connect() as me:
+        pipeline_user = str(me.info.user)
+    with settings.connect_admin(secret) as admin:
+        admin.autocommit = True
+        grant_dashboard_reader(admin, serving, [pipeline_user], password, reader=reader)
+    try:
+        # The pipeline creates a view after the grant, as dbt does on every build.
+        with settings.connect() as pipeline:
+            pipeline.autocommit = True
+            pipeline.execute(
+                sql.SQL("create view {} as select 1 as figure").format(
+                    sql.Identifier(serving, "serving_test")
+                )
+            )
+        with psycopg.connect(
+            host=settings.host,
+            port=settings.port,
+            dbname=settings.dbname,
+            user=reader,
+            password=password,
+            sslmode="require",
+            prepare_threshold=None,
+        ) as looker:
+            looker.autocommit = True
+            row = looker.execute(
+                sql.SQL("select figure from {}").format(sql.Identifier(serving, "serving_test"))
+            ).fetchone()
+            assert row == (1,)
+            for statement in (
+                sql.SQL("select count(*) from {}").format(
+                    sql.Identifier(schemas.raw, "market_calendar_days")
+                ),
+                sql.SQL("create table {} (a integer)").format(sql.Identifier(serving, "t")),
+            ):
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    looker.execute(statement)
+    finally:
+        # Default privileges name the reader, so they go before the user can.
+        with settings.connect_admin(secret) as admin:
+            admin.autocommit = True
+            admin.execute(
+                sql.SQL(
+                    "alter default privileges for user {} in schema {} "
+                    "revoke select on tables from {}"
+                ).format(
+                    sql.Identifier(pipeline_user), sql.Identifier(serving), sql.Identifier(reader)
+                )
+            )
+            admin.execute(
+                sql.SQL("drop schema if exists {} cascade").format(sql.Identifier(serving))
+            )
+            admin.execute(sql.SQL("drop user if exists {}").format(sql.Identifier(reader)))

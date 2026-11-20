@@ -16,6 +16,8 @@ holds no business logic (system overview §4).
 - ``dbt_controls`` rebuilds the controls marts from the new results (lineage
   under ``dbt-controls-<run>``).
 - ``publish_controls`` publishes D's controls snapshot (gate: KPI-01).
+- ``serving`` builds the operations dashboard's views of the published controls
+  snapshots (dbt ``tag:serving``, lineage under ``dbt-serving-<run>``; ADR 011).
 - ``publish`` publishes D's financial snapshot (gate: KPI-01 and no open
   CRITICAL/HIGH exception for D). A blocked date fails the task, which then
   retries and alerts: publication is held until operations resolve it.
@@ -59,7 +61,8 @@ BUSINESS_DATE = "{{ macros.ds_add(ds, -1) }}"
 RUN = "{{ run_id | replace(':', '-') | replace('+', '-') }}-try{{ ti.try_number }}"
 DATASET_VARS = (
     '\'{"raw_schema": "{{ params.raw_schema }}", "ledger_schema": "{{ params.ledger_schema }}", '
-    '"recon_schema": "{{ params.recon_schema }}"}\''
+    '"recon_schema": "{{ params.recon_schema }}", '
+    '"published_controls_schema": "{{ params.controls_schema }}"}\''
 )
 
 
@@ -192,6 +195,11 @@ with DAG(
             "--dbt-schema {{ params.dbt_schema }} --published-schema {{ params.controls_schema }}"
         ),
     )
+    serving = BashOperator(
+        task_id="serving",
+        pool=WAREHOUSE_POOL,
+        bash_command=dbt_ol("build --select tag:serving", "serving"),
+    )
     publish = BashOperator(
         task_id="publish",
         pool=WAREHOUSE_POOL,
@@ -210,5 +218,6 @@ with DAG(
         >> reconcile
         >> dbt_controls
         >> publish_controls
+        >> serving
         >> publish
     )

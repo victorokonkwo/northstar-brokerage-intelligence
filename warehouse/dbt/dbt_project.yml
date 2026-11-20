@@ -47,3 +47,10 @@ models:
       +materialized: table
     marts:
       +materialized: table
+    # Read by the operations dashboard: views of the currently published
+    # snapshots, in their own schema (<target schema>_serving). Built after
+    # publication only (selectors.yml, make serving; ADR 011).
+    serving:
+      +materialized: view
+      +schema: serving
+      +tags: [serving]

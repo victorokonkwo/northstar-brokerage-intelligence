@@ -76,7 +76,13 @@ from northstar.infrastructure.recon_store import (
     ensure_recon_tables,
     history,
 )
-from northstar.infrastructure.redshift import PIPELINE_ROLE, RedshiftSettings, grant_pipeline
+from northstar.infrastructure.redshift import (
+    DASHBOARD_READER,
+    PIPELINE_ROLE,
+    RedshiftSettings,
+    grant_dashboard_reader,
+    grant_pipeline,
+)
 from northstar.infrastructure.snapshots import CONTROLS_MARTS, PUBLISHED_MARTS, ensure_published
 from northstar.infrastructure.snapshots import history as snapshot_history
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
@@ -199,6 +205,14 @@ def build_parser() -> argparse.ArgumentParser:
     boot.add_argument(
         "--dbt-schema",
         help="the built dbt marts the published copies take their columns from",
+    )
+    boot.add_argument(
+        "--looker-user",
+        action="store_true",
+        help=(
+            "also create the read-only dashboard user (looker) on <dbt-schema>_serving, "
+            "with the password in $NBI_LOOKER_PASSWORD (needs --dbt-schema)"
+        ),
     )
     boot.add_argument(
         "--admin-secret-arn",
@@ -519,8 +533,14 @@ def _redshift_bootstrap(args: argparse.Namespace, out: TextIO) -> int:
         )
         if schema
     ]
-    if published and not args.dbt_schema:
-        sys.stderr.write("--published-schema and --published-controls-schema need --dbt-schema\n")
+    if (published or args.looker_user) and not args.dbt_schema:
+        sys.stderr.write(
+            "--published-schema, --published-controls-schema, and --looker-user need --dbt-schema\n"
+        )
+        return 2
+    looker_password = os.environ.get("NBI_LOOKER_PASSWORD", "")
+    if args.looker_user and not looker_password:
+        sys.stderr.write("--looker-user needs NBI_LOOKER_PASSWORD (run `make env` to add it)\n")
         return 2
     settings = RedshiftSettings.from_env()
     users = list(args.grant_to)
@@ -537,6 +557,10 @@ def _redshift_bootstrap(args: argparse.Namespace, out: TextIO) -> int:
             ensure_published(admin, schema, args.dbt_schema, marts)
         owned = (schemas.raw, schemas.ledger, schemas.recon, *(schema for schema, _ in published))
         grant_pipeline(admin, owned, users, lock_tables=[(schemas.recon, LOCK_TABLE)])
+        if args.looker_user:
+            serving = f"{args.dbt_schema}_serving"
+            grant_dashboard_reader(admin, serving, users, looker_password)
+            owned = (*owned, f"{serving} (read by {DASHBOARD_READER})")
     out.write(
         f"bootstrapped {', '.join(owned)} "
         f"(owned by the admin); granted {PIPELINE_ROLE} to {', '.join(users)}\n"

@@ -1,0 +1,14 @@
+# The default for every dbt command without --select: everything except the
+# serving views. They read published snapshots, which exist only after
+# publication, so they are built after it (make serving; roadmap 4H).
+selectors:
+  - name: pipeline
+    description: Every model and test except the serving views (tag serving).
+    default: true
+    definition:
+      union:
+        - method: fqn
+          value: "*"
+        - exclude:
+            - method: tag
+              value: serving

@@ -4,7 +4,7 @@
 # (orchestration/airflow/dags/northstar_daily.py) and holds no business logic.
 #
 #   run_step.sh check_business_day|ingest_and_load|dbt_build|reconcile|
-#               dbt_controls|publish_controls|publish
+#               dbt_controls|publish_controls|serving|publish
 #
 # The state machine sets NBI_BUSINESS_DATE (the date being closed) and NBI_RUN
 # (unique per execution and attempt). The task definition sets the warehouse
@@ -26,7 +26,7 @@ dbt_ol() {
   printf 'transport:\n  type: file\n  log_file_path: %s\n  append: true\n' "$events" > "$config"
   status=0
   (cd /opt/northstar/warehouse/dbt && OPENLINEAGE_CONFIG=$config OPENLINEAGE_NAMESPACE=northstar \
-    dbt-ol "$@" --vars "{\"raw_schema\": \"$NBI_RAW_SCHEMA\", \"ledger_schema\": \"$NBI_LEDGER_SCHEMA\", \"recon_schema\": \"$NBI_RECON_SCHEMA\"}") \
+    dbt-ol "$@" --vars "{\"raw_schema\": \"$NBI_RAW_SCHEMA\", \"ledger_schema\": \"$NBI_LEDGER_SCHEMA\", \"recon_schema\": \"$NBI_RECON_SCHEMA\", \"published_controls_schema\": \"$NBI_PUBLISHED_CONTROLS_SCHEMA\"}") \
     || status=$?
   northstar archive-lineage --file "$events" --run-id "dbt-$suffix-$NBI_RUN" \
     || { [ "$status" -eq 0 ] && status=1; }
@@ -61,13 +61,16 @@ case ${1:-} in
     northstar publish --stream controls --business-date "$NBI_BUSINESS_DATE" \
       --dbt-schema "$NBI_DBT_SCHEMA" --published-schema "$NBI_PUBLISHED_CONTROLS_SCHEMA"
     ;;
+  serving)
+    dbt_ol serving build --select tag:serving
+    ;;
   publish)
     northstar publish --stream financial --business-date "$NBI_BUSINESS_DATE" \
       --dbt-schema "$NBI_DBT_SCHEMA" --published-schema "$NBI_PUBLISHED_SCHEMA" \
       --recon-schema "$NBI_RECON_SCHEMA"
     ;;
   *)
-    echo "usage: $0 check_business_day|ingest_and_load|dbt_build|reconcile|dbt_controls|publish_controls|publish" >&2
+    echo "usage: $0 check_business_day|ingest_and_load|dbt_build|reconcile|dbt_controls|publish_controls|serving|publish" >&2
     exit 2
     ;;
 esac
