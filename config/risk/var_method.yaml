@@ -1,0 +1,10 @@
+# Historical-simulation VaR and Expected Shortfall (FR-M3-03; KPI-09, KPI-10).
+# Owner decision 2026-11-20 resolving OQ-08: a 250-day window and order
+# statistics without interpolation (docs/methodology/value-at-risk.md). Every
+# result records model_version.
+model_version: var-hs-2026.1
+effective_from: 2026-11-20
+window_days: 250          # one-day historical scenarios
+horizon_days: 1
+var_confidence: "0.99"    # VaR = the k-th worst loss, k = ceil(window x (1 - confidence))
+es_confidence: "0.975"    # ES = the mean of the k worst losses, k = ceil(window x (1 - confidence))

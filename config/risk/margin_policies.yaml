@@ -1,0 +1,17 @@
+# Margin requirements and collateral haircuts (FR-M3-01, FR-M3-02; KPI-07, KPI-11).
+# Owner decision 2026-11-20: these values. ILLUSTRATIVE: not a real firm's or
+# regulator's rates. Long positions only (the brokerage refuses short sales).
+# For a MARGIN account: requirement = sum of market value x requirement rate,
+# loan value = sum of market value x (1 - haircut). CASH accounts can't borrow,
+# so their requirement is 0. Every result records this version.
+version: "2026.1"
+effective_from: 2026-11-20
+illustrative: true
+
+by_asset_class:
+  EQUITY: {requirement_rate: "0.30", haircut: "0.30"}
+  OPTION: {requirement_rate: "1.00", haircut: "1.00"}   # long options: no loan value
+
+# Instrument overrides, by symbol (instrument IDs depend on the dataset seed).
+by_symbol:
+  SYNH: {requirement_rate: "0.50", haircut: "0.50"}   # the most volatile equity (daily vol 3.5%)
