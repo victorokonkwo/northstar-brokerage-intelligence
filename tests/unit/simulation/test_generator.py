@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from northstar.common.exceptions import ScenarioError
 from northstar.domain.calendar import business_date
 from northstar.domain.events import (
     AccountCreated,
@@ -158,6 +159,36 @@ class TestConfigValidation:
         raw["orders"]["budget_min"] = "0.5"
         with pytest.raises(ValidationError, match="budget_min exceeds budget_max"):
             DatasetConfig.model_validate(raw)
+
+    def test_an_empty_clock_step_range_is_rejected(self, config: DatasetConfig) -> None:
+        raw = config.model_dump(mode="json")
+        raw["clock_step"] = {"unit": "seconds", "min": 90, "max": 90}
+        with pytest.raises(ValidationError, match=r"clock_step\.min must be below"):
+            DatasetConfig.model_validate(raw)
+
+
+class TestClockStep:
+    def test_a_day_that_runs_past_the_close_publication_is_refused(
+        self, config: DatasetConfig
+    ) -> None:
+        # Many accounts with 5-90 second steps overrun 16:30, as the load test found.
+        crowded = config.model_copy(
+            update={"accounts": config.accounts.model_copy(update={"count": 2000})}
+        )
+        with pytest.raises(ScenarioError, match="past the 16:30:00 close publication"):
+            generate_dataset(crowded, 42, policies())
+
+    def test_millisecond_steps_keep_a_crowded_day_inside_the_session(
+        self, config: DatasetConfig
+    ) -> None:
+        fast = config.model_copy(
+            update={
+                "accounts": config.accounts.model_copy(update={"count": 2000}),
+                "clock_step": config.clock_step.model_copy(update={"unit": "milliseconds"}),
+            }
+        )
+        events = generate_dataset(fast, 42, policies())
+        assert sum(1 for e in events if isinstance(e, TradeExecuted)) > 0
 
 
 class TestAccountLifecycle:

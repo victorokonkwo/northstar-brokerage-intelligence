@@ -1,0 +1,83 @@
+# Load-test dataset (FR-SIM-06, NFR-08): the dev profile with more accounts.
+# Owner decision 2026-11-19: measure the largest size this project's reference
+# laptop handles end to end; the 1M-execution target stays open for Phase 8.
+# Same window, instruments, and activity as dev (Q1 2026). ILLUSTRATIVE: every
+# instrument, price path, FX path, and activity parameter is invented. Symbols
+# are synthetic, not real securities.
+# Options expire after the window (exercise and expiry are Phase 5).
+dataset_id: load
+illustrative: true
+window: {start: 2026-01-02, end: 2026-03-31}
+settlement_time_local: "12:00:00"
+
+accounts: {count: 6400, margin_share: "0.40", base_currency: CAD}
+
+# Thousands of accounts share each day's clock, so steps are 5-90 milliseconds
+# (5-90 seconds would run past the 16:30 close publication).
+clock_step: {unit: milliseconds, min: 5, max: 90}
+
+# Account changes after opening (FR-M1-05 SCD2 history): margin approvals of
+# CASH accounts, and short trading restrictions.
+lifecycle:
+  margin_approval_probability: "0.25"
+  restriction_probability: "0.06"
+  restriction_business_days: 5
+
+# Synthetic USD/CAD reference rate (CAD per USD), not Bank of Canada data.
+fx: {start_rate: "1.3700", daily_vol: "0.0040"}
+
+instruments:
+  - {key: SYNA, symbol: SYNA, name: Synthetic Alpha Corp., market: XTSE, asset_class: EQUITY, currency: CAD, start_price: "52.40", daily_vol: "0.018"}
+  - {key: SYNC, symbol: SYNC, name: Synthetic Gamma Ltd., market: XTSE, asset_class: EQUITY, currency: CAD, start_price: "18.75", daily_vol: "0.022"}
+  - {key: SYND, symbol: SYND, name: Synthetic Delta Inc., market: XTSE, asset_class: EQUITY, currency: CAD, start_price: "104.10", daily_vol: "0.012"}
+  - {key: SYNE, symbol: SYNE, name: Synthetic Epsilon Corp., market: XTSE, asset_class: EQUITY, currency: CAD, start_price: "7.35", daily_vol: "0.030"}
+  - {key: SYNB, symbol: SYNB, name: Synthetic Beta Inc., market: XNYS, asset_class: EQUITY, currency: USD, start_price: "61.20", daily_vol: "0.017"}
+  - {key: SYNF, symbol: SYNF, name: Synthetic Zeta Corp., market: XNYS, asset_class: EQUITY, currency: USD, start_price: "143.80", daily_vol: "0.014"}
+  - {key: SYNG, symbol: SYNG, name: Synthetic Eta Inc., market: XNYS, asset_class: EQUITY, currency: USD, start_price: "22.45", daily_vol: "0.026"}
+  - {key: SYNH, symbol: SYNH, name: Synthetic Theta Ltd., market: XNYS, asset_class: EQUITY, currency: USD, start_price: "9.80", daily_vol: "0.035"}
+  - key: SYNB-C
+    symbol: SYNB-C-20260918-65
+    name: Synthetic Beta Inc. call, 65.00, 2026-09-18
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNB, strike: "65.00", expiry: 2026-09-18, right: CALL, exercise_style: AMERICAN}
+    start_price: "2.15"
+    daily_vol: "0.060"
+  - key: SYNF-P
+    symbol: SYNF-P-20260918-135
+    name: Synthetic Zeta Corp. put, 135.00, 2026-09-18
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNF, strike: "135.00", expiry: 2026-09-18, right: PUT, exercise_style: AMERICAN}
+    start_price: "4.30"
+    daily_vol: "0.050"
+
+# FR-SIM-05: seasonal deposits (higher in January and February), month-end
+# withdrawals, and order intensity that rises with the day's price moves.
+deposits:
+  daily_probability: "0.03"
+  seasonal: {1: "1.6", 2: "1.4", 3: "1.0"}
+  mean_amount: "2500"
+  initial_mean_amount: "8000"
+  min_amount: "100"
+withdrawals:
+  daily_probability: "0.006"
+  month_end_multiplier: "5"
+  month_end_days: 2
+  max_fraction: "0.50"
+orders:
+  daily_rate: "0.15"
+  volatility_sensitivity: "1.5"
+  sell_probability: "0.35"
+  option_probability: "0.08"
+  budget_min: "0.05"
+  budget_max: "0.30"
+  margin_headroom_use: "0.60"
+  usd_conversion_fraction: "0.50"
+  max_partial_fills: 3
+  cancel_probability: "0.10"
+  price_noise: "0.002"

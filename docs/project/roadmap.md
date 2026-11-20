@@ -38,7 +38,7 @@ The plan is ambitious: 18 weeks for one developer with prior experience in the s
 | 5 Market risk | 10–12 | Margin and collateral, haircuts, VaR/ES, stress, options pricing and Greeks, limits and alerts, backtesting | **Model validation gate:** an analyst can explain any alert from inputs, policy, and model versions; reference cases and backtests pass | Not started |
 | 6 Treasury forecasting | 13–14 | Known vs. uncertain flows, baseline/statistical/GBM models, walk-forward evaluation, intervals, scenarios, MLflow | **Forecast evaluation gate:** reproducible forecasts evaluated against the baseline, with error, bias, coverage, and stress results documented | Not started |
 | 7 Finance intelligence | 15–16 | Profitability mart, allocation method, KPI restatements, drilldown, simulated reporting package, executive dashboard | **Reporting gate:** every finance KPI has a documented formula, passes tie-outs, and drills down to transactions | Not started |
-| 8 Production readiness | 17–18 | Load tests, failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
+| 8 Production readiness | 17–18 | Load tests (including the 1M-execution run deferred from Phase 3: streaming generation and loading), failure injection, recovery drill, access-control tests, cost review, runbooks, model cards, case study, demo | **Release gate:** a reviewer can reproduce the system, run the tests, and execute the flagship scenario without the author's help | Not started |
 
 ## Phase 3 (weeks 5–7)
 
@@ -55,6 +55,7 @@ Plan approved by the owner on 2026-11-19, as seven PRs: 3A events for SCD2 and F
 | Account history | new event `account_updated` (margin approvals, trading restrictions) drives SCD2 `dim_account`, built by event time rather than as a dbt snapshot (FR-M1-05 reworded) |
 | Quarantine threshold | 0.5% per load (illustrative, versioned config); a load above it fails |
 | Deferred | average cost in `fct_positions_daily` (Phase 5); the reconciliation-exception condition of the publication gate (Phase 4) |
+| Load test (3G) | measure the pipeline end to end at the largest size the 8 GB reference laptop handles; the 1M-execution target (FR-SIM-06, NFR-08) moves to Phase 8 with streaming generation and loading |
 
 | PR | Status |
 |---|---|
