@@ -93,12 +93,14 @@ def _dbt_failures(schemas: WarehouseSchemas, test: str, model: str) -> int:
         )
         return result.stdout
 
+    # Match the node's own result line: the summary's PASS count also counts the
+    # on-run-start hooks that number builds (macros/incremental.sql).
     built = dbt("run", "--select", model)
-    assert "PASS=1" in built, built[-2000:]
+    assert re.search(rf"OK created sql \w+ model \w+\.{model}\b", built), built[-2000:]
     tested = dbt("test", "--select", test)  # this test only, not the model's own
     found = re.search(r"Got (\d+) results?", tested)
     if found is None:
-        assert "PASS=1" in tested, tested[-2000:]
+        assert re.search(rf"\d+ of \d+ PASS {test}\b", tested), tested[-2000:]
         return 0
     return int(found.group(1))
 
