@@ -171,7 +171,7 @@ stateDiagram-v2
     RESOLVED --> [*]
 ```
 
-- Every transition is an append-only audit record: `exception_id`, `from_status`, `to_status`, `actor` (user or `rule:<id>@<version>`), `reason`, `timestamp`.
+- Every transition is an append-only audit record: `exception_id`, `from_status`, `to_status`, `actor` (user or `rule:<id>@<version>`), `reason`, `timestamp`. Implemented in `northstar.domain.lifecycle` and `recon.exception_transitions` ([reconciliation](reconciliation.md#lifecycle-and-audit-trail-fr-m2-05-fr-m2-06)).
 - The resolution types are `AUTO_RULE`, `MANUAL_OVERRIDE`, and `SOURCE_CORRECTED` (a corrected record arrived and a rematch succeeded).
 - `RESOLVED` is terminal. If the same break recurs, it becomes a new exception linked to the earlier one.
 - **Publication gate:** a snapshot moves `DRAFT → PUBLISHED` only when KPI-01 = 0 and no blocking (`CRITICAL`/`HIGH`) exception for that business date is unresolved.

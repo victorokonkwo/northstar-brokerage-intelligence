@@ -95,6 +95,28 @@ create table if not exists {t} (
 )
 """
 
+_TRANSITIONS_DDL: Final = """
+create table if not exists {t} (
+    transition_id   uuid        primary key,
+    exception_id    uuid        not null references {exceptions},
+    sequence        integer     not null check (sequence >= 1),
+    from_status     text,
+    to_status       text        not null
+        check (to_status in ('OPEN', 'INVESTIGATING', 'ESCALATED', 'RESOLVED')),
+    actor           text        not null check (actor like 'rule:%' or actor like 'user:%'),
+    reason          text        not null check (length(trim(reason)) > 0),
+    resolution_type text
+        check (resolution_type in ('AUTO_RULE', 'MANUAL_OVERRIDE', 'SOURCE_CORRECTED')),
+    changed_at      timestamptz not null,
+    run_id          text,
+    unique (exception_id, sequence),
+    -- FR-M2-06, enforced by the database as well as the domain:
+    check ((to_status = 'RESOLVED') = (resolution_type is not null)),
+    check (resolution_type is distinct from 'MANUAL_OVERRIDE' or actor like 'user:%'),
+    check (resolution_type not in ('AUTO_RULE', 'SOURCE_CORRECTED') or actor like 'rule:%')
+)
+"""
+
 _MATCH_COLUMNS: Final = (
     "match_id",
     "reconciliation",
@@ -133,9 +155,15 @@ def ensure_recon_tables(conn: psycopg.Connection[Any], schema: str) -> None:
             (_RUNS_DDL, "runs"),
             (_MATCHES_DDL, "match_results"),
             (_EXCEPTIONS_DDL, "exceptions"),
+            (_TRANSITIONS_DDL, "exception_transitions"),
         ):
-            cur.execute(sql.SQL(ddl).format(t=sql.Identifier(schema, table)))
-    for table in ("runs", "match_results", "exceptions"):
+            cur.execute(
+                sql.SQL(ddl).format(
+                    t=sql.Identifier(schema, table),
+                    exceptions=sql.Identifier(schema, "exceptions"),
+                )
+            )
+    for table in ("runs", "match_results", "exceptions", "exception_transitions"):
         make_append_only(conn, schema, table)
 
 
@@ -423,3 +451,94 @@ def read_inputs(
         price_feed=price_feed,
     )
     return inputs, rates
+
+
+@dataclass(frozen=True, slots=True)
+class ExceptionState:
+    """An exception with its current status (from its latest transition)."""
+
+    exception_id: str
+    exception_type: str
+    severity: str
+    reference: str
+    business_date: date
+    status: str | None  # None before the first transition
+    sequence: int
+
+
+def current_states(conn: psycopg.Connection[Any], schema: str) -> dict[str, ExceptionState]:
+    """Every exception and its current status."""
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                "with latest as (select exception_id, to_status, sequence, row_number() over "
+                "(partition by exception_id order by sequence desc) as n from {transitions}) "
+                "select e.exception_id::text, e.exception_type, e.severity, e.reference, "
+                "e.business_date, t.to_status, coalesce(t.sequence, 0) "
+                "from {exceptions} e left join latest t "
+                "on t.exception_id = e.exception_id and t.n = 1"
+            ).format(
+                exceptions=sql.Identifier(schema, "exceptions"),
+                transitions=sql.Identifier(schema, "exception_transitions"),
+            )
+        )
+        return {r[0]: ExceptionState(*r) for r in cur.fetchall()}
+
+
+@dataclass(frozen=True, slots=True)
+class TransitionRecord:
+    """A transition to append (already checked by ``northstar.domain.lifecycle.check``)."""
+
+    exception_id: str
+    sequence: int
+    from_status: str | None
+    to_status: str
+    actor: str
+    reason: str
+    resolution_type: str | None
+    changed_at: datetime
+    run_id: str | None
+
+
+def append_transitions(
+    conn: psycopg.Connection[Any], schema: str, transitions: list[TransitionRecord]
+) -> int:
+    """Append transitions; return how many. A repeated (exception, sequence) is refused."""
+    with conn.cursor() as cur:
+        for t in transitions:
+            cur.execute(
+                sql.SQL(
+                    "insert into {} (transition_id, exception_id, sequence, from_status, "
+                    "to_status, actor, reason, resolution_type, changed_at, run_id) "
+                    "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                ).format(sql.Identifier(schema, "exception_transitions")),
+                (
+                    derived_id("recon_transition", t.exception_id, t.sequence),
+                    t.exception_id,
+                    t.sequence,
+                    t.from_status,
+                    t.to_status,
+                    t.actor,
+                    t.reason,
+                    t.resolution_type,
+                    t.changed_at,
+                    t.run_id,
+                ),
+            )
+    return len(transitions)
+
+
+def history(
+    conn: psycopg.Connection[Any], schema: str, exception_id: str
+) -> list[TransitionRecord]:
+    """An exception's transitions, oldest first."""
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                "select exception_id::text, sequence, from_status, to_status, actor, reason, "
+                "resolution_type, changed_at, run_id from {} where exception_id = %s "
+                "order by sequence"
+            ).format(sql.Identifier(schema, "exception_transitions")),
+            (exception_id,),
+        )
+        return [TransitionRecord(*r) for r in cur.fetchall()]

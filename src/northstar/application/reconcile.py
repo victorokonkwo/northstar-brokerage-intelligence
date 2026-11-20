@@ -23,6 +23,8 @@ from typing import Any
 import psycopg
 from opentelemetry import trace
 
+from northstar.application.lifecycle import LifecycleOutcome, apply_rules
+from northstar.application.policies import load_policies
 from northstar.domain.matching import reconcile_all
 from northstar.domain.reconciliation import ReconciliationPolicy, classify
 from northstar.infrastructure.config_loader import load_policy
@@ -34,6 +36,7 @@ from northstar.infrastructure.recon_store import (
     store_run,
     stored_exceptions,
 )
+from northstar.simulation.engine import LEDGER_CALENDAR_MARKET
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +50,7 @@ class ReconcileOutcome:
     new_matches: int
     new_exceptions: int
     by_type: dict[str, int]
+    lifecycle: LifecycleOutcome
 
 
 def reconcile_warehouse(
@@ -71,10 +75,25 @@ def reconcile_warehouse(
         result = reconcile_all(inputs, policy.tolerances)
         exceptions = classify(result.breaks, policy, rates)
         run = RunRecord(run_id, day, source, policy.version, code_version, datetime.now(UTC))
+        timing = frozenset(
+            m.internal_ref for m in result.matches if m.rule_id == "cash.late_settlement_timing"
+        )
+        calendar = load_policies(config_dir).calendars[LEDGER_CALENDAR_MARKET]
         with conn.transaction():
             ensure_recon_tables(conn, recon_schema)
             new_matches, new_exceptions = store_run(
                 conn, recon_schema, run, result.matches, exceptions
+            )
+            lifecycle = apply_rules(
+                conn,
+                recon_schema,
+                frozenset(x.exception_id for x in exceptions),
+                timing,
+                policy,
+                calendar,
+                day,
+                run_id,
+                run.created_at,
             )
         by_type = dict(sorted(Counter(str(x.exception_type) for x in exceptions).items()))
         span.set_attributes({"northstar.run_id": run_id, "northstar.exceptions": len(exceptions)})
@@ -93,6 +112,7 @@ def reconcile_warehouse(
             new_matches,
             new_exceptions,
             by_type,
+            lifecycle,
         )
 
 

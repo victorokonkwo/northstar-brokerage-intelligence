@@ -23,6 +23,8 @@ Commands:
 - ``record-alert``: log a failed pipeline task and store it under ``audit/alerts/``.
 - ``reconcile``: run the seven reconciliations against a dbt schema and store
   matches and exceptions append-only.
+- ``exception transition|history``: move an exception through its lifecycle
+  (with an actor and reason), or print its audit trail.
 - ``recon-verify``: compare stored exceptions with a defect manifest; exit 1
   unless they agree exactly (NFR-03).
 
@@ -43,6 +45,7 @@ from pathlib import Path
 from opentelemetry import trace
 
 from northstar.application.ingest import ingest_dataset, load_run
+from northstar.application.lifecycle import transition_exception
 from northstar.application.operations import (
     Alert,
     archive_lineage,
@@ -60,10 +63,12 @@ from northstar.application.sprint1 import (
     read_ledger_controls,
 )
 from northstar.common.exceptions import PublicationBlockedError
+from northstar.domain.lifecycle import IllegalTransitionError, Resolution, Status
 from northstar.infrastructure.build_info import code_version
 from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectStore
 from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas
-from northstar.infrastructure.snapshots import history
+from northstar.infrastructure.recon_store import history
+from northstar.infrastructure.snapshots import history as snapshot_history
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
 from northstar.simulation.engine import LEDGER_CALENDAR_MARKET
 
@@ -144,6 +149,15 @@ def build_parser() -> argparse.ArgumentParser:
     rec.add_argument("--recon-schema", required=True, help="schema for matches and exceptions")
     rec.add_argument("--as-of", type=date.fromisoformat, help="default: last reporting date")
     rec.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
+
+    exc = commands.add_parser("exception", help="change or show an exception's status")
+    exc.add_argument("action", choices=["transition", "history"])
+    exc.add_argument("--recon-schema", required=True)
+    exc.add_argument("--exception-id", required=True)
+    exc.add_argument("--to", choices=[s.value for s in Status], help="target status")
+    exc.add_argument("--actor", help="user:<name> for a person")
+    exc.add_argument("--reason", help="why (required for every change)")
+    exc.add_argument("--resolution", choices=[r.value for r in Resolution])
 
     ver = commands.add_parser("recon-verify", help="compare exceptions with a defect manifest")
     ver.add_argument("--recon-schema", required=True)
@@ -279,7 +293,7 @@ def _run(args: argparse.Namespace) -> int:
         return 0
     if args.command == "snapshot-history":
         with settings.connect() as conn:
-            for v in history(conn, args.published_schema, args.business_date):
+            for v in snapshot_history(conn, args.published_schema, args.business_date):
                 out.write(
                     f"{v.business_date} v{v.snapshot_version} {v.status} "
                     f"published_at={v.published_at} superseded_at={v.superseded_at} "
@@ -306,6 +320,37 @@ def _run(args: argparse.Namespace) -> int:
         )
         for exception_type, count in outcome.by_type.items():
             out.write(f"  {exception_type} {count}\n")
+        lc = outcome.lifecycle
+        out.write(
+            f"lifecycle: {lc.opened} opened, {lc.source_corrected} source-corrected, "
+            f"{lc.auto_resolved} auto-resolved, {lc.escalated} escalated\n"
+        )
+        return 0
+    if args.command == "exception":
+        with settings.connect() as conn:
+            if args.action == "history":
+                for t in history(conn, args.recon_schema, args.exception_id):
+                    resolution = f" ({t.resolution_type})" if t.resolution_type else ""
+                    out.write(
+                        f"{t.sequence} {t.from_status or '-'} -> {t.to_status} by {t.actor} "
+                        f"at {t.changed_at.isoformat()}{resolution}: {t.reason}\n"
+                    )
+                return 0
+            try:
+                record = transition_exception(
+                    conn,
+                    args.recon_schema,
+                    args.exception_id,
+                    Status(args.to),
+                    args.actor or "",
+                    args.reason or "",
+                    Resolution(args.resolution) if args.resolution else None,
+                    datetime.now(UTC),
+                )
+            except IllegalTransitionError as error:
+                sys.stderr.write(f"refused: {error}\n")
+                return 2
+        out.write(f"{record.exception_id}: {record.from_status} -> {record.to_status}\n")
         return 0
     if args.command == "recon-verify":
         with settings.connect() as conn:

@@ -454,7 +454,8 @@ def insert_new(
     ``rows`` are tuples in ``columns`` order, with the key first and the run ID
     last. A key repeated in the input with different content, or a stored row
     whose ``content`` columns differ, is refused with ``LoadConflictError``:
-    nothing is overwritten.
+    nothing is overwritten. The work is one transaction block, so a refusal
+    inserts nothing.
     """
     by_key: dict[Any, tuple[Any, ...]] = {}
     for row in rows:
@@ -465,7 +466,10 @@ def insert_new(
     target = sql.Identifier(schema, table)
     staging = sql.Identifier(f"_load_{table}")
     cols = sql.SQL(", ").join(map(sql.Identifier, columns))
-    with conn.cursor() as cur:
+    # The staging table lives until commit, so the work runs in its own
+    # transaction block (a savepoint inside an open transaction). This keeps
+    # it correct on autocommit connections too.
+    with conn.transaction(), conn.cursor() as cur:
         cur.execute(
             sql.SQL(
                 "create temp table {staging} (like {target} including defaults) on commit drop"
