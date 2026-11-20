@@ -255,12 +255,12 @@ def _run(args: argparse.Namespace) -> int:
         out.write(f"{args.date} is {'' if business else 'not '}a ledger business day\n")
         return 0 if business else NOT_A_BUSINESS_DAY
     if args.command == "archive-lineage":
-        key = archive_lineage(S3ObjectStore(ObjectStoreSettings.from_env()), args.file, args.run_id)
+        key = archive_lineage(_object_store(args.warehouse), args.file, args.run_id)
         out.write(f"archived lineage to {key}\n")
         return 0
     if args.command == "record-alert":
         alert_key = record_alert(
-            S3ObjectStore(ObjectStoreSettings.from_env()),
+            _object_store(args.warehouse),
             Alert(
                 args.dag_id,
                 args.task_id,
@@ -498,7 +498,10 @@ def _warehouse(name: str) -> PostgresSettings | RedshiftSettings:
 
 
 def _object_store(warehouse: str) -> S3ObjectStore:
-    """Where raw objects live: the local SeaweedFS bucket, or S3 bronze for Redshift."""
+    """Where raw objects and audit records (lineage, alerts) live.
+
+    The local SeaweedFS bucket, or S3 bronze for Redshift (and so for the cloud runs).
+    """
     if warehouse == "redshift":
         rs = RedshiftSettings.from_env()
         return S3ObjectStore(ObjectStoreSettings.aws(rs.bucket, rs.region))

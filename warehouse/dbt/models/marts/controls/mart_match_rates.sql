@@ -38,6 +38,7 @@ select
     {{ count_ratio_half_even('matched_count', 'execution_count', 6) }} as match_rate,
     notional::numeric(18, 2) as notional,
     matched_notional::numeric(18, 2) as matched_notional,
-    {{ round_half_even('matched_notional / nullif(notional, 0)', 6) }} as notional_match_rate,
+    {{ amount_ratio_half_even('matched_notional', 'nullif(notional, 0)', 6) }}
+        as notional_match_rate,
     '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from daily
