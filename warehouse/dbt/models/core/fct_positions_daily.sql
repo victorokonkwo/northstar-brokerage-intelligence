@@ -137,5 +137,5 @@ select
     fx_rate_date,
     fx_policy_version,
     price_event_id as _price_event_id,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from valued

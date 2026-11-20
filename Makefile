@@ -13,7 +13,10 @@ ifndef RUN_ID
 RUN_ID := dev-$(shell date -u +%Y%m%dT%H%M%SZ)
 endif
 DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev", "recon_schema": "recon_dev"}'
-.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data
+# Redshift targets: temporary AWS credentials from `aws login`, and the warehouse's
+# endpoint and bucket from the Terraform data stack (scripts/redshift_env.py).
+REDSHIFT_ENV := eval "$$(aws configure export-credentials --format env)" && eval "$$(uv run python scripts/redshift_env.py)" &&
+.PHONY: help setup lint format typecheck test test-integration test-redshift redshift-bootstrap dbt-build-redshift compare-warehouses checkdbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -40,10 +43,25 @@ test: ## Unit, property, and contract tests (no database needed)
 test-integration: ## Integration tests against the running local stack
 	$(WITH_ENV) uv run pytest -m integration
 
+test-redshift: ## Loading, append-only, and dbt-check controls on the live Redshift workgroup (needs aws login; costs cents)
+	$(REDSHIFT_ENV) PATH="$$PWD/.venv/bin:$$PATH" uv run pytest -m redshift
+
+redshift-bootstrap: ## As the Redshift admin: create the dev dataset's append-only tables and grant the pipeline (needs aws login)
+	$(REDSHIFT_ENV) uv run northstar --warehouse redshift redshift-bootstrap \
+		--raw-schema raw_dev --ledger-schema ledger_dev --recon-schema recon_dev
+
+dbt-build-redshift: ## dbt build over raw_dev/ledger_dev on Redshift into dbt_dataset (needs aws login; costs compute)
+	$(REDSHIFT_ENV) cd warehouse/dbt && NBI_DBT_TARGET=redshift NBI_DBT_SCHEMA=dbt_dataset \
+		uv run dbt build --vars $(DATASET_VARS)
+
+compare-warehouses: | .env ## Compare every dbt_dataset model between local Postgres and Redshift, row for row
+	$(WITH_ENV) $(REDSHIFT_ENV) uv run python scripts/compare_warehouses.py --schema dbt_dataset
+
 check: lint typecheck test ## Everything CI runs on Python code
 
-dbt-parse: ## Parse the dbt project
+dbt-parse: ## Parse the dbt project for both targets, local Postgres and Redshift (no database needed)
 	$(WITH_ENV) cd warehouse/dbt && uv run dbt parse
+	$(WITH_ENV) cd warehouse/dbt && NBI_DBT_TARGET=redshift uv run dbt parse
 
 dbt-build: ## Build and test the dbt models against the local warehouse
 	$(WITH_ENV) cd warehouse/dbt && uv run dbt build

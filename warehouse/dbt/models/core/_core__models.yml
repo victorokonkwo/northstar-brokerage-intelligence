@@ -9,15 +9,15 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: journal_line_id, data_type: uuid, constraints: [{type: not_null}], data_tests: [unique, not_null]}
-      - {name: journal_batch_id, data_type: uuid, constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: journal_line_id, data_type: "{{ 'char(36)' if target.type == 'redshift' else 'uuid' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: journal_batch_id, data_type: "{{ 'char(36)' if target.type == 'redshift' else 'uuid' }}", constraints: [{type: not_null}], data_tests: [not_null]}
       - {name: line_number, data_type: integer, constraints: [{type: not_null}]}
-      - {name: gl_account, data_type: text, constraints: [{type: not_null}]}
-      - {name: client_account_id, data_type: text}
+      - {name: gl_account, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: client_account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: debit_amount, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: credit_amount, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values:
@@ -25,13 +25,13 @@ models:
                 values: [CAD, USD]
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - {name: posting_date, data_type: date, constraints: [{type: not_null}]}
-      - {name: posting_rule_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: posting_rule_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: posting_rule_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: chart_version, data_type: text, constraints: [{type: not_null}]}
-      - {name: ledger_calendar_version, data_type: text, constraints: [{type: not_null}]}
-      - {name: source_event_type, data_type: text, constraints: [{type: not_null}]}
+      - {name: chart_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: ledger_calendar_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: source_event_type, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: _source_event_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         description: Lineage to the canonical event that was posted (INV-10).
         data_tests:
@@ -39,59 +39,59 @@ models:
               arguments:
                 to: source('brokerage', 'brokerage_events')
                 field: event_id
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_executions
     description: One row per execution (fill), the grain. Primary key execution_id.
     config:
       contract: {enforced: true}
     columns:
-      - {name: execution_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: execution_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
       - name: order_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('fct_orders'), field: order_id}}
       - name: account_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
       - name: instrument_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('dim_instrument'), field: instrument_id}}
-      - {name: market, data_type: text, constraints: [{type: not_null}]}
-      - {name: asset_class, data_type: text, constraints: [{type: not_null}]}
-      - {name: side, data_type: text, constraints: [{type: not_null}]}
+      - {name: market, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: asset_class, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: side, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
       - {name: price, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
       - {name: multiplier, data_type: integer, constraints: [{type: not_null}]}
-      - {name: currency, data_type: text, constraints: [{type: not_null}]}
+      - {name: currency, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: commission, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: clearing_fee, data_type: "numeric(18, 2)", constraints: [{type: not_null}], description: Firm expense in the execution currency (5100); 0.00 for trade_executed v1.}
       - {name: executed_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: trade_date, data_type: date, constraints: [{type: not_null}]}
       - {name: settlement_date, data_type: date, constraints: [{type: not_null}]}
-      - {name: settlement_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: fee_schedule_version, data_type: text, constraints: [{type: not_null}]}
-      - {name: settlement_rules_version, data_type: text, constraints: [{type: not_null}]}
-      - {name: calendar_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: settlement_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: fee_schedule_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: settlement_rules_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: calendar_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: _source_event_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships:
               arguments:
                 to: source('brokerage', 'brokerage_events')
                 field: event_id
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: dim_account
     description: >
@@ -102,30 +102,30 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: account_sk, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
-      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: account_sk, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: account_type
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CASH, MARGIN]}}
-      - {name: base_currency, data_type: text, constraints: [{type: not_null}]}
+      - {name: base_currency, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: status
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [ACTIVE, TRADING_RESTRICTED]}}
-      - {name: change_reason, data_type: text, constraints: [{type: not_null}]}
+      - {name: change_reason, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: is_margin_eligible, data_type: boolean, constraints: [{type: not_null}]}
       - {name: opened_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: valid_from, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: valid_to, data_type: timestamp with time zone}
       - {name: is_current, data_type: boolean, constraints: [{type: not_null}]}
-      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: dim_instrument
     description: >
@@ -134,35 +134,35 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: instrument_sk, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
-      - {name: instrument_id, data_type: text, constraints: [{type: not_null}], data_tests: [not_null]}
-      - {name: symbol, data_type: text, constraints: [{type: not_null}]}
-      - {name: instrument_name, data_type: text, constraints: [{type: not_null}]}
-      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - {name: instrument_sk, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: instrument_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [not_null]}
+      - {name: symbol, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: instrument_name, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: market, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: asset_class
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [EQUITY, OPTION]}}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
       - {name: multiplier, data_type: integer, constraints: [{type: not_null}]}
-      - {name: underlying_instrument_id, data_type: text}
+      - {name: underlying_instrument_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: strike, data_type: "numeric(18, 8)"}
       - {name: expiry, data_type: date}
-      - {name: option_right, data_type: text}
-      - {name: exercise_style, data_type: text}
+      - {name: option_right, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: exercise_style, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: valid_from, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: valid_to, data_type: timestamp with time zone}
       - {name: is_current, data_type: boolean, constraints: [{type: not_null}]}
-      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: dim_calendar
     description: >
@@ -171,43 +171,43 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: calendar_day_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
-      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - {name: calendar_day_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: market, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: calendar_date, data_type: date, constraints: [{type: not_null}]}
       - {name: is_trading_day, data_type: boolean, constraints: [{type: not_null}]}
       - {name: is_settlement_day, data_type: boolean, constraints: [{type: not_null}]}
-      - {name: trading_holiday_name, data_type: text}
-      - {name: settlement_holiday_name, data_type: text}
+      - {name: trading_holiday_name, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: settlement_holiday_name, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: previous_settlement_day, data_type: date}
       - {name: next_settlement_day, data_type: date}
-      - {name: calendar_version, data_type: text, constraints: [{type: not_null}]}
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: calendar_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_orders
     description: One row per order (grain). Primary key order_id.
     config:
       contract: {enforced: true}
     columns:
-      - {name: order_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: order_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
       - name: account_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
       - name: instrument_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('dim_instrument'), field: instrument_id}}
-      - {name: market, data_type: text, constraints: [{type: not_null}]}
-      - {name: side, data_type: text, constraints: [{type: not_null}]}
-      - {name: order_type, data_type: text, constraints: [{type: not_null}]}
+      - {name: market, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: side, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: order_type, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
       - {name: limit_price, data_type: "numeric(18, 8)"}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -217,15 +217,15 @@ models:
       - {name: execution_count, data_type: integer, constraints: [{type: not_null}]}
       - {name: cancelled_at, data_type: timestamp with time zone}
       - name: order_status
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [OPEN, PARTIALLY_FILLED, FILLED, CANCELLED]}}
-      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_settlements
     description: >
@@ -235,18 +235,18 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: settlement_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: settlement_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
       - name: order_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('fct_orders'), field: order_id}}
-      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: instrument_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: market, data_type: text, constraints: [{type: not_null}]}
-      - {name: side, data_type: text, constraints: [{type: not_null}]}
+      - {name: account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: instrument_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: market, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: side, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -258,15 +258,15 @@ models:
       - {name: settled_amount, data_type: "numeric(18, 2)"}
       - {name: settled_at, data_type: timestamp with time zone}
       - name: settlement_status
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [PENDING, SETTLED]}}
-      - {name: _source_event_id, data_type: text}
-      - {name: _ingestion_run_id, data_type: text}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: _ingested_at, data_type: timestamp with time zone}
       - {name: _schema_version, data_type: integer}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_cash_movements
     description: >
@@ -276,32 +276,32 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: cash_movement_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: cash_movement_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
       - name: account_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
       - name: movement_type
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [DEPOSIT, WITHDRAWAL, FX_CONVERSION]}}
       - {name: event_timestamp, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - {name: amount_in, data_type: "numeric(18, 2)"}
-      - {name: currency_in, data_type: text}
+      - {name: currency_in, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: amount_out, data_type: "numeric(18, 2)"}
-      - {name: currency_out, data_type: text}
+      - {name: currency_out, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
       - {name: reference_rate, data_type: "numeric(18, 10)"}
       - {name: client_rate, data_type: "numeric(18, 10)"}
       - {name: rate_date, data_type: date}
-      - {name: fx_policy_version, data_type: text}
-      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: fx_policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_fx_rates_daily
     description: >
@@ -312,25 +312,25 @@ models:
       contract: {enforced: true}
     columns:
       - name: base_currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
       - name: quote_currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
       - {name: rate_date, data_type: date, constraints: [{type: not_null}]}
       - {name: rate, data_type: "numeric(18, 10)", constraints: [{type: not_null}]}
-      - {name: rate_source, data_type: text, constraints: [{type: not_null}]}
-      - {name: fx_policy_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: rate_source, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: fx_policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: published_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
-      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_market_prices_daily
     description: >
@@ -341,23 +341,23 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: instrument_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: instrument_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - {name: price_date, data_type: date, constraints: [{type: not_null}]}
       - {name: close_price, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
-      - {name: price_source, data_type: text, constraints: [{type: not_null}]}
+      - {name: price_source, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: expected_price_date, data_type: date}
       - {name: is_stale, data_type: boolean, constraints: [{type: not_null}]}
-      - {name: _source_event_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: _ingestion_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _source_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _ingestion_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: _ingested_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: _schema_version, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_positions_daily
     description: >
@@ -369,12 +369,12 @@ models:
       contract: {enforced: true}
     columns:
       - name: account_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('dim_account'), field: account_id}}
       - name: instrument_id
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - relationships: {arguments: {to: ref('dim_instrument'), field: instrument_id}}
@@ -382,7 +382,7 @@ models:
       - {name: trade_date_quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
       - {name: settled_quantity, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -394,9 +394,9 @@ models:
       - {name: market_value_cad, data_type: "numeric(18, 2)"}
       - {name: fx_rate, data_type: "numeric(18, 10)"}
       - {name: fx_rate_date, data_type: date}
-      - {name: fx_policy_version, data_type: text}
-      - {name: _price_event_id, data_type: text, description: Lineage to the close used (INV-10).}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: fx_policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: _price_event_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", description: Lineage to the close used (INV-10).}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: fct_reconciliation_exceptions
     description: >
@@ -406,30 +406,30 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: exception_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
-      - {name: reconciliation, data_type: text, constraints: [{type: not_null}]}
-      - {name: exception_type, data_type: text, constraints: [{type: not_null}]}
-      - {name: severity, data_type: text, constraints: [{type: not_null}]}
-      - {name: reference, data_type: text, constraints: [{type: not_null}]}
+      - {name: exception_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: reconciliation, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: exception_type, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: severity, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: reference, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - {name: impact_amount, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
-      - {name: impact_currency, data_type: text, constraints: [{type: not_null}]}
-      - {name: impact_basis, data_type: text, constraints: [{type: not_null}]}
+      - {name: impact_currency, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: impact_basis, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: impact_cad, data_type: "numeric(18, 2)"}
       - {name: fx_rate_date, data_type: date}
-      - {name: fx_policy_version, data_type: text}
-      - {name: external_record_ids, data_type: text, constraints: [{type: not_null}]}
+      - {name: fx_policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: external_record_ids, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: status
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [OPEN, INVESTIGATING, ESCALATED, RESOLVED]}}
-      - {name: resolution_type, data_type: text}
-      - {name: last_actor, data_type: text, constraints: [{type: not_null}]}
+      - {name: resolution_type, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"}
+      - {name: last_actor, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: opened_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
       - {name: resolved_at, data_type: timestamp with time zone}
       - {name: was_escalated, data_type: boolean, constraints: [{type: not_null}]}
       - {name: transition_count, data_type: integer, constraints: [{type: not_null}]}
-      - {name: policy_version, data_type: text, constraints: [{type: not_null}]}
-      - {name: _detected_run_id, data_type: text, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: policy_version, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _detected_run_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}

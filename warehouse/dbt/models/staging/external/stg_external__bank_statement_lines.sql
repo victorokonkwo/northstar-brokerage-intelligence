@@ -11,9 +11,9 @@ select
     schema_version,
     _ingestion_run_id,
     _ingested_at,
-    payload ->> 'reference' as reference,
-    (payload ->> 'value_date')::date as value_date,
-    payload ->> 'currency' as currency,
-    (payload ->> 'amount')::numeric(18, 2) as amount,
-    payload ->> 'description' as description
+    {{ json_text('payload', 'reference') }} as reference,
+    ({{ json_text('payload', 'value_date') }})::date as value_date,
+    {{ json_text('payload', 'currency') }} as currency,
+    ({{ json_text('payload', 'amount') }})::numeric(18, 2) as amount,
+    {{ json_text('payload', 'description') }} as description
 from source

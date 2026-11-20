@@ -36,7 +36,7 @@ select
         as open_exposure_cad,
     max(e.policy_version) as policy_version,
     max(r.as_of) as reconciled_as_of,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from exceptions as e
 cross join latest_run as r
 group by e.business_date, e.reconciliation, e.exception_type, e.severity

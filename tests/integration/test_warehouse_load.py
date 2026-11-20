@@ -15,8 +15,8 @@ from psycopg import sql
 from northstar.common.money import Currency
 from northstar.domain.events import CashDeposited, Event
 from northstar.infrastructure.config_loader import load_policy
+from northstar.infrastructure.loading import LoadConflictError
 from northstar.infrastructure.postgres import (
-    LoadConflictError,
     PostgresSettings,
     WarehouseSchemas,
     ensure_tables,

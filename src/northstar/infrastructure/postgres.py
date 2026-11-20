@@ -17,14 +17,18 @@ from typing import Any, Final
 import psycopg
 from psycopg import sql
 
-from northstar.common.exceptions import ConfigurationError, NorthstarError
+from northstar.common.exceptions import ConfigurationError
 from northstar.domain.accounting import JournalBatch
 from northstar.domain.events import Event
+from northstar.infrastructure.dialect import (
+    Dialect,
+    RedshiftConnection,
+    dialect_of,
+    redshift_ddl,
+)
 from northstar.infrastructure.event_files import serialize_event
-
-
-class LoadConflictError(NorthstarError):
-    """Raised when a replayed row has the same key but different content."""
+from northstar.infrastructure.loading import LoadConflictError, distinct_rows
+from northstar.infrastructure.redshift import insert_new_redshift, require_tables
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,15 +235,31 @@ _JOURNAL_COLUMNS: Final = (
 _JOURNAL_CONTENT: Final = _JOURNAL_COLUMNS[1:-1]
 
 
+RAW_TABLES: Final = ("brokerage_events", "external_records", "market_calendar_days")
+LEDGER_TABLES: Final = ("journal_lines",)
+
+
 def ensure_tables(conn: psycopg.Connection[Any], schemas: WarehouseSchemas) -> None:
-    """Create the raw and ledger schemas and tables if they do not exist."""
+    """Create the raw and ledger schemas and tables if they do not exist.
+
+    On Redshift only the admin creates them (``redshift-bootstrap``); for any
+    other user this checks that they exist.
+
+    Raises:
+        ConfigurationError: On Redshift, a table is missing.
+    """
+    if dialect_of(conn) is Dialect.REDSHIFT and not getattr(conn, "admin", False):
+        require_tables(conn, schemas.raw, RAW_TABLES)
+        require_tables(conn, schemas.ledger, LEDGER_TABLES)
+        return
+    ddl = redshift_ddl if dialect_of(conn) is Dialect.REDSHIFT else str
     with conn.cursor() as cur:
         for name in (schemas.raw, schemas.ledger):
             cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(name)))
-        cur.execute(sql.SQL(_EVENTS_DDL).format(raw=sql.Identifier(schemas.raw)))
-        cur.execute(sql.SQL(_JOURNAL_DDL).format(ledger=sql.Identifier(schemas.ledger)))
-        cur.execute(sql.SQL(_EXTERNAL_DDL).format(raw=sql.Identifier(schemas.raw)))
-        cur.execute(sql.SQL(_CALENDAR_DDL).format(raw=sql.Identifier(schemas.raw)))
+        cur.execute(sql.SQL(ddl(_EVENTS_DDL)).format(raw=sql.Identifier(schemas.raw)))
+        cur.execute(sql.SQL(ddl(_JOURNAL_DDL)).format(ledger=sql.Identifier(schemas.ledger)))
+        cur.execute(sql.SQL(ddl(_EXTERNAL_DDL)).format(raw=sql.Identifier(schemas.raw)))
+        cur.execute(sql.SQL(ddl(_CALENDAR_DDL)).format(raw=sql.Identifier(schemas.raw)))
     # Loaded rows are never updated or deleted (W2.4, W3.3, INV-11).
     for schema, table in (
         (schemas.raw, "brokerage_events"),
@@ -251,7 +271,14 @@ def ensure_tables(conn: psycopg.Connection[Any], schemas: WarehouseSchemas) -> N
 
 
 def make_append_only(conn: psycopg.Connection[Any], schema: str, table: str) -> None:
-    """Install triggers that refuse UPDATE, DELETE, and TRUNCATE on ``schema.table``."""
+    """Install triggers that refuse UPDATE, DELETE, and TRUNCATE on ``schema.table``.
+
+    Redshift has no triggers: there the table's owner (the admin) grants the
+    pipeline only SELECT and INSERT (``redshift.grant_pipeline``), so this
+    does nothing.
+    """
+    if dialect_of(conn) is Dialect.REDSHIFT:
+        return
     function = sql.Identifier(schema, "refuse_change")
     with conn.cursor() as cur:
         cur.execute(sql.SQL(_APPEND_ONLY_DDL).format(schema=sql.Identifier(schema)))
@@ -456,14 +483,12 @@ def insert_new(
     last. A key repeated in the input with different content, or a stored row
     whose ``content`` columns differ, is refused with ``LoadConflictError``:
     nothing is overwritten. The work is one transaction block, so a refusal
-    inserts nothing.
+    inserts nothing. On Redshift the rows are staged in S3 and copied
+    (``redshift.insert_new_redshift``), with the same contract.
     """
-    by_key: dict[Any, tuple[Any, ...]] = {}
-    for row in rows:
-        previous = by_key.setdefault(row[0], row)
-        if previous[1:-1] != row[1:-1]:
-            msg = f"{schema}.{table}: the input repeats {key} {row[0]} with different content"
-            raise LoadConflictError(msg)
+    if isinstance(conn, RedshiftConnection):
+        return insert_new_redshift(conn, schema, table, key, columns, content, rows)
+    distinct_rows(schema, table, key, rows)  # refuses a key repeated with different content
     target = sql.Identifier(schema, table)
     staging = sql.Identifier(f"_load_{table}")
     cols = sql.SQL(", ").join(map(sql.Identifier, columns))

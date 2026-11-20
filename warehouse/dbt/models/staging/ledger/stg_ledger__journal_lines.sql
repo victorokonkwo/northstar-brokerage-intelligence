@@ -15,11 +15,11 @@ select
     ledger_calendar_version,
     business_date,
     posting_date,
-    gl_account::text as gl_account,
+    gl_account::{{ string_type() }} as gl_account,
     client_account_id,
     entry_side,
     amount,
-    currency::text as currency,
+    currency::{{ string_type() }} as currency,
     _ingestion_run_id,
     _ingested_at
 from source

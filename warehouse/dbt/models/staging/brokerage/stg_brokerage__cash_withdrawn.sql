@@ -10,8 +10,8 @@ select
     schema_version,
     _ingestion_run_id,
     _ingested_at,
-    payload ->> 'cash_movement_id' as cash_movement_id,
-    payload ->> 'account_id' as account_id,
-    (payload ->> 'amount')::numeric(18, 2) as amount,
-    payload ->> 'currency' as currency
+    {{ json_text('payload', 'cash_movement_id') }} as cash_movement_id,
+    {{ json_text('payload', 'account_id') }} as account_id,
+    ({{ json_text('payload', 'amount') }})::numeric(18, 2) as amount,
+    {{ json_text('payload', 'currency') }} as currency
 from source

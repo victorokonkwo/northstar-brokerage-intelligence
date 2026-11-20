@@ -25,6 +25,7 @@ build-backend = "uv_build"
 dbt = [
     "dbt-core>=1.12.7,<1.13",
     "dbt-postgres>=1.11.0,<1.12",
+    "dbt-redshift>=1.11.2,<1.12",
     "openlineage-dbt>=1.55.0,<2",
     "sqlfluff>=4.5.0",
     "sqlfluff-templater-dbt>=4.5.0",
@@ -97,10 +98,11 @@ addopts = [
     "--import-mode=importlib",
     "-ra",
     "-m",
-    "not integration",  # `make test-integration` selects them (needs `make up`)
+    "not integration and not redshift",  # selected by `make test-integration` / `make test-redshift`
 ]
 markers = [
     "integration: needs the local stack (`make up`) and the NBI_PG_* variables",
+    "redshift: needs the applied Terraform data stack and `aws login` (`make test-redshift`; costs compute)",
 ]
 xfail_strict = true
 filterwarnings = ["error"]

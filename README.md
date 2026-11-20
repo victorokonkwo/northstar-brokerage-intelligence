@@ -56,7 +56,15 @@ make publish            # publish controls, then financial snapshots; open block
 make test-integration   # loader tests against the running warehouse
 make dbt-build          # build and test the dbt models
 make sql-lint           # SQLFluff (needs the running warehouse)
+
+# Cloud (S3 bronze, Redshift Serverless; needs `aws login` and the applied Terraform data stack)
+make redshift-bootstrap # as the admin: append-only tables owned by the admin, pipeline granted SELECT/INSERT
+make dbt-build-redshift # dbt build on Redshift
+make compare-warehouses # every dbt model, Postgres vs Redshift, row for row
+make test-redshift      # live loading, append-only, and dbt-check controls (costs a few cents)
 ```
+
+See [cloud warehouse](docs/architecture/cloud-warehouse.md).
 
 | Service | Address | Credentials (in `.env`) |
 |---|---|---|

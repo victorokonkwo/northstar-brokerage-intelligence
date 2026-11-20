@@ -10,10 +10,10 @@ select
     schema_version,
     _ingestion_run_id,
     _ingested_at,
-    payload ->> 'base_currency' as base_currency,
-    payload ->> 'quote_currency' as quote_currency,
-    (payload ->> 'rate_date')::date as rate_date,
-    (payload ->> 'rate')::numeric(18, 10) as rate,
-    payload ->> 'rate_source' as rate_source,
-    payload ->> 'fx_policy_version' as fx_policy_version
+    {{ json_text('payload', 'base_currency') }} as base_currency,
+    {{ json_text('payload', 'quote_currency') }} as quote_currency,
+    ({{ json_text('payload', 'rate_date') }})::date as rate_date,
+    ({{ json_text('payload', 'rate') }})::numeric(18, 10) as rate,
+    {{ json_text('payload', 'rate_source') }} as rate_source,
+    {{ json_text('payload', 'fx_policy_version') }} as fx_policy_version
 from source

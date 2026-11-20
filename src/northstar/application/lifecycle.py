@@ -21,7 +21,6 @@ from datetime import date, datetime
 from typing import Any
 
 import psycopg
-from psycopg import sql
 
 from northstar.domain.calendar import MarketCalendar
 from northstar.domain.lifecycle import (
@@ -42,6 +41,7 @@ from northstar.infrastructure.recon_store import (
     TransitionRecord,
     append_transitions,
     current_states,
+    lock_exception,
 )
 
 
@@ -179,16 +179,9 @@ def transition_exception(
         IllegalTransitionError: The move, actor, reason, or resolution is not allowed.
     """
     with conn.transaction():
-        with conn.cursor() as cur:  # serialise changes to this exception
-            cur.execute(
-                sql.SQL("select 1 from {} where exception_id = %s for update").format(
-                    sql.Identifier(schema, "exceptions")
-                ),
-                (exception_id,),
-            )
-            if cur.fetchone() is None:
-                msg = f"no exception {exception_id}"
-                raise LookupError(msg)
+        if not lock_exception(conn, schema, exception_id):
+            msg = f"no exception {exception_id}"
+            raise LookupError(msg)
         state = current_states(conn, schema)[exception_id]
         current = Status(state.status) if state.status is not None else None
         t = check(Transition(current, to_status, actor, reason, resolution))

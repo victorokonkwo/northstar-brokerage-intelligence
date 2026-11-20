@@ -29,9 +29,11 @@ select
     currency,
     count(*)::bigint as batch_count,
     sum(line_count)::bigint as line_count,
-    sum(total_debit)::numeric as total_debit,
-    sum(total_credit)::numeric as total_credit,
-    (count(*) filter (where total_debit <> total_credit))::bigint as unbalanced_batch_count,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    -- numeric(38, 2), never bare numeric: Redshift reads that as numeric(18, 0)
+    -- and rounds away the cents (docs/sources.md).
+    sum(total_debit)::numeric(38, 2) as total_debit,
+    sum(total_credit)::numeric(38, 2) as total_credit,
+    sum(case when total_debit <> total_credit then 1 else 0 end)::bigint as unbalanced_batch_count,
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from batches
 group by business_date, currency

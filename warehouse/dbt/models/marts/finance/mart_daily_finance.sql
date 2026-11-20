@@ -52,6 +52,6 @@ select
     case when d.currency = 'USD' then fx.fx_rate_date end as fx_rate_date,
     case when d.currency = 'USD' then fx.fx_policy_version end as fx_policy_version,
     d.line_count::integer as _journal_line_count,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from daily as d
 left join {{ ref('int_fx_rates_applicable') }} as fx on d.business_date = fx.calendar_date

@@ -10,7 +10,7 @@ select
     schema_version,
     _ingestion_run_id,
     _ingested_at,
-    payload ->> 'account_id' as account_id,
-    payload ->> 'account_type' as account_type,
-    payload ->> 'base_currency' as base_currency
+    {{ json_text('payload', 'account_id') }} as account_id,
+    {{ json_text('payload', 'account_type') }} as account_type,
+    {{ json_text('payload', 'base_currency') }} as base_currency
 from source

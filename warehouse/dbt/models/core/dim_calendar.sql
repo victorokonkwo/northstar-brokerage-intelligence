@@ -31,5 +31,5 @@ select
     calendar_version,
     _ingestion_run_id,
     _ingested_at,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from days

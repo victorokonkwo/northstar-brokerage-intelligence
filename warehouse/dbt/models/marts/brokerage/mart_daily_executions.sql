@@ -25,6 +25,6 @@ select
     sum(commission)::numeric(18, 2) as commission,
     sum(clearing_fee)::numeric(18, 2) as clearing_fee,
     sum(journal_line_count)::integer as _journal_line_count,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from executions
 group by trade_date, market, currency

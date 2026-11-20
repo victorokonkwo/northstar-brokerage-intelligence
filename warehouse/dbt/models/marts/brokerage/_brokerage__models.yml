@@ -10,9 +10,9 @@ models:
       contract: {enforced: true}
     columns:
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
-      - {name: market, data_type: text, constraints: [{type: not_null}]}
+      - {name: market, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - name: currency
-        data_type: text
+        data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}"
         constraints: [{type: not_null}]
         data_tests:
           - accepted_values: {arguments: {values: [CAD, USD]}}
@@ -22,7 +22,7 @@ models:
       - {name: commission, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: clearing_fee, data_type: "numeric(18, 2)", constraints: [{type: not_null}]}
       - {name: _journal_line_count, data_type: integer, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
 
   - name: mart_daily_positions
     description: >
@@ -32,10 +32,10 @@ models:
     config:
       contract: {enforced: true}
     columns:
-      - {name: account_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: account_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}
       - {name: business_date, data_type: date, constraints: [{type: not_null}]}
       - {name: position_count, data_type: integer, constraints: [{type: not_null}]}
       - {name: market_value_cad, data_type: "numeric(18, 2)"}
       - {name: has_missing_price, data_type: boolean, constraints: [{type: not_null}]}
       - {name: has_stale_price, data_type: boolean, constraints: [{type: not_null}]}
-      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: "{{ 'varchar(4096)' if target.type == 'redshift' else 'text' }}", constraints: [{type: not_null}]}

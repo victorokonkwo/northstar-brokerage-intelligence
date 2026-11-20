@@ -1,12 +1,17 @@
 # dbt profile, committed on purpose: it contains no credentials. Every value
-# comes from an environment variable set in the git-ignored root .env file
-# (`make env`). dbt finds this file because it runs from warehouse/dbt/.
-# Never put a literal host, user, or password here.
+# comes from an environment variable. Never put a literal host, user, or
+# password here.
 #
-# Only the local PostgreSQL target is defined. A Redshift target will be added
-# in Phase 3 together with the dbt-redshift adapter (see docs/adr/005).
+# - local (default): the local PostgreSQL, from the git-ignored root .env
+#   (`make env`).
+# - redshift: Redshift Serverless (ADR 005). It authenticates with the
+#   caller's temporary IAM credentials, so there is no password: run
+#   `eval "$(aws configure export-credentials --format env)"` and
+#   `eval "$(python scripts/redshift_env.py)"` from the repository root first
+#   (the Make targets do this). dbt finds this file because it runs from
+#   warehouse/dbt/.
 northstar:
-  target: local
+  target: "{{ env_var('NBI_DBT_TARGET', 'local') }}"
   outputs:
     local:
       type: postgres
@@ -16,4 +21,19 @@ northstar:
       password: "{{ env_var('NBI_PG_PASSWORD') }}"
       dbname: "{{ env_var('NBI_PG_DATABASE', 'northstar') }}"
       schema: "{{ env_var('NBI_DBT_SCHEMA', 'dbt_dev') }}"
+      threads: 4
+    redshift:
+      type: redshift
+      method: iam
+      host: "{{ env_var('NBI_RS_HOST', '') }}"
+      port: "{{ env_var('NBI_RS_PORT', '5439') | as_number }}"
+      dbname: "{{ env_var('NBI_RS_DATABASE', 'northstar') }}"
+      schema: "{{ env_var('NBI_DBT_SCHEMA', 'dbt_dev') }}"
+      # Required by dbt-redshift's iam method; for a serverless workgroup the
+      # database user comes from the IAM identity (checked: see docs/sources.md).
+      user: "{{ env_var('NBI_RS_USER', 'iam') }}"
+      is_serverless: true
+      serverless_work_group: "{{ env_var('NBI_RS_WORKGROUP', 'northstar') }}"
+      region: "{{ env_var('NBI_AWS_REGION', 'ca-central-1') }}"
+      sslmode: require
       threads: 4

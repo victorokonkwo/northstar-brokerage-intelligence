@@ -9,8 +9,8 @@ with created as (
         event_timestamp as valid_from,
         account_type,
         base_currency,
-        'ACTIVE'::text as status,
-        'ACCOUNT_OPENED'::text as change_reason,
+        'ACTIVE'::{{ string_type() }} as status,
+        'ACCOUNT_OPENED'::{{ string_type() }} as change_reason,
         event_id,
         schema_version,
         _ingestion_run_id,
@@ -75,5 +75,5 @@ select
     _ingestion_run_id,
     _ingested_at,
     schema_version as _schema_version,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from final

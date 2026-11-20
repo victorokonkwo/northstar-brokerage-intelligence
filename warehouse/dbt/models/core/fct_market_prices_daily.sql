@@ -67,7 +67,7 @@ select
     c._ingestion_run_id,
     c._ingested_at,
     c.schema_version as _schema_version,
-    '{{ invocation_id }}'::text as _dbt_invocation_id
+    '{{ invocation_id }}'::{{ string_type() }} as _dbt_invocation_id
 from latest as l
 inner join closes as c
     on l.instrument_id = c.instrument_id and l.price_date = c.price_date
