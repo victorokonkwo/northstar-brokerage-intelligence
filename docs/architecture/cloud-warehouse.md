@@ -11,7 +11,7 @@ The same pipeline code runs against both warehouses. `--warehouse postgres` (the
 
 ## Architecture
 
-What the three Terraform stacks deploy, drawn by [TerraVision](https://github.com/patrickchugh/terravision) 0.56.4 from `terraform plan`.
+What the three Terraform stacks deploy, drawn by [TerraVision](https://github.com/patrickchugh/terravision) 0.56.4 from `terraform plan`. The whole platform in one picture, with a walk-through of a run, is in the [README](../../README.md#architecture-on-aws).
 
 ![Data stack: VPC with three subnets, the Redshift Serverless workgroup in its security group, the namespace, the COPY role, the bronze bucket, and the alerts topic with the monthly-compute alarm](aws/data-stack.svg)
 

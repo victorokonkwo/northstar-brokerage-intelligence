@@ -97,15 +97,17 @@ def test_an_added_edge_to_a_missing_resource_fails() -> None:
         p.prune(graph, "data")
 
 
-def test_bootstrap_graph_drops_only_its_artifacts() -> None:
-    graph = {
+def _bootstrap_graph() -> dict[str, list[str]]:
+    return {
         "aws_group.shared_services": ["aws_iam_group.of_services"],
         "aws_budgets_budget.monthly": [],
         "aws_s3_bucket.state": ["aws_s3_bucket_ownership_controls.state"],
         "aws_s3_bucket_ownership_controls.state": ["aws_s3_bucket.state"],
     }
 
-    assert _prune().prune(graph, "bootstrap") == {
+
+def test_bootstrap_graph_drops_only_its_artifacts() -> None:
+    assert _prune().prune(_bootstrap_graph(), "bootstrap") == {
         "aws_budgets_budget.monthly": [],
         "aws_s3_bucket.state": [],
     }
@@ -192,3 +194,29 @@ def test_rewiring_a_node_the_graph_lacks_fails() -> None:
 
     with pytest.raises(p.UnexpectedGraphError, match=r"aws_scheduler_schedule\.daily_close"):
         p.prune(graph, "batch")
+
+
+def test_merge_keeps_every_node_and_unions_a_shared_nodes_edges() -> None:
+    merged = _prune().merge(
+        [{"a": ["b"], "shared": ["x"]}, {"shared": ["x", "y"], "c": []}],
+    )
+
+    assert merged == {"a": ["b"], "shared": ["x", "y"], "c": []}
+
+
+def test_platform_view_is_drawn_from_resources_all_three_stacks_declare() -> None:
+    p = _prune()
+
+    view = p.platform([_bootstrap_graph(), _data_graph(), _batch_graph()])
+
+    assert view == {node: list(targets) for node, targets in p.PLATFORM.items()}
+    assert view["aws_s3_bucket.bronze"] == ["aws_redshiftserverless_workgroup.warehouse~1"]
+
+
+def test_platform_view_fails_when_a_stack_no_longer_declares_a_resource() -> None:
+    p = _prune()
+    bootstrap = _bootstrap_graph()
+    del bootstrap["aws_budgets_budget.monthly"]
+
+    with pytest.raises(p.UnexpectedGraphError, match=r"aws_budgets_budget\.monthly"):
+        p.platform([bootstrap, _data_graph(), _batch_graph()])

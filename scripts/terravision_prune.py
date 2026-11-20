@@ -18,10 +18,16 @@ steps: drop nodes (``DROP``), replace a node's edges (``REWIRE``), and add edges
 bucket, and the operator, who is outside AWS. Every other node and edge is kept as
 TerraVision derived it.
 
+The ``platform`` view, for the main README, merges the three stacks' exports and keeps
+only ``PLATFORM``: the resources a reader needs, with edges that show how data and alerts
+move between them. Every AWS node in it must exist in the merged plan.
+
 If a node named here is missing, the script fails rather than guessing, because that
 means TerraVision's output has changed and the lists below need review.
 
-Usage: ``python scripts/terravision_prune.py <bootstrap|data|batch> <in.tvg.json> <out.tvg.json>``.
+Usage:
+``python scripts/terravision_prune.py <bootstrap|data|batch> <in.tvg.json> <out.tvg.json>``, or
+``python scripts/terravision_prune.py platform <in.tvg.json>... <out.tvg.json>``.
 Run by ``scripts/draw_architecture.sh`` (``make diagrams``).
 """
 
@@ -91,6 +97,42 @@ ADD: Mapping[str, Mapping[str, tuple[str, ...]]] = {
 }
 
 
+WORKGROUP = "aws_redshiftserverless_workgroup.warehouse~1"
+
+# The README's view of the whole platform. Containment comes first (VPC -> security
+# group -> resource), then the flow of a daily close, then alerts. tv_aws_* nodes are
+# outside AWS: the operator, Looker Studio, and the operator's mailbox.
+PLATFORM: Mapping[str, tuple[str, ...]] = {
+    "aws_vpc.warehouse": (
+        "aws_security_group.task_daily_close",
+        "aws_security_group.warehouse_warehouse~1",
+    ),
+    "aws_security_group.task_daily_close": ("aws_fargate.ecs",),
+    "aws_security_group.warehouse_warehouse~1": (WORKGROUP,),
+    "tv_aws_users.operator": ("aws_sfn_state_machine.daily_close",),
+    "aws_scheduler_schedule.daily_close": ("aws_sfn_state_machine.daily_close",),
+    "aws_sfn_state_machine.daily_close": ("aws_fargate.ecs", "aws_sns_topic.sns"),
+    "aws_fargate.ecs": (
+        "aws_s3_bucket.bronze",
+        WORKGROUP,
+        "aws_ecr_repository.batch",
+        "aws_cloudwatch_log_group.cloudwatch",
+    ),
+    "aws_s3_bucket.bronze": (WORKGROUP,),
+    WORKGROUP: ("aws_redshiftserverless_namespace.warehouse",),
+    "aws_redshiftserverless_namespace.warehouse": (),
+    "tv_aws_client.looker_studio": (WORKGROUP,),
+    "aws_cloudwatch_metric_alarm.monthly_compute": ("aws_sns_topic.sns",),
+    "aws_cloudwatch_metric_alarm.daily_close_failed": ("aws_sns_topic.sns",),
+    "aws_sns_topic.sns": ("tv_aws_email.inbox",),
+    "aws_budgets_budget.monthly": ("tv_aws_email.inbox",),
+    "aws_s3_bucket.state": (),
+    "aws_ecr_repository.batch": (),
+    "aws_cloudwatch_log_group.cloudwatch": (),
+    "tv_aws_email.inbox": (),
+}
+
+
 class UnexpectedGraphError(ValueError):
     """The graph doesn't have the shape these lists were written for."""
 
@@ -144,13 +186,46 @@ def prune(graph: Mapping[str, Sequence[str]], stack: str) -> dict[str, list[str]
     return out
 
 
+def merge(graphs: Sequence[Mapping[str, Sequence[str]]]) -> dict[str, list[str]]:
+    """One graph with every node and edge of ``graphs``.
+
+    A node in several graphs, such as the warehouse VPC that the batch stack looks up,
+    keeps the union of its edges.
+    """
+    out: dict[str, list[str]] = {}
+    for graph in graphs:
+        for node, targets in graph.items():
+            edges = out.setdefault(node, [])
+            edges.extend(target for target in targets if target not in edges)
+    return out
+
+
+def platform(graphs: Sequence[Mapping[str, Sequence[str]]]) -> dict[str, list[str]]:
+    """The README's view: ``PLATFORM``, after checking its AWS nodes are in ``graphs``.
+
+    Raises:
+        UnexpectedGraphError: An AWS node of ``PLATFORM`` is in none of ``graphs``.
+    """
+    present = _nodes(merge(graphs))
+    named = set(PLATFORM) | {target for targets in PLATFORM.values() for target in targets}
+    absent = sorted(n for n in named if n not in present and not n.startswith("tv_aws_"))
+    if absent:
+        raise UnexpectedGraphError("platform", "nodes are absent", absent)
+    return {node: list(targets) for node, targets in PLATFORM.items()}
+
+
 def main(argv: Sequence[str]) -> None:
-    """Read the export, correct it, and write the result as JSON."""
-    stack, source, destination = argv
-    graph = json.loads(Path(source).read_text(encoding="utf-8"))
-    pruned = prune(graph, stack)
-    Path(destination).write_text(json.dumps(pruned, indent=2) + "\n", encoding="utf-8")
-    sys.stdout.write(f"{stack}: {len(graph)} -> {len(pruned)} nodes\n")
+    """Read the export(s), correct them, and write the result as JSON."""
+    stack, *sources, destination = argv
+    graphs = [json.loads(Path(source).read_text(encoding="utf-8")) for source in sources]
+    if stack == "platform":
+        result = platform(graphs)
+    else:
+        (graph,) = graphs
+        result = prune(graph, stack)
+    Path(destination).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    before = len(merge(graphs))
+    sys.stdout.write(f"{stack}: {before} -> {len(result)} nodes\n")
 
 
 if __name__ == "__main__":

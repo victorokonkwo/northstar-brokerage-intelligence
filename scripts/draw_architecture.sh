@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Redraw the AWS architecture diagrams in docs/architecture/aws/ from the Terraform stacks
+# Redraw the AWS architecture diagrams in docs/architecture/aws/ (one per Terraform stack,
+# and the whole platform for the main README)
 # with TerraVision (`make diagrams`).
 #
 # Needs `aws login`, Graphviz, Terraform, and uv, and the data stack applied: the batch
@@ -41,3 +42,13 @@ for stack in bootstrap data batch; do
   )
   mv "$work/$stack-stack".*svg "$out/$stack-stack.svg"
 done
+
+# The whole platform, for the main README: the three stacks merged into one view.
+(
+  cd "$work"
+  uv run --project "$root" python "$root/scripts/terravision_prune.py" platform \
+    bootstrap.raw.tvg.json data.raw.tvg.json batch.raw.tvg.json platform.tvg.json
+  "${TERRAVISION[@]}" draw --source platform.tvg.json \
+    --annotate "$out/platform.terravision.yml" --format svg --outfile data-platform
+)
+mv "$work/data-platform".*svg "$out/data-platform.svg"
