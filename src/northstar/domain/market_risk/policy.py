@@ -13,6 +13,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from northstar.common.exceptions import PolicyNotFoundError
 from northstar.common.money import Currency
 from northstar.domain.settlement import AssetClass
 
@@ -111,6 +112,19 @@ class RiskFreeRates(_Frozen):
             msg = f"no risk-free rate for {sorted(missing)}"
             raise ValueError(msg)
         return self
+
+    def rate(self, currency: Currency, on: date) -> Decimal:
+        """The annual continuous rate of ``currency`` that applies ``on`` a date.
+
+        Raises:
+            PolicyNotFoundError: ``on`` is before this version takes effect.
+        """
+        if on < self.effective_from:
+            msg = (
+                f"risk-free rates {self.version} are effective from {self.effective_from}, not {on}"
+            )
+            raise PolicyNotFoundError(msg)
+        return self.continuous_rates[currency]
 
 
 class VarMethod(_Frozen):

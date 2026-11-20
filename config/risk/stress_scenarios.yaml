@@ -4,7 +4,9 @@
 # implied volatility multiplied by vol_multiplier. FX rates are not shocked.
 # ZERO must reproduce KPI-07 exactly (its verification).
 version: "2026.1"
-effective_from: 2026-11-20
+# Effective from the first day any risk calculation reads (the start of the
+# synthetic history), not the decision date (2026-11-20).
+effective_from: 2025-01-01
 illustrative: true
 
 scenarios:

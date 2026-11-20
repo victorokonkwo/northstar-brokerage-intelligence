@@ -1,11 +1,13 @@
 """The committed risk policies load, and their validators refuse what they should."""
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
 
-from northstar.common.exceptions import ConfigurationError
+from northstar.common.exceptions import ConfigurationError, PolicyNotFoundError
+from northstar.common.money import Currency
 from northstar.domain.market_risk.policy import (
     MarginPolicies,
     RiskFreeRates,
@@ -96,3 +98,10 @@ def test_order_statistics_follow_the_window() -> None:
 def test_a_config_that_isnt_a_policy_is_a_configuration_error() -> None:
     with pytest.raises(ConfigurationError):
         load_policy(RISK / "rates.yaml", VarMethod)
+
+
+def test_a_rate_applies_only_from_its_effective_date() -> None:
+    rates = load_policy(RISK / "rates.yaml", RiskFreeRates)
+    assert rates.rate(Currency.USD, rates.effective_from) == Decimal("0.0400")
+    with pytest.raises(PolicyNotFoundError, match="effective from"):
+        rates.rate(Currency.USD, date(2024, 12, 31))

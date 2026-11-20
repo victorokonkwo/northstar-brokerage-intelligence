@@ -2,7 +2,9 @@
 # these values. ILLUSTRATIVE. A breach is a "genuine exposure increase" alert,
 # separate from calculation failures and missing or stale data.
 version: "2026.1"
-effective_from: 2026-11-20
+# Effective from the first day any risk calculation reads (the start of the
+# synthetic history), not the decision date (2026-11-20).
+effective_from: 2025-01-01
 illustrative: true
 
 account_issuer_concentration: "0.25"   # an issuer's share of an account's long market value
