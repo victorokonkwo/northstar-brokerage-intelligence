@@ -1,0 +1,60 @@
+format: 0.3
+title: "Northstar data platform on AWS (dev, ca-central-1)"
+connect:
+  tv_aws_users.operator:
+    - aws_sfn_state_machine.daily_close: "start a close (business date)"
+  aws_scheduler_schedule.daily_close:
+    - aws_sfn_state_machine.daily_close: "06:00 Toronto (off)"
+  aws_sfn_state_machine.daily_close:
+    - aws_fargate.ecs: "7 steps, one task each"
+    - aws_sns_topic.sns: "failed step"
+  aws_fargate.ecs:
+    - aws_s3_bucket.bronze: "1 ingest"
+    - aws_redshiftserverless_workgroup.warehouse~1: "3 dbt, reconcile, publish"
+  aws_s3_bucket.bronze:
+    - aws_redshiftserverless_workgroup.warehouse~1: "2 COPY into raw, ledger"
+  tv_aws_client.looker_studio:
+    - aws_redshiftserverless_workgroup.warehouse~1: "reads published (planned)"
+  aws_sns_topic.sns:
+    - tv_aws_email.inbox: "email"
+  aws_budgets_budget.monthly:
+    - tv_aws_email.inbox: "80% spent, or forecast over"
+update:
+  tv_aws_users.operator:
+    label: "Operator"
+  tv_aws_client.looker_studio:
+    label: "Looker Studio (planned)"
+  tv_aws_email.inbox:
+    label: "Operator's email"
+  aws_vpc.warehouse:
+    label: "Warehouse VPC"
+  aws_security_group.task_daily_close:
+    label: "Tasks: no inbound"
+  aws_security_group.warehouse_warehouse:
+    label: "Redshift: 5439 allowlist"
+  aws_fargate.ecs:
+    label: "Batch tasks (ECS Fargate)"
+  aws_sfn_state_machine.daily_close:
+    label: "Daily close (Step Functions)"
+  aws_scheduler_schedule.daily_close:
+    label: "Schedule (EventBridge)"
+  aws_s3_bucket.bronze:
+    label: "Bronze bucket (S3)"
+  aws_redshiftserverless_workgroup.warehouse:
+    label: "Redshift Serverless (4 RPU)"
+  aws_redshiftserverless_namespace.warehouse:
+    label: "Warehouse schemas"
+  aws_ecr_repository.batch:
+    label: "Batch image (ECR)"
+  aws_cloudwatch_log_group.cloudwatch:
+    label: "Task logs (CloudWatch)"
+  aws_cloudwatch_metric_alarm.daily_close_failed:
+    label: "Run-failed alarm"
+  aws_cloudwatch_metric_alarm.monthly_compute:
+    label: "Monthly compute alarm"
+  aws_sns_topic.sns:
+    label: "Alerts (SNS)"
+  aws_budgets_budget.monthly:
+    label: "Budget USD 10/mo"
+  aws_s3_bucket.state:
+    label: "Terraform state (S3)"
