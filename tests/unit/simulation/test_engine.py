@@ -8,12 +8,14 @@ import pytest
 
 from northstar.common.exceptions import NotATradingDayError, ScenarioError
 from northstar.common.money import Currency, Money
-from northstar.domain.calendar import BUSINESS_TIMEZONE
+from northstar.domain.calendar import BUSINESS_TIMEZONE, business_date
 from northstar.domain.events import (
     AccountStatus,
     AccountType,
     AccountUpdated,
     AccountUpdateReason,
+    DividendDeclared,
+    DividendPaid,
     Event,
     FxConverted,
     FxRatePublished,
@@ -28,6 +30,7 @@ from northstar.infrastructure.config_loader import load_policy
 from northstar.simulation.engine import (
     ClosePrice,
     Convert,
+    DeclareDividend,
     Deposit,
     Fill,
     InstrumentSpec,
@@ -39,7 +42,7 @@ from northstar.simulation.engine import (
 )
 from northstar.simulation.scenario import Scenario, generate_events
 
-from factories import CONFIG, engine, policies
+from factories import CONFIG, engine, expected_client_cash, policies
 
 FLAGSHIP = CONFIG / "simulation" / "flagship_phase2.yaml"
 
@@ -434,3 +437,102 @@ class TestFxPublication:
         assert [e.payload.rate_date for e in events if isinstance(e, FxRatePublished)] == [
             date(2026, 3, 2)
         ]
+
+
+class TestDividends:
+    """Entitlement is the settled holding at the end of the record (ex-)date (ADR 013)."""
+
+    RECORD, PAY = date(2026, 3, 5), date(2026, 3, 13)
+
+    @staticmethod
+    def at(day: int, hour: int = 15) -> datetime:
+        return datetime(2026, 3, day, hour, 0, tzinfo=UTC)  # 10:00 or later in Toronto
+
+    def trade(self, account: str, side: Side, quantity: str, day: int, minute: int) -> PlaceOrder:
+        at = self.at(day) + timedelta(minutes=minute)
+        q = Decimal(quantity)
+        return PlaceOrder(
+            at, account, "A", side, OrderType.MARKET, q, (Fill(at, q, Decimal("10.00")),)
+        )
+
+    def run(self, rate: str = "0.50", holders: bool = True) -> tuple[Event, ...]:
+        sim = _engine()
+        for n, account in enumerate("abcd"):
+            sim.submit(
+                OpenAccount(T0 + timedelta(minutes=n), account, AccountType.CASH, Currency.CAD)
+            )
+            sim.submit(
+                Deposit(
+                    T0 + timedelta(minutes=n, seconds=30),
+                    account,
+                    Money(Decimal(500), Currency.CAD),
+                )
+            )
+        sim.submit(
+            DeclareDividend(T0 + timedelta(minutes=10), "A", Decimal(rate), self.RECORD, self.PAY)
+        )
+        if holders:
+            sim.submit(self.trade("c", Side.BUY, "6", 3, 0))  # bought, then sold before the ex-date
+            sim.submit(self.trade("d", Side.BUY, "6", 3, 1))  # held, sold on the ex-date
+            sim.submit(
+                self.trade("a", Side.BUY, "10", 4, 0)
+            )  # the day before: settles on the record date
+            sim.submit(self.trade("c", Side.SELL, "6", 4, 1))
+            sim.submit(self.trade("b", Side.BUY, "4", 5, 0))  # on the ex-date: settles after it
+            sim.submit(self.trade("d", Side.SELL, "6", 5, 1))
+        return sim.finish(date(2026, 3, 31))
+
+    def test_the_holders_settled_at_the_record_date_are_paid(self) -> None:
+        events = self.run()
+        paid = [e for e in events if isinstance(e, DividendPaid)]
+        assert len(paid) == 1
+        p = paid[0].payload
+        # Accounts open in order a, b, c, d: acc_s1_000001 to acc_s1_000004.
+        assert [(a.account_id, a.quantity, a.amount) for a in p.allocations] == [
+            ("acc_s1_000001", Decimal(10), Decimal("5.00")),  # a: bought the day before the ex-date
+            (
+                "acc_s1_000004",
+                Decimal(6),
+                Decimal("3.00"),
+            ),  # d: sold on the ex-date, still entitled
+        ]
+        assert (p.total_amount, p.pay_date, p.record_date) == (
+            Decimal("8.00"),
+            self.PAY,
+            self.RECORD,
+        )
+        declared = next(e for e in events if isinstance(e, DividendDeclared))
+        assert paid[0].causation_id == declared.event_id
+        assert declared.payload.ex_date == declared.payload.record_date == self.RECORD
+        assert business_date(paid[0].event_timestamp) == self.PAY
+
+    def test_entitlement_is_the_trade_date_holding_at_the_close_before_the_ex_date(self) -> None:
+        events = self.run()
+        before_ex = [
+            e for e in events if business_date(e.event_timestamp) < self.RECORD
+        ]  # T+1: everything traded by then has settled by the end of the record date
+        book = PositionBook().apply_all(before_ex)
+        p = next(e for e in events if isinstance(e, DividendPaid)).payload
+        held = {account: td for (account, _), (td, _) in book.positions().items() if td > 0}
+        assert {a.account_id: a.quantity for a in p.allocations} == held
+
+    def test_the_dividend_reaches_client_cash_through_the_ledger(self) -> None:
+        events = self.run()
+        cash = expected_client_cash(events)
+        assert cash[("acc_s1_000001", Currency.CAD)] == Decimal(500) - Decimal("104.95") + Decimal(
+            "5.00"
+        )
+
+    def test_no_holders_means_no_payment(self) -> None:
+        events = self.run(holders=False)
+        assert any(isinstance(e, DividendDeclared) for e in events)
+        assert not any(isinstance(e, DividendPaid) for e in events)
+
+    def test_the_record_date_must_be_a_business_day_and_the_instrument_an_equity(self) -> None:
+        sim = _opened()
+        with pytest.raises(ScenarioError, match="not a XTSE business day"):
+            sim.submit(
+                DeclareDividend(
+                    T0 + timedelta(hours=1), "A", Decimal("0.50"), date(2026, 3, 7), self.PAY
+                )
+            )

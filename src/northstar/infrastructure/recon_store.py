@@ -382,11 +382,13 @@ def read_inputs(
     # GL 1000 movements, signed from the bank's view, by the reference the bank echoes.
     cash_totals: dict[tuple[str, Currency, date], Decimal] = defaultdict(Decimal)
     for ref, currency, day, amount in rows(
-        "select coalesce(d.cash_movement_id, w.cash_movement_id, t.settlement_id), j.currency, "
+        "select coalesce(d.cash_movement_id, w.cash_movement_id, t.settlement_id, "
+        "v.dividend_id), j.currency, "
         "j.posting_date, j.debit_amount - j.credit_amount from {s}.fct_journal_lines j "
         "left join {s}.stg_brokerage__cash_deposited d on j._source_event_id = d.event_id "
         "left join {s}.stg_brokerage__cash_withdrawn w on j._source_event_id = w.event_id "
         "left join {s}.stg_brokerage__trade_settled t on j._source_event_id = t.event_id "
+        "left join {s}.stg_brokerage__dividend_paid v on j._source_event_id = v.event_id "
         "where j.gl_account = '1000' and j.posting_date <= %(as_of)s"
     ):
         if ref is None:

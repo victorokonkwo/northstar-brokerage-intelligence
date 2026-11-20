@@ -29,6 +29,7 @@ generated in one global time order per day, so the same seed and config
 always give byte-identical events.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_FLOOR, Decimal
@@ -54,6 +55,7 @@ from northstar.simulation.engine import (
     LEDGER_CALENDAR_MARKET,
     ClosePrice,
     Convert,
+    DeclareDividend,
     Deposit,
     Fill,
     InstrumentSpec,
@@ -211,6 +213,20 @@ class OrderActivity(_Frozen):
     price_noise: Decimal = Field(ge=0, lt=Decimal("0.1"))
 
 
+class DividendSpec(_Frozen):
+    """A synthetic cash dividend an issuer declares in the window (roadmap 5C-a; illustrative).
+
+    ``record_date`` is also the ex-dividend date (T+1, ADR 013). The engine
+    checks the dates against the instrument's market calendar.
+    """
+
+    instrument: str
+    amount_per_share: Decimal = Field(gt=0)
+    declaration_date: date
+    record_date: date
+    pay_date: date
+
+
 class DatasetConfig(_Frozen):
     """A generator configuration. Every value is illustrative.
 
@@ -232,6 +248,28 @@ class DatasetConfig(_Frozen):
     withdrawals: WithdrawalActivity
     orders: OrderActivity
     history: HistoryWindow | None = None
+    dividends: tuple[DividendSpec, ...] = ()
+
+    @model_validator(mode="after")
+    def _dividends_on_equities_in_the_window(self) -> "DatasetConfig":
+        equities = {i.key for i in self.instruments if i.option is None}
+        for d in self.dividends:
+            if d.instrument not in equities:
+                msg = f"dividend on {d.instrument!r}: not an equity of this dataset"
+                raise ValueError(msg)
+            if not (
+                self.window.start
+                <= d.declaration_date
+                < d.record_date
+                < d.pay_date
+                <= self.window.end
+            ):
+                msg = (
+                    f"dividend on {d.instrument}: declared, recorded, and paid in that "
+                    "order, inside the window"
+                )
+                raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _history_before_the_window(self) -> "DatasetConfig":
@@ -313,7 +351,14 @@ def build_market(
         if spec.option is None:
             start_price, daily_vol = spec.walk()
             trading = [d for d in days if calendars[spec.market].is_trading_day(d)]
-            walked[spec.key] = log_normal_path(rng, start_price, daily_vol, trading, PRICE_TICK)
+            drops = {
+                d.record_date: d.amount_per_share
+                for d in config.dividends
+                if d.instrument == spec.key
+            }
+            walked[spec.key] = log_normal_path(
+                rng, start_price, daily_vol, trading, PRICE_TICK, drops
+            )
             opening[spec.key] = start_price
     priced: dict[str, dict[date, Decimal]] = {}
     for spec in config.instruments:
@@ -321,13 +366,13 @@ def build_market(
             trading = [d for d in days if calendars[spec.market].is_trading_day(d)]
             underlying = walked[spec.option.underlying]
             priced[spec.key] = {
-                d: _option_close(spec, rates_policy, d, underlying[d])
+                d: _option_close(spec, rates_policy, d, underlying[d], config.dividends)
                 for d in trading
                 if d in underlying
             }
             before = config.window.start - timedelta(days=1)
             opening[spec.key] = _option_close(
-                spec, rates_policy, before, opening[spec.option.underlying]
+                spec, rates_policy, before, opening[spec.option.underlying], config.dividends
             )
     closes = {spec.key: walked.get(spec.key) or priced[spec.key] for spec in config.instruments}
     ledger = calendars[LEDGER_CALENDAR_MARKET]
@@ -346,9 +391,16 @@ def build_market(
 
 
 def _option_close(
-    spec: GeneratedInstrument, rates_policy: RiskFreeRates, day: date, underlying_close: Decimal
+    spec: GeneratedInstrument,
+    rates_policy: RiskFreeRates,
+    day: date,
+    underlying_close: Decimal,
+    dividends: Sequence[DividendSpec],
 ) -> Decimal:
-    """An option's model close on ``day``, at its implied vol and its currency's rate."""
+    """An option's model close on ``day``, at its implied vol and its currency's rate.
+
+    The model knows the underlying's dividends declared by ``day`` (roadmap 5C-a).
+    """
     if spec.option is None or spec.implied_vol is None:
         msg = f"instrument {spec.key} is not an option"
         raise ValueError(msg)
@@ -361,6 +413,11 @@ def _option_close(
         day,
         rates_policy.rate(spec.currency, day),
         spec.implied_vol,
+        tuple(
+            (d.record_date, d.amount_per_share)
+            for d in dividends
+            if d.instrument == spec.option.underlying and d.declaration_date <= day
+        ),
     )
 
 
@@ -373,6 +430,9 @@ def _month_end_days(config: DatasetConfig, ledger: MarketCalendar) -> set[date]:
         by_month.setdefault((day.year, day.month), []).append(day)
     return {d for days in by_month.values() for d in days[-config.withdrawals.month_end_days :]}
 
+
+_DECLARATION_TIME = time(7, 30)
+"""When dividend declarations arrive (simulation convention, before the back office)."""
 
 _BACK_OFFICE_TIME = time(8, 0)
 """When account updates are processed (simulation convention, before the open)."""
@@ -449,7 +509,19 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
         accounts.append((key, account_type, opens_on, rng))
 
     for day in _days(config.window.start, config.window.end):
-        # Back-office updates first, one second apart, without moving the day's clock.
+        # Dividend declarations before anything else that day.
+        declared = [d for d in config.dividends if d.declaration_date == day]
+        for n, d in enumerate(declared):
+            engine.submit(
+                DeclareDividend(
+                    _local(day, _DECLARATION_TIME) + timedelta(seconds=n),
+                    d.instrument,
+                    d.amount_per_share,
+                    d.record_date,
+                    d.pay_date,
+                )
+            )
+        # Back-office updates next, one second apart, without moving the day's clock.
         for n, (key, change) in enumerate(changes.get(day, [])):
             current = (
                 AccountStatus.TRADING_RESTRICTED

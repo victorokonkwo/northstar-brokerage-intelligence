@@ -1,0 +1,197 @@
+{
+  "$defs": {
+    "Currency": {
+      "description": "Currencies the platform books in (domain model \u00a76).\n\nMinor units come from the ISO 4217 list published by SIX Group\n(see docs/sources.md).",
+      "enum": [
+        "CAD",
+        "USD"
+      ],
+      "title": "Currency",
+      "type": "string"
+    },
+    "DividendAllocation": {
+      "additionalProperties": false,
+      "description": "One account's dividend: its settled shares at the record date times the rate.",
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 2,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Amount"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 8,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Quantity"
+        }
+      },
+      "required": [
+        "account_id",
+        "quantity",
+        "amount"
+      ],
+      "title": "DividendAllocation",
+      "type": "object"
+    },
+    "DividendPaidPayload": {
+      "additionalProperties": false,
+      "description": "A dividend paid on its pay date to every account entitled at the record date.\n\nCash basis (ADR 013): the depository pays the brokerage the total, and each\nentitled account is credited its allocation. Accounts holding no shares at\nthe record date have no allocation.\n\nRaises:\n    pydantic.ValidationError: An allocation isn't quantity x rate, the total\n        isn't their sum, or an account appears twice.",
+      "properties": {
+        "allocations": {
+          "items": {
+            "$ref": "#/$defs/DividendAllocation"
+          },
+          "minItems": 1,
+          "title": "Allocations",
+          "type": "array"
+        },
+        "amount_per_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 8,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Amount Per Share"
+        },
+        "currency": {
+          "$ref": "#/$defs/Currency"
+        },
+        "dividend_id": {
+          "title": "Dividend Id",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "pay_date": {
+          "format": "date",
+          "title": "Pay Date",
+          "type": "string"
+        },
+        "record_date": {
+          "format": "date",
+          "title": "Record Date",
+          "type": "string"
+        },
+        "total_amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 2,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Total Amount"
+        }
+      },
+      "required": [
+        "dividend_id",
+        "instrument_id",
+        "currency",
+        "amount_per_share",
+        "record_date",
+        "pay_date",
+        "allocations",
+        "total_amount"
+      ],
+      "title": "DividendPaidPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``dividend_paid`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "dividend_paid",
+      "default": "dividend_paid",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/DividendPaidPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "DividendPaid",
+  "type": "object"
+}

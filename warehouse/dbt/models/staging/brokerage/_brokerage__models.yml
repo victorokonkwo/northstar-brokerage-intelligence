@@ -138,3 +138,30 @@ models:
         data_tests: [unique, not_null]
       - name: rate
         data_tests: [not_null]
+
+  - name: stg_brokerage__dividend_declared
+    description: >
+      One row per cash dividend declaration (roadmap 5C-a, ADR 013). Grain and
+      primary key = dividend_id. ex_date equals record_date (T+1).
+    columns:
+      - name: dividend_id
+        data_tests: [unique, not_null]
+      - name: amount_per_share
+        data_tests: [not_null]
+      - name: currency
+        data_tests:
+          - accepted_values: {arguments: {values: [CAD, USD]}}
+
+  - name: stg_brokerage__dividend_paid
+    description: >
+      One row per dividend payment on its pay date (roadmap 5C-a). Grain and
+      primary key = dividend_id. A dividend nobody held at the record date has
+      no payment.
+    columns:
+      - name: dividend_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships: {arguments: {to: ref('stg_brokerage__dividend_declared'), field: dividend_id}}
+      - name: total_amount
+        data_tests: [not_null]

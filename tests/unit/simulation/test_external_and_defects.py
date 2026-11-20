@@ -11,6 +11,7 @@ from northstar.domain.accounting import CASH, EntrySide
 from northstar.domain.events import (
     CashDeposited,
     CashWithdrawn,
+    DividendPaid,
     Event,
     FxConverted,
     PriceUpdated,
@@ -57,7 +58,7 @@ class TestExactTransformation:
         assert len(exact.fx_confirmations) == kinds[FxConverted]
         assert len(exact.price_feed) == kinds[PriceUpdated]
         assert len(exact.bank_statement_lines) == (
-            kinds[CashDeposited] + kinds[CashWithdrawn] + kinds[TradeSettled]
+            kinds[CashDeposited] + kinds[CashWithdrawn] + kinds[TradeSettled] + kinds[DividendPaid]
         )
 
     def test_clearing_confirmations_restate_the_executions(

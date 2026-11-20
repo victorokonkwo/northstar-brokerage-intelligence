@@ -15,6 +15,7 @@ from northstar.domain.accounting import CLIENT_CASH, EntrySide
 from northstar.domain.events import (
     CashDeposited,
     CashWithdrawn,
+    DividendPaid,
     FxConverted,
     MarginInterestAccrued,
     Side,
@@ -27,6 +28,7 @@ from factories import (
     commissions,
     covered_timestamps,
     deposit,
+    dividend_paid,
     engine,
     execution,
     expected_client_cash,
@@ -44,6 +46,7 @@ type ClientEvent = (
     | MarginInterestAccrued
     | TradeExecuted
     | TradeSettled
+    | DividendPaid
 )
 
 ACCOUNTS = ("acc_s1_000001", "acc_s1_000002", "acc_s1_000003")
@@ -58,7 +61,9 @@ def client_events(draw: st.DrawFn) -> list[ClientEvent]:
         when = draw(covered_timestamps())
         event_id = f"evt_s1_{n + 1:06d}"
         kind = draw(
-            st.sampled_from(("deposit", "withdraw", "fx", "interest", "buy", "sell", "settle"))
+            st.sampled_from(
+                ("deposit", "withdraw", "fx", "interest", "buy", "sell", "settle", "dividend")
+            )
         )
         if kind == "deposit":
             events.append(
@@ -107,6 +112,17 @@ def client_events(draw: st.DrawFn) -> list[ClientEvent]:
                     amount=draw(st.sampled_from(["0.01", "1.64", "8.22"])),
                     currency=draw(st.sampled_from(Currency)),
                     account_id=account,
+                    event_id=event_id,
+                )
+            )
+        elif kind == "dividend":
+            holders = draw(st.lists(st.sampled_from(ACCOUNTS), min_size=1, max_size=3, unique=True))
+            events.append(
+                dividend_paid(
+                    holdings=[(a, str(draw(st.integers(1, 10**6)))) for a in holders],
+                    rate=draw(st.sampled_from(["0.01", "0.25", "1.37"])),
+                    currency=draw(st.sampled_from(Currency)),
+                    when=when,
                     event_id=event_id,
                 )
             )

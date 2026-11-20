@@ -12,18 +12,21 @@ carries:
 
 - clearing confirmation: one per ``trade_executed`` (``execution_id``)
 - settlement confirmation: one per ``trade_settled`` (``settlement_id``)
-- bank statement line: one per ``cash_deposited``, ``cash_withdrawn``, and
-  ``trade_settled`` (``cash_movement_id`` or ``settlement_id``)
+- bank statement line: one per ``cash_deposited``, ``cash_withdrawn``,
+  ``trade_settled``, and ``dividend_paid`` (``cash_movement_id``,
+  ``settlement_id``, or ``dividend_id``: the depository pays a dividend's total
+  in one movement, ADR 013)
 - custody snapshot: the running settled quantity per account x instrument, on
   each ledger business day while it is non-zero
 - fee record: one per ``trade_executed`` with a clearing fee (``execution_id``)
 - FX confirmation: one per ``fx_converted`` (``fx_conversion_id``)
 - price feed record: one per ``price_updated``
 
-Bank statement amounts are signed from the bank account's view: deposits and
-SELL settlements are credits (+), and withdrawals and BUY settlements are
-debits (-). They sit on the value date: the business date for cash movements
-and the settlement date for settlements.
+Bank statement amounts are signed from the bank account's view: deposits,
+SELL settlements, and dividends are credits (+), and withdrawals and BUY
+settlements are debits (-). They sit on the value date: the business date for
+cash movements, the settlement date for settlements, and the pay date for
+dividends.
 """
 
 from collections import defaultdict
@@ -40,6 +43,7 @@ from northstar.domain.calendar import MarketCalendar, business_date
 from northstar.domain.events import (
     CashDeposited,
     CashWithdrawn,
+    DividendPaid,
     Event,
     FxConverted,
     FxRate,
@@ -304,6 +308,17 @@ def derive_external_records(
                         currency=p.currency,
                         amount=p.amount if is_deposit else -p.amount,
                         description="client deposit" if is_deposit else "client withdrawal",
+                    )
+                )
+            case DividendPaid(payload=p):
+                bank.append(
+                    BankStatementLine(
+                        record_id=next_id("bank_statement_lines"),
+                        reference=p.dividend_id,
+                        value_date=p.pay_date,
+                        currency=p.currency,
+                        amount=p.total_amount,
+                        description="dividend payment",
                     )
                 )
             case FxConverted(payload=p):

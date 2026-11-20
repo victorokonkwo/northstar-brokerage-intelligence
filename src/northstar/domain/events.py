@@ -125,6 +125,8 @@ class EventType(StrEnum):
     MARGIN_INTEREST_ACCRUED = "margin_interest_accrued"
     ACCOUNT_UPDATED = "account_updated"
     FX_RATE_PUBLISHED = "fx_rate_published"
+    DIVIDEND_DECLARED = "dividend_declared"
+    DIVIDEND_PAID = "dividend_paid"
 
 
 class AccountType(StrEnum):
@@ -399,6 +401,90 @@ class PriceUpdatedPayload(_Frozen):
     source: Literal["synthetic"]
 
 
+_CENT: Final = Decimal("0.01")
+
+
+class DividendDeclaredPayload(_Frozen):
+    """An issuer's cash dividend declaration (roadmap 5C-a, ADR 013).
+
+    Under T+1 the ex-dividend date is the record date (FINRA Rule 11140; TSX
+    Ops Notice 2024-015), so both are carried and must be equal. The rate is
+    per share in whole cents, so every allocation is exact. That the record
+    date is a business day is checked against the calendar by the brokerage.
+
+    Raises:
+        pydantic.ValidationError: The dates are out of order, the ex-date isn't
+            the record date, or the rate isn't whole cents.
+    """
+
+    dividend_id: str
+    instrument_id: str
+    currency: Currency
+    amount_per_share: Price
+    declaration_date: date
+    ex_date: date
+    record_date: date
+    pay_date: date
+
+    @model_validator(mode="after")
+    def _dates_and_rate(self) -> Self:
+        if self.ex_date != self.record_date:
+            msg = "under T+1 the ex-dividend date is the record date"
+            raise ValueError(msg)
+        if not self.declaration_date < self.record_date < self.pay_date:
+            msg = "a dividend is declared before its record date and paid after it"
+            raise ValueError(msg)
+        if self.amount_per_share != self.amount_per_share.quantize(_CENT):
+            msg = f"the rate {self.amount_per_share} is not whole cents"
+            raise ValueError(msg)
+        return self
+
+
+class DividendAllocation(_Frozen):
+    """One account's dividend: its settled shares at the record date times the rate."""
+
+    account_id: str
+    quantity: Quantity
+    amount: PositiveAmount
+
+
+class DividendPaidPayload(_Frozen):
+    """A dividend paid on its pay date to every account entitled at the record date.
+
+    Cash basis (ADR 013): the depository pays the brokerage the total, and each
+    entitled account is credited its allocation. Accounts holding no shares at
+    the record date have no allocation.
+
+    Raises:
+        pydantic.ValidationError: An allocation isn't quantity x rate, the total
+            isn't their sum, or an account appears twice.
+    """
+
+    dividend_id: str
+    instrument_id: str
+    currency: Currency
+    amount_per_share: Price
+    record_date: date
+    pay_date: date
+    allocations: tuple[DividendAllocation, ...] = Field(min_length=1)
+    total_amount: PositiveAmount
+
+    @model_validator(mode="after")
+    def _allocations_add_up(self) -> Self:
+        accounts = [a.account_id for a in self.allocations]
+        if len(set(accounts)) != len(accounts):
+            msg = "an account appears twice in a dividend's allocations"
+            raise ValueError(msg)
+        for a in self.allocations:
+            if a.amount != a.quantity * self.amount_per_share:
+                msg = f"{a.account_id}: {a.amount} is not {a.quantity} x {self.amount_per_share}"
+                raise ValueError(msg)
+        if self.total_amount != sum((a.amount for a in self.allocations), Decimal(0)):
+            msg = "the total is not the sum of the allocations"
+            raise ValueError(msg)
+        return self
+
+
 class MarginInterestAccruedPayload(_Frozen):
     """One day of interest on a client's debit (margin loan) balance in one currency."""
 
@@ -533,6 +619,20 @@ class MarginInterestAccrued(_Envelope):
     payload: MarginInterestAccruedPayload
 
 
+class DividendDeclared(_Envelope):
+    """``dividend_declared`` event."""
+
+    event_type: Literal[EventType.DIVIDEND_DECLARED] = EventType.DIVIDEND_DECLARED
+    payload: DividendDeclaredPayload
+
+
+class DividendPaid(_Envelope):
+    """``dividend_paid`` event."""
+
+    event_type: Literal[EventType.DIVIDEND_PAID] = EventType.DIVIDEND_PAID
+    payload: DividendPaidPayload
+
+
 Event = Annotated[
     AccountCreated
     | InstrumentListed
@@ -546,7 +646,9 @@ Event = Annotated[
     | PriceUpdated
     | MarginInterestAccrued
     | AccountUpdated
-    | FxRatePublished,
+    | FxRatePublished
+    | DividendDeclared
+    | DividendPaid,
     Field(discriminator="event_type"),
 ]
 """Any canonical event, discriminated by ``event_type``."""
@@ -565,5 +667,7 @@ EVENT_MODELS: dict[EventType, type[_Envelope]] = {
     EventType.MARGIN_INTEREST_ACCRUED: MarginInterestAccrued,
     EventType.ACCOUNT_UPDATED: AccountUpdated,
     EventType.FX_RATE_PUBLISHED: FxRatePublished,
+    EventType.DIVIDEND_DECLARED: DividendDeclared,
+    EventType.DIVIDEND_PAID: DividendPaid,
 }
 """Event model per type, used to export the JSON Schemas."""

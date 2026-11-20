@@ -21,6 +21,20 @@ When code depends on one of these facts, it references this file, and the fact m
 
 **Use in this project.** CIRO rules are **domain reference only**. The margin engine is an illustrative simulation with its own configurable rates. It does not implement CIRO margin requirements and must not be described as doing so.
 
+## Corporate events
+
+Read on 2026-11-20 for roadmap 5C ([ADR 013](adr/013-corporate-events.md)).
+
+| Fact | Source | Status |
+|---|---|---|
+| US ex-dividend date under T+1: "the date designated as the 'ex-dividend date' shall be the record date if the record date falls on a business day", or the first business day before it otherwise; operative 2024-05-28. | [FINRA Regulatory Notice 24-04](https://www.finra.org/rules-guidance/notices/24-04) (Rule 11140); [NYSE: ex-date](https://nyse.com/ex-date-dividends) | Verified. The special rule for distributions of 25% or more of the security's value was seen only in a search snippet (unverified) |
+| TSX ex-dividend date under T+1: ex-dates change "from one business day before the record date to the day of the record date", effective 2024-05-27. | [TSX Ops Notice 2024-015](https://www.tsx.com/en/trading/toronto-stock-exchange/trading-notices?id=599) | Verified |
+| A US issuer must give notice of the record date and the "Date of payment or distribution" no later than 10 days before the record date. | [SEC Rule 10b-17 (Cornell LII)](https://www.law.cornell.edu/cfr/text/17/240.10b-17) | Verified (US). That a Canadian issuer sets its own payment date is unverified (the TSX policy page refused access) |
+| Physically settled options deliver the underlying on the "first business day following" the exercise notice (OCC Rule 903, amended for T+1). | [SEC Release 34-99392 (SR-OCC-2024-002)](https://www.sec.gov/files/rules/sro/occ/2024/34-99392.pdf) | Partly verified: the proposal was read; the approval order and the current rulebook were not |
+| Expiration date: "the third Friday of the expiration month", or the preceding day the listing exchange is open if that Friday is not. | [OCC By-Laws, Art. I (SEC Release 34-104089 Ex. 5A)](https://www.sec.gov/files/rules/sro/occ/2025/34-104089-ex5a.pdf) | Verified |
+| Exercise by exception: "Equity options: $.01 per contract in-the-money in the customer account". | [OIC: options exercise FAQ](https://www.optionseducation.org/referencelibrary/faq/options-exercise); [OCC SR-OCC-2007-18](https://www.cftc.gov/sites/default/files/stellent/groups/public/@rulesandproducts/documents/ifdocs/rul120707occ003.pdf) | Partly verified: OCC's current Rule 805 was not read. Used in `config/brokerage/option_expiry_policy.yaml` |
+| US-source dividends to a Canadian resident: at most "15 per cent of the gross amount of the dividends" (Canada–US Convention Art. X(2)(b)); qualifying pension and retirement arrangements are exempt (Art. XXI(2)). | [Finance Canada: consolidated Convention](https://www.canada.ca/en/department-finance/programs/tax-policy/tax-treaties/country/united-states-america-convention-consolidated-1980-1983-1984-1995-1997-2007.html); [US Treasury Technical Explanation, 2007 Protocol](https://home.treasury.gov/system/files/131/Treaty-Canada-Pr2-TE-9-21-2007.pdf) | Verified. **Not modelled** (owner decision): dividends are paid gross |
+
 ## Data sources
 
 | Fact | Source | Status |

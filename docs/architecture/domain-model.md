@@ -72,14 +72,14 @@ Surrogate keys (`*_sk`) are dbt-generated hashes of the natural key plus the ver
 ### 4.1 Identifiers
 
 - **Source entities** get prefixed, deterministic IDs from the simulator, built from `(seed, entity type, sequence number)`:
-  `acc_`, `ins_`, `ord_`, `exe_`, `cm_` (cash movement), `stl_` (settlement), `evt_` (event).
+  `acc_`, `ins_`, `ord_`, `exe_`, `cm_` (cash movement), `fxc_` (FX conversion), `stl_` (settlement), `div_` (dividend), `evt_` (event).
   The same seed produces the same IDs.
 - **Derived records** (journal batches and lines, exceptions) get UUIDv5 IDs computed from their causal inputs. A journal line uses `(source_event_id, posting_rule_id, posting_rule_version, line_number)`. Re-posting the same event under the same rule therefore produces the same IDs, which makes posting idempotent.
 - **External records** (clearing, custody, bank) carry their own external reference IDs plus, where a real counterparty would provide one, the broker's reference. An injected defect may corrupt or drop that reference, which is why composite matching exists.
 
 ### 4.2 Event envelope
 
-Every source event has this envelope. Payload fields depend on `event_type`. The JSON Schemas are generated from the pydantic models in `northstar.domain.events` into `contracts/events/<type>.v<N>.schema.json` (`scripts/export_event_schemas.py`), and a contract test fails if they drift. Implemented: `account_created`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `order_placed`, `order_cancelled`, `trade_executed` (**v2**: adds an optional `clearing_fee`; v1 events stay valid but may not carry a fee), `trade_settled`, `price_updated`, and `margin_interest_accrued`. Each type keeps its own `schema_version`.
+Every source event has this envelope. Payload fields depend on `event_type`. The JSON Schemas are generated from the pydantic models in `northstar.domain.events` into `contracts/events/<type>.v<N>.schema.json` (`scripts/export_event_schemas.py`), and a contract test fails if they drift. Implemented: `account_created`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `order_placed`, `order_cancelled`, `trade_executed` (**v2**: adds an optional `clearing_fee`; v1 events stay valid but may not carry a fee), `trade_settled`, `price_updated`, `margin_interest_accrued`, `account_updated`, `fx_rate_published`, `dividend_declared`, and `dividend_paid`. Each type keeps its own `schema_version`.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -95,7 +95,7 @@ Every source event has this envelope. Payload fields depend on `event_type`. The
 
 **Monetary and quantity values are serialized as decimal strings** (`"250.00"`), never JSON numbers, so that no precision is lost.
 
-The event types are `account_created`, `account_updated`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `fx_rate_published`, `order_placed`, `order_cancelled`, `trade_executed`, `trade_settled`, `price_updated`, `margin_interest_accrued`. More are added only when a module needs them, each with its own schema. `account_updated` carries an account's full new state (type, trading status, reason) and drives the SCD2 history of `dim_account` (FR-M1-05).
+The event types are `account_created`, `account_updated`, `instrument_listed`, `cash_deposited`, `cash_withdrawn`, `fx_converted`, `fx_rate_published`, `order_placed`, `order_cancelled`, `trade_executed`, `trade_settled`, `price_updated`, `margin_interest_accrued`, `dividend_declared`, `dividend_paid`. More are added only when a module needs them, each with its own schema. `dividend_declared` records an issuer's cash dividend (rate in whole cents; ex-date = record date under T+1), and `dividend_paid` its payment on the pay date to every account holding settled shares at the end of the record date, cash basis ([ADR 013](../adr/013-corporate-events.md)). `account_updated` carries an account's full new state (type, trading status, reason) and drives the SCD2 history of `dim_account` (FR-M1-05).
 
 **Schema evolution.** Additive optional fields bump `schema_version` and remain backward compatible. Any breaking change gets a new `event_type` version and parallel support during migration. Consumers reject unknown major versions to quarantine rather than guessing.
 
@@ -187,7 +187,7 @@ Each invariant must be an executable test. **Implemented:** the Python tests for
 | INV-02 | No duplicate executions after any replay | `warehouse/dbt/tests/assert_unique_executions.sql`; ingestion replay integration test |
 | INV-03 | For every account × instrument, the change in position equals Σ executed quantity (+ other position-changing events) over the period | `tests/financial_invariants/test_position_consistency.py`; `warehouse/dbt/tests/assert_position_reconciliation.sql` |
 | INV-04 | Stock record balances: per instrument and date, Σ client ownership quantity = Σ location quantity | `tests/financial_invariants/test_position_consistency.py` |
-| INV-05 | Cash conservation: each client's cash balance = Σ of that client's journal lines on account 2100; total client cash changes only through deposits, withdrawals, trades, fees, interest, and FX | `tests/financial_invariants/test_cash_conservation.py` |
+| INV-05 | Cash conservation: each client's cash balance = Σ of that client's journal lines on account 2100; total client cash changes only through deposits, withdrawals, trades, fees, interest, FX, and dividends | `tests/financial_invariants/test_cash_conservation.py` |
 | INV-06 | Every execution belongs to exactly one settlement obligation, and obligation amount = Σ its executions' amounts | `tests/financial_invariants/test_settlement_obligations.py`; `warehouse/dbt/tests/assert_settlement_integrity.sql` |
 | INV-07 | Every CAD-translated amount references an existing FX rate, with `fx_rate_date` ≤ `business_date` and a recorded policy version | dbt relationship and expression tests |
 | INV-08 | No position is valued with a missing price. Stale prices carry `is_stale = true` and propagate a flag to every downstream result | dbt tests, plus risk-engine unit tests |
@@ -285,9 +285,9 @@ For a sale, the ownership side gains "clearing: pending delivery" on T, and on s
 |---|---|---|
 | OQ-01 | **Resolved (owner, 2026-11-19):** the FX spread is revenue **at conversion**, measured against the reference rate (4200). Account 2300 carries the firm's open FX position per currency; covering trades are out of scope. In Phase 2 the reference rates come from a seeded **synthetic** USD/CAD path; Bank of Canada Valet ingestion comes in Phase 3 | Done |
 | OQ-02 | **Resolved (owner, 2026-11-19):** commission is charged per execution, so a cancelled order with partial fills has paid for exactly its fills | Done |
-| OQ-03 | **Partly resolved (owner, 2026-11-19):** listed US equity options (Cboe, OCC) settle premium T+1 (verified). Phase 2 simulates premium trades only, and generated options expire after the simulated window. Exercise, assignment, expiry, and early exercise are decided in Phase 5 | Phase 5 (rest) |
+| OQ-03 | **Partly resolved (owner, 2026-11-19):** listed US equity options (Cboe, OCC) settle premium T+1 (verified). Phase 2 simulates premium trades only, and generated options expire after the simulated window. Exercise, assignment, expiry, and early exercise are decided in Phase 5. **Decided (owner, 2026-11-20, [ADR 013](../adr/013-corporate-events.md)):** clients exercise (early, or automatically at $0.01 in the money at expiry) or let options expire; uncovered or unfunded in-the-money options are sold to close; no assignment (long only). Built in roadmap 5C-b | Phase 5 (5C-b) |
 | OQ-04 | **Resolved (owner, 2026-11-19):** maintained, versioned YAML per market (`config/calendars/<mic>.yaml`), with separate trading and settlement holiday lists, a primary source for every date, and explicit coverage. Dates outside coverage raise `CalendarCoverageError`. Done: XTSE (2026 → Jan 2027), XNYS (2026), and XCBO (to 2026-04-02, pending OCC verification) | Done |
-| OQ-05 | **Resolved (owner, 2026-11-19):** corporate actions, including dividends, are out of scope until Phase 5 | Done |
+| OQ-05 | **Resolved (owner, 2026-11-19):** corporate actions, including dividends, are out of scope until Phase 5. **Decided (owner, 2026-11-20, [ADR 013](../adr/013-corporate-events.md)):** cash dividends only, cash basis on the pay date, entitlement = settled position at the record date, no withholding. Built in roadmap 5C-a | Phase 5 (5C-a) |
 | OQ-06 | Definition of `available_liquidity` for KPI-16 (deferred by owner decision on 2026-11-18) | Phase 6 |
 | OQ-07 | Severity thresholds and SLA values for exceptions | Phase 4 |
 | OQ-08 | **Resolved (owner, 2026-11-20):** 250 one-day historical scenarios. VaR at 99% is the 3rd worst loss, and ES at 97.5% is the mean of the 7 worst. Order statistics, no interpolation ([ADR 012](../adr/012-market-risk-models.md)) | Done |

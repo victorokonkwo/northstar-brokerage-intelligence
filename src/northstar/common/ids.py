@@ -30,6 +30,7 @@ class EntityType(StrEnum):
     CASH_MOVEMENT = "cm"
     FX_CONVERSION = "fxc"
     SETTLEMENT = "stl"
+    DIVIDEND = "div"
     EVENT = "evt"
 
 

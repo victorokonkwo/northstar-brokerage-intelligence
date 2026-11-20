@@ -61,6 +61,16 @@ instruments:
     option: {underlying: SYNF, strike: "135.00", expiry: 2026-09-18, right: PUT, exercise_style: AMERICAN}
     implied_vol: "0.22"
 
+# Cash dividends (roadmap 5C-a, ADR 013). ILLUSTRATIVE: invented rates and dates,
+# whole cents per share. Each record_date is also the ex-dividend date (T+1) and a
+# business day on the instrument's market; the price drops by the dividend that
+# day, and the options on SYNB and SYNF are priced with them once declared.
+dividends:
+  - {instrument: SYNA, amount_per_share: "0.26", declaration_date: 2026-01-20, record_date: 2026-02-13, pay_date: 2026-02-27}
+  - {instrument: SYNB, amount_per_share: "0.40", declaration_date: 2026-01-27, record_date: 2026-02-26, pay_date: 2026-03-12}
+  - {instrument: SYND, amount_per_share: "0.95", declaration_date: 2026-02-02, record_date: 2026-03-06, pay_date: 2026-03-20}
+  - {instrument: SYNF, amount_per_share: "0.85", declaration_date: 2026-02-10, record_date: 2026-03-12, pay_date: 2026-03-26}
+
 # FR-SIM-05: seasonal deposits (higher in January and February), month-end
 # withdrawals, and order intensity that rises with the day's price moves.
 deposits:

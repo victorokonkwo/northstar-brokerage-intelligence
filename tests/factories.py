@@ -18,7 +18,11 @@ from northstar.domain.events import (
     CashDepositedPayload,
     CashWithdrawn,
     CashWithdrawnPayload,
+    DividendAllocation,
+    DividendPaid,
+    DividendPaidPayload,
     Event,
+    EventType,
     FxConverted,
     FxConvertedPayload,
     MarginInterestAccrued,
@@ -240,6 +244,41 @@ def interest(
     )
 
 
+def dividend_paid(
+    holdings: Iterable[tuple[str, str]] = (("acc_s1_000001", "100"),),
+    rate: str = "0.25",
+    currency: Currency = Currency.CAD,
+    when: datetime | None = None,
+    event_id: str = "evt_s1_000007",
+) -> DividendPaid:
+    """A dividend paid to (account, settled shares at the record date) holdings."""
+    ts = when or at_toronto(date(2026, 3, 13), 9)
+    allocations = tuple(
+        DividendAllocation(
+            account_id=account,
+            quantity=Decimal(quantity),
+            amount=Decimal(quantity) * Decimal(rate),
+        )
+        for account, quantity in holdings
+    )
+    return DividendPaid(
+        event_id=event_id,
+        event_timestamp=ts,
+        recorded_at=ts,
+        correlation_id="div_s1_000001",
+        payload=DividendPaidPayload(
+            dividend_id="div_s1_000001",
+            instrument_id="ins_s1_000001",
+            currency=currency,
+            amount_per_share=Decimal(rate),
+            record_date=date(2026, 2, 27),
+            pay_date=date(2026, 3, 13),
+            allocations=allocations,
+            total_amount=sum((a.amount for a in allocations), Decimal(0)),
+        ),
+    )
+
+
 # --- Hypothesis strategies -------------------------------------------------
 
 currencies = st.sampled_from(Currency)
@@ -270,8 +309,28 @@ def covered_timestamps(draw: st.DrawFn) -> datetime:
 CENT = Decimal("0.01")
 
 
+NO_CLIENT_CASH: frozenset[EventType] = frozenset(
+    {
+        EventType.ACCOUNT_CREATED,
+        EventType.ACCOUNT_UPDATED,
+        EventType.INSTRUMENT_LISTED,
+        EventType.ORDER_PLACED,
+        EventType.ORDER_CANCELLED,
+        EventType.PRICE_UPDATED,
+        EventType.FX_RATE_PUBLISHED,
+        EventType.DIVIDEND_DECLARED,
+    }
+)
+"""Event types that never move client cash (listed, so a new type can't be skipped)."""
+
+
 def expected_client_cash(events: Iterable[Event]) -> dict[tuple[str, Currency], Decimal]:
-    """Client cash per (account, currency), recomputed from the events alone."""
+    """Client cash per (account, currency), recomputed from the events alone.
+
+    Raises:
+        AssertionError: An event type this oracle doesn't know (decide its cash
+            effect here before using it).
+    """
     balance: dict[tuple[str, Currency], Decimal] = defaultdict(Decimal)
     for event in events:
         match event:
@@ -294,4 +353,12 @@ def expected_client_cash(events: Iterable[Event]) -> dict[tuple[str, Currency], 
                     balance[(p.account_id, p.currency)] += gross - p.commission
             case TradeSettled():
                 pass  # settlement moves firm cash and clearing balances, never client cash
+            case DividendPaid(payload=p):
+                for a in p.allocations:
+                    balance[(a.account_id, p.currency)] += a.quantity * p.amount_per_share
+            case _ if event.event_type in NO_CLIENT_CASH:
+                pass
+            case _:
+                msg = f"expected_client_cash doesn't know {event.event_type}"
+                raise AssertionError(msg)
     return dict(balance)

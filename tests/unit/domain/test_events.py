@@ -10,6 +10,8 @@ from pydantic import TypeAdapter, ValidationError
 from northstar.domain.events import (
     CashDeposited,
     CashDepositedPayload,
+    DividendDeclaredPayload,
+    DividendPaidPayload,
     Event,
     FxConvertedPayload,
     InstrumentListedPayload,
@@ -192,3 +194,70 @@ class TestPhase2Events:
             '"schema_version":2', '"schema_version":1'
         )
         assert ADAPTER.validate_json(v1_without_fee).schema_version == 1
+
+
+class TestDividends:
+    DECLARED: ClassVar[dict[str, str]] = {
+        "dividend_id": "div_1",
+        "instrument_id": "ins_1",
+        "currency": "CAD",
+        "amount_per_share": "0.25",
+        "declaration_date": "2026-01-15",
+        "ex_date": "2026-02-27",
+        "record_date": "2026-02-27",
+        "pay_date": "2026-03-13",
+    }
+
+    def test_a_declaration_has_its_ex_date_on_the_record_date(self) -> None:
+        DividendDeclaredPayload.model_validate(self.DECLARED)
+        with pytest.raises(ValidationError, match="ex-dividend date is the record date"):
+            DividendDeclaredPayload.model_validate(self.DECLARED | {"ex_date": "2026-02-26"})
+
+    @pytest.mark.parametrize(
+        "dates",
+        [
+            {"declaration_date": "2026-02-27"},  # declared on the record date
+            {"pay_date": "2026-02-27"},  # paid on the record date
+        ],
+    )
+    def test_a_declaration_precedes_the_record_date_which_precedes_payment(
+        self, dates: dict[str, str]
+    ) -> None:
+        with pytest.raises(ValidationError, match="declared before its record date"):
+            DividendDeclaredPayload.model_validate(self.DECLARED | dates)
+
+    def test_the_rate_is_whole_cents(self) -> None:
+        with pytest.raises(ValidationError, match="not whole cents"):
+            DividendDeclaredPayload.model_validate(self.DECLARED | {"amount_per_share": "0.255"})
+
+    PAID: ClassVar[dict[str, object]] = {
+        "dividend_id": "div_1",
+        "instrument_id": "ins_1",
+        "currency": "CAD",
+        "amount_per_share": "0.25",
+        "record_date": "2026-02-27",
+        "pay_date": "2026-03-13",
+        "allocations": [
+            {"account_id": "acc_1", "quantity": "100", "amount": "25.00"},
+            {"account_id": "acc_2", "quantity": "7", "amount": "1.75"},
+        ],
+        "total_amount": "26.75",
+    }
+
+    def test_allocations_are_quantity_times_rate_and_sum_to_the_total(self) -> None:
+        DividendPaidPayload.model_validate(self.PAID)
+        wrong = [{"account_id": "acc_1", "quantity": "100", "amount": "25.01"}]
+        with pytest.raises(ValidationError, match=r"is not 100 x 0\.25"):
+            DividendPaidPayload.model_validate(self.PAID | {"allocations": wrong})
+        with pytest.raises(ValidationError, match="not the sum"):
+            DividendPaidPayload.model_validate(self.PAID | {"total_amount": "26.74"})
+
+    def test_an_account_is_allocated_once(self) -> None:
+        twice = [
+            {"account_id": "acc_1", "quantity": "100", "amount": "25.00"},
+            {"account_id": "acc_1", "quantity": "7", "amount": "1.75"},
+        ]
+        with pytest.raises(ValidationError, match="appears twice"):
+            DividendPaidPayload.model_validate(
+                self.PAID | {"allocations": twice, "total_amount": "26.75"}
+            )

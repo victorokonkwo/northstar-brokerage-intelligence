@@ -32,3 +32,5 @@ sources:
                       - margin_interest_accrued
                       - account_updated
                       - fx_rate_published
+                      - dividend_declared   # roadmap 5C-a
+                      - dividend_paid
