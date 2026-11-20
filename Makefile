@@ -5,13 +5,15 @@ export NBI_CODE_VERSION ?= $(shell git rev-parse HEAD 2>/dev/null)$(shell git st
 COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.yaml
 WITH_ENV := set -a && . ./.env && set +a &&
 TF_BOOTSTRAP := infrastructure/terraform/bootstrap
+TF_DATA := infrastructure/terraform/data
+TF_STATE_BUCKET = northstar-tfstate-$$(aws sts get-caller-identity --query Account --output text)-ca-central-1
 DEV_DATASET := data/generated/dev/seed=42
 # One run ID per make invocation, shared by ingest and load (override with RUN_ID=...).
 ifndef RUN_ID
 RUN_ID := dev-$(shell date -u +%Y%m%dT%H%M%SZ)
 endif
 DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev", "recon_schema": "recon_dev"}'
-.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap
+.PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap tf-init-data tf-plan-data
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -76,17 +78,25 @@ e2e: | .env ## Sprint 1 slice: simulate, post, load, dbt build, KPI-01 summary (
 	$(MAKE) dbt-build
 	$(WITH_ENV) uv run northstar ledger-summary
 
-tf-validate: ## Terraform format check and validation (no AWS access)
+tf-validate: ## Terraform format check and validation of every stack (no AWS access)
 	terraform -chdir=$(TF_BOOTSTRAP) fmt -check -recursive
 	terraform -chdir=$(TF_BOOTSTRAP) init -backend=false -input=false
 	terraform -chdir=$(TF_BOOTSTRAP) validate
+	terraform -chdir=$(TF_DATA) fmt -check -recursive
+	terraform -chdir=$(TF_DATA) init -backend=false -input=false
+	terraform -chdir=$(TF_DATA) validate
 
 tf-init-bootstrap: ## Initialise the bootstrap stack against its S3 state (needs AWS login)
-	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) init -input=false \
-		-backend-config="bucket=northstar-tfstate-$$(aws sts get-caller-identity --query Account --output text)-ca-central-1"
+	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) init -input=false -backend-config="bucket=$(TF_STATE_BUCKET)"
 
 tf-plan-bootstrap: tf-init-bootstrap ## Plan the AWS bootstrap; never applies (needs AWS login)
 	$(WITH_ENV) terraform -chdir=$(TF_BOOTSTRAP) plan -input=false -out=bootstrap.tfplan
+
+tf-init-data: ## Initialise the data stack (S3 bronze, Redshift Serverless) against its S3 state (needs AWS login)
+	$(WITH_ENV) terraform -chdir=$(TF_DATA) init -input=false -backend-config="bucket=$(TF_STATE_BUCKET)"
+
+tf-plan-data: tf-init-data ## Plan the data stack; never applies (needs AWS login and TF_VAR_operator_cidrs in .env)
+	$(WITH_ENV) terraform -chdir=$(TF_DATA) plan -input=false -out=data.tfplan
 
 simulate: ## Generate the dev dataset (seed 42): canonical events, external records, defects
 	uv run northstar simulate --dataset config/simulation/datasets/dev.yaml --seed 42 \

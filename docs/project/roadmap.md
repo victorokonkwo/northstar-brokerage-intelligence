@@ -68,8 +68,9 @@ Plan approved by the owner on 2026-11-20, as seven PRs:
 | 4A external records and policy | Done (#28): dbt staging for the seven external record sets; the versioned reconciliation policy with severity rules |
 | 4B staged matching and classification | Done (#29): seven reconciliations with staged rules, impact in original currency and CAD, severity; exceptions equal the defect manifest exactly on the dev dataset ([reconciliation](../architecture/reconciliation.md)) |
 | 4C lifecycle, audit trail, auto-resolution | Done (#30): §7.4 state machine, append-only transitions with database checks, four versioned rules (detected, source corrected, late settlement completed, SLA breach), manual changes with actor and reason |
-| 4D exception marts, publication gate, pipeline | Built (this PR): controls marts (KPI-02 to KPI-06) with tie-outs; financial and controls publication streams; open CRITICAL/HIGH exceptions block the financial snapshot until resolved; reconcile and controls publish in the Airflow DAG |
-| 4E–4G | Not started |
+| 4D exception marts, publication gate, pipeline | Done (#31): controls marts (KPI-02 to KPI-06) with tie-outs; financial and controls publication streams; open CRITICAL/HIGH exceptions block the financial snapshot until resolved; reconcile and controls publish in the Airflow DAG |
+| 4E cloud infrastructure | **Applied 2026-11-20** after owner approval (this PR): Terraform `data` stack. It holds S3 bronze; Redshift Serverless at 4 RPU, with a daily cap that turns queries off and a monthly limit that emits a metric; a TLS-only public endpoint reachable from Looker Studio and the operator only; a COPY role; and a Redshift-managed admin secret. Read-back matches the plan, there is one public IPv4 address, and a follow-up `plan` shows no changes ([stack README](../../infrastructure/terraform/data/README.md)). The rest of the dev environment in the [system overview](../architecture/system-overview.md) (ECR, ECS Fargate, CloudWatch) is not built yet |
+| 4F–4G | Not started |
 
 ## Phase 3 (weeks 5–7)
 
