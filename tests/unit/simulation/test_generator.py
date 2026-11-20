@@ -1,7 +1,7 @@
 """The seeded generator: determinism, coverage, invariants, and FR-SIM-05 patterns."""
 
 from collections import Counter
-from datetime import date
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 
@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from northstar.common.exceptions import ScenarioError
-from northstar.domain.calendar import business_date
+from northstar.domain.calendar import BUSINESS_TIMEZONE, business_date
 from northstar.domain.events import (
     AccountCreated,
     AccountStatus,
@@ -19,7 +19,13 @@ from northstar.domain.events import (
     AccountUpdateReason,
     Event,
     EventType,
+    ExerciseReason,
+    ExpiryReason,
+    InstrumentListed,
+    OptionExercised,
+    OptionExpired,
     OrderPlaced,
+    Side,
     TradeExecuted,
 )
 from northstar.domain.positions import PositionBook
@@ -288,3 +294,118 @@ class TestAccountLifecycle:
                     assert e.payload.account_type is before_type
                 state[e.payload.account_id] = (e.payload.account_type, e.payload.status)
         assert approvals_while_restricted > 0
+
+
+def test_in_the_money_options_are_exercised_or_closed_out_at_expiry(
+    config: DatasetConfig,
+) -> None:
+    """The expiry policy (ADR 013), on a dataset where many puts can't be exercised:
+    the SYNG put struck at 40.00 is deep in the money, and few holders own the shares."""
+    deep = tuple(
+        i.model_copy(update={"option": i.option.model_copy(update={"strike": Decimal("40.00")})})
+        if i.key == "SYNG-P" and i.option is not None
+        else i
+        for i in config.instruments
+    )
+    events = generate_dataset(config.model_copy(update={"instruments": deep}), 42, policies())
+    expiry = date(2026, 3, 20)
+    put = next(
+        e.payload.instrument_id
+        for e in events
+        if isinstance(e, InstrumentListed) and e.payload.symbol == "SYNG-P-20260320-22.5"
+    )
+    before = PositionBook().apply_all(
+        e for e in events if e.event_timestamp < datetime(2026, 3, 20, 20, 0, tzinfo=UTC)
+    )  # holdings before the 16:00 Toronto close-outs
+    held = {a: q for (a, i), q in before.positions().items() if i == put and q[0] > 0}
+    closed_out = {
+        e.payload.account_id
+        for e in events
+        if isinstance(e, TradeExecuted)
+        and e.payload.instrument_id == put
+        and e.payload.side is Side.SELL
+        and e.payload.trade_date == expiry
+        and e.event_timestamp.astimezone(BUSINESS_TIMEZONE).time() >= time(16, 0)
+    }
+    exercised = {
+        e.payload.account_id
+        for e in events
+        if isinstance(e, OptionExercised)
+        and e.payload.option_instrument_id == put
+        and e.payload.exercise_date == expiry  # deep puts are also exercised early
+    }
+    unexercisable = {
+        e.payload.account_id
+        for e in events
+        if isinstance(e, OptionExpired)
+        and e.payload.instrument_id == put
+        and e.payload.reason is ExpiryReason.NOT_EXERCISABLE
+    }
+    assert closed_out  # most holders don't own 100 SYNG per contract
+    assert set(held) == closed_out | exercised | unexercisable
+    assert not closed_out & exercised
+    # Sold at the option's close that day: its intrinsic value at expiry.
+    book = PositionBook().apply_all(events)
+    assert not [k for k in book.positions() if k[1] == put]
+
+
+def test_early_exercises_happen_only_when_the_model_says(
+    config: DatasetConfig, dataset: tuple[Event, ...]
+) -> None:
+    market = build_market(
+        config, policies().calendars, policies().risk_free_rates, market_stream(42)
+    )
+    keys = {
+        e.payload.instrument_id: next(
+            i.key for i in config.instruments if i.symbol == e.payload.symbol
+        )
+        for e in dataset
+        if isinstance(e, InstrumentListed)
+    }
+    early = [
+        (keys[e.payload.option_instrument_id], e.payload.exercise_date)
+        for e in dataset
+        if isinstance(e, OptionExercised) and e.payload.reason is ExerciseReason.EARLY
+    ]
+    assert early
+    for key, day in early:
+        assert day in market.exercise_optimal[key], (key, day)
+
+
+def test_nobody_buys_an_option_on_or_after_its_expiry_day(config: DatasetConfig) -> None:
+    # Every order an option order, so buys are attempted on expiry days too. A buy
+    # on the expiry day couldn't settle before the expiry processing.
+    options_only = config.model_copy(
+        update={"orders": config.orders.model_copy(update={"option_probability": Decimal(1)})}
+    )
+    events = generate_dataset(options_only, 42, policies())
+    expiry = {
+        e.payload.instrument_id: e.payload.option.expiry
+        for e in events
+        if isinstance(e, InstrumentListed) and e.payload.option is not None
+    }
+    bought = [
+        e.payload
+        for e in events
+        if isinstance(e, TradeExecuted)
+        and e.payload.side is Side.BUY
+        and e.payload.instrument_id in expiry
+    ]
+    assert bought  # plenty of option buys, up to the day before each expiry
+    assert not [p for p in bought if p.trade_date >= expiry[p.instrument_id]]
+
+
+def test_activity_is_the_average_move_of_the_equities(config: DatasetConfig) -> None:
+    # Options echo their underlyings' moves, levered, so they don't count (FR-SIM-05).
+    market = build_market(
+        config, policies().calendars, policies().risk_free_rates, market_stream(42)
+    )
+    equities = [i.key for i in config.instruments if i.option is None]
+    for day in (date(2026, 2, 20), date(2026, 3, 20)):  # option expiry days
+        moves = [
+            abs(market.closes[k][day] / market.closes[k][prev] - 1)
+            for k in equities
+            if day in market.closes[k]
+            for prev in [max(d for d in market.closes[k] if d < day)]
+        ]
+        assert market.activity[day] == sum(moves, Decimal(0)) / len(moves)

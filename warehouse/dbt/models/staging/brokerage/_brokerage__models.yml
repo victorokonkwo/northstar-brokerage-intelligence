@@ -165,3 +165,45 @@ models:
           - relationships: {arguments: {to: ref('stg_brokerage__dividend_declared'), field: dividend_id}}
       - name: total_amount
         data_tests: [not_null]
+
+  - name: stg_brokerage__option_exercised
+    description: >
+      One row per option exercise, early or automatic at expiry (roadmap 5C-b,
+      ADR 013). Grain and primary key = exercise_id; settlement_id names its
+      obligation.
+    columns:
+      - name: exercise_id
+        data_tests: [unique, not_null]
+      - name: settlement_id
+        data_tests: [unique, not_null]
+      - name: exercise_reason
+        data_tests:
+          - accepted_values: {arguments: {values: [EARLY, EXPIRY]}}
+      - name: option_right
+        data_tests:
+          - accepted_values: {arguments: {values: [CALL, PUT]}}
+
+  - name: stg_brokerage__exercise_settled
+    description: >
+      One row per exercise settlement (roadmap 5C-b). Grain and primary key =
+      settlement_id.
+    columns:
+      - name: settlement_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships: {arguments: {to: ref('stg_brokerage__option_exercised'), field: settlement_id}}
+      - name: side
+        data_tests:
+          - accepted_values: {arguments: {values: [BUY, SELL]}}
+
+  - name: stg_brokerage__option_expired
+    description: >
+      One row per option position that lapsed at expiry (roadmap 5C-b). Grain and
+      primary key = event_id (one per account x option).
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: expiry_reason
+        data_tests:
+          - accepted_values: {arguments: {values: [OUT_OF_THE_MONEY, NOT_EXERCISABLE]}}

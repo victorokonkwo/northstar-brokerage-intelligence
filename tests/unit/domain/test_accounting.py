@@ -18,7 +18,7 @@ from northstar.domain.accounting import (
     JournalLine,
     PostingEngine,
 )
-from northstar.domain.events import EventType, Side
+from northstar.domain.events import EventType, OptionRight, Side
 from northstar.infrastructure.config_loader import load_policy
 from northstar.simulation.scenario import Scenario, generate_events
 
@@ -30,6 +30,9 @@ from factories import (
     dividend_paid,
     engine,
     execution,
+    exercise_settled,
+    option_exercised,
+    option_expired,
     policies,
     settlement,
     xtse,
@@ -230,6 +233,45 @@ def test_a_dividend_credits_each_entitled_account_from_one_bank_receipt() -> Non
         ("2100", "acc_1", EntrySide.CREDIT, Decimal("25.00")),
         ("2100", "acc_2", EntrySide.CREDIT, Decimal("1.75")),
     ]
+
+
+@pytest.mark.parametrize(
+    ("right", "exercised", "settled"),
+    [
+        (
+            OptionRight.CALL,
+            [("2100", "acc_s1_000001", D), ("2200", None, C)],
+            [("2200", None, D), ("1000", None, C)],
+        ),
+        (
+            OptionRight.PUT,
+            [("1200", None, D), ("2100", "acc_s1_000001", C)],
+            [("1000", None, D), ("1200", None, C)],
+        ),
+    ],
+)
+def test_an_exercise_posts_like_a_trade_at_the_strike(
+    right: OptionRight,
+    exercised: list[tuple[str, str | None, EntrySide]],
+    settled: list[tuple[str, str | None, EntrySide]],
+) -> None:
+    event = option_exercised(right, contracts="2", strike="65.00")
+    for batch, expected, rule in (
+        (engine().post(event), exercised, f"option_exercised.{right.value.lower()}"),
+        (
+            engine().post(exercise_settled(event)),
+            settled,
+            f"exercise_settled.{right.value.lower()}",
+        ),
+    ):
+        assert batch.posting_rule_id == rule
+        assert [(ln.gl_account, ln.client_account_id, ln.side) for ln in batch.lines] == expected
+        assert {ln.amount.amount for ln in batch.lines} == {Decimal("13000.00")}  # 65 x 200
+
+
+def test_an_expiry_posts_nothing() -> None:
+    assert EventType.OPTION_EXPIRED in NON_POSTING_EVENTS
+    assert engine().post_events([option_expired()]) == ()
 
 
 def test_a_dividend_declaration_posts_nothing() -> None:

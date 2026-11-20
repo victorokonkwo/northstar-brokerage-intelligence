@@ -7,6 +7,7 @@ of the code under test.
 """
 
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from decimal import Decimal
 from pathlib import Path
 
@@ -19,7 +20,11 @@ from northstar.domain.events import (
     DividendDeclared,
     DividendPaid,
     Event,
+    ExerciseReason,
+    ExpiryReason,
     InstrumentListed,
+    OptionExercised,
+    OptionExpired,
     OrderCancelled,
     OrderPlaced,
     TradeExecuted,
@@ -49,12 +54,31 @@ def test_inv01_every_batch_balances_per_currency(events: tuple[Event, ...]) -> N
             assert debits == credits
 
 
-def test_inv03_positions_equal_cumulative_executed_quantity(events: tuple[Event, ...]) -> None:
+def trade_date_moves(events: Iterable[Event]) -> defaultdict[tuple[str, str], Decimal]:
+    """INV-03's expected trade-date positions, recomputed from the events: executed
+    quantities, plus exercises (the option out, the underlying in for a call or out
+    for a put) and expiries (the option out)."""
     expected: defaultdict[tuple[str, str], Decimal] = defaultdict(Decimal)
     for e in events:
-        if isinstance(e, TradeExecuted):
-            sign = 1 if e.payload.side.value == "BUY" else -1
-            expected[(e.payload.account_id, e.payload.instrument_id)] += sign * e.payload.quantity
+        match e:
+            case TradeExecuted(payload=p):
+                sign = 1 if p.side.value == "BUY" else -1
+                expected[(p.account_id, p.instrument_id)] += sign * p.quantity
+            case OptionExercised(payload=p):
+                expected[(p.account_id, p.option_instrument_id)] -= p.contracts
+                sign = 1 if p.right.value == "CALL" else -1
+                expected[(p.account_id, p.underlying_instrument_id)] += sign * p.shares
+            case OptionExpired(payload=p):
+                expected[(p.account_id, p.instrument_id)] -= p.contracts
+            case _:
+                pass
+    return expected
+
+
+def test_inv03_positions_equal_cumulative_executed_quantity(events: tuple[Event, ...]) -> None:
+    expected = trade_date_moves(events)
+    assert any(isinstance(e, OptionExercised) for e in events)  # the dev dataset exercises
+    assert any(isinstance(e, OptionExpired) for e in events)
     book = PositionBook().apply_all(events)
     for key, quantity in expected.items():
         assert book.trade_date_quantity(*key) == quantity
@@ -154,22 +178,53 @@ def test_each_dividend_pays_the_holders_at_the_close_before_the_ex_date(
     assert {e.payload.dividend_id for e in paid} == declared  # the dev dividends all have holders
     for e in paid:
         p = e.payload
-        before_ex = [
-            t
-            for t in events
-            if isinstance(t, TradeExecuted) and business_date(t.event_timestamp) < p.record_date
-        ]
-        held: dict[str, Decimal] = defaultdict(Decimal)
-        for t in before_ex:
-            if t.payload.instrument_id == p.instrument_id:
-                signed = (
-                    t.payload.quantity if t.payload.side.value == "BUY" else -t.payload.quantity
-                )
-                held[t.payload.account_id] += signed
+        # Trades and exercises: a call exercised the day before settles on the record date.
+        before_ex = trade_date_moves(
+            t for t in events if business_date(t.event_timestamp) < p.record_date
+        )
+        held = {a: q for (a, i), q in before_ex.items() if i == p.instrument_id}
         assert {a.account_id: a.quantity for a in p.allocations} == {
             account: q for account, q in held.items() if q > 0
         }, p.dividend_id
         assert p.total_amount == sum(q * p.amount_per_share for q in held.values() if q > 0)
+
+
+def test_every_option_is_gone_after_its_expiry(events: tuple[Event, ...]) -> None:
+    expiries = {
+        e.payload.instrument_id: e.payload.option.expiry
+        for e in events
+        if isinstance(e, InstrumentListed) and e.payload.option is not None
+    }
+    last = max(business_date(e.event_timestamp) for e in events)
+    expired = {i for i, d in expiries.items() if d <= last}
+    assert expired  # the dev dataset has options expiring in the window
+    book = PositionBook().apply_all(events)
+    assert not [k for k in book.positions() if k[1] in expired]
+
+
+def test_exercises_happen_when_the_policy_or_the_model_says(events: tuple[Event, ...]) -> None:
+    policy = policies().option_expiry
+    terms = {
+        e.payload.instrument_id: e.payload.option
+        for e in events
+        if isinstance(e, InstrumentListed) and e.payload.option is not None
+    }
+    reasons = Counter(e.payload.reason for e in events if isinstance(e, OptionExercised))
+    assert reasons[ExerciseReason.EARLY] > 0  # the day before an ex-date, in the dev dataset
+    assert reasons[ExerciseReason.EXPIRY] > 0
+    for e in events:
+        if isinstance(e, OptionExercised) and e.payload.reason is ExerciseReason.EXPIRY:
+            p = e.payload
+            assert p.underlying_close is not None
+            assert policy.exercises_at_expiry(
+                p.right, p.strike, p.underlying_close, p.exercise_date
+            )
+        if isinstance(e, OptionExpired):
+            q, option = e.payload, terms[e.payload.instrument_id]
+            in_the_money = policy.exercises_at_expiry(
+                option.right, option.strike, q.underlying_close, q.expiry_date
+            )
+            assert in_the_money is (q.reason is ExpiryReason.NOT_EXERCISABLE)
 
 
 def test_output_is_repeatable(events: tuple[Event, ...], tmp_path: Path) -> None:

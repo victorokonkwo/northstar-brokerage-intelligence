@@ -26,6 +26,7 @@ the policy versions.
 """
 
 import heapq
+from collections import defaultdict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
@@ -39,7 +40,7 @@ from northstar.common.ids import EntityType, source_id
 from northstar.common.money import Currency, Money
 from northstar.domain.accounting import CLIENT_CASH, ChartOfAccounts, EntrySide, PostingEngine
 from northstar.domain.calendar import BUSINESS_TIMEZONE, MarketCalendar, business_date
-from northstar.domain.corporate_actions import dividend_allocations
+from northstar.domain.corporate_actions import OptionExpiryPolicy, dividend_allocations
 from northstar.domain.events import (
     AccountCreated,
     AccountCreatedPayload,
@@ -58,7 +59,11 @@ from northstar.domain.events import (
     DividendPaid,
     DividendPaidPayload,
     Event,
+    ExerciseReason,
+    ExerciseSettled,
+    ExerciseSettledPayload,
     ExerciseStyle,
+    ExpiryReason,
     FxConverted,
     FxConvertedPayload,
     FxRatePublished,
@@ -67,6 +72,10 @@ from northstar.domain.events import (
     InstrumentListedPayload,
     MarginInterestAccrued,
     MarginInterestAccruedPayload,
+    OptionExercised,
+    OptionExercisedPayload,
+    OptionExpired,
+    OptionExpiredPayload,
     OptionRight,
     OptionTerms,
     OrderCancelled,
@@ -151,6 +160,8 @@ class Policies:
     fee_schedule: FeeSchedule
     fx_policy: FxPolicy
     margin_policy: MarginPolicy
+    option_expiry: OptionExpiryPolicy
+    """What happens to clients' options at expiry (roadmap 5C-b, ADR 013)."""
     chart: ChartOfAccounts
     risk_free_rates: RiskFreeRates
     """The rates the synthetic market prices options with (config/risk/rates.yaml)."""
@@ -248,6 +259,28 @@ class DeclareDividend:
 
 
 @dataclass(frozen=True, slots=True)
+class ExerciseOption:
+    """A client exercises settled contracts of a long American option before expiry."""
+
+    at: datetime
+    account: str
+    option: str
+    contracts: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessExpiry:
+    """Process an expiry date's options after the close (ADR 013).
+
+    Every client option expiring that day is exercised, if in the money by the
+    policy threshold, or expires.
+    """
+
+    at: datetime
+    expiry_date: date
+
+
+@dataclass(frozen=True, slots=True)
 class ClosePrice:
     """A daily closing price, published after the close."""
 
@@ -265,6 +298,8 @@ type Action = (
     | Convert
     | PlaceOrder
     | DeclareDividend
+    | ExerciseOption
+    | ProcessExpiry
     | ClosePrice
 )
 
@@ -293,6 +328,13 @@ class _Dividend:
     record_date: date
     pay_date: date
     allocations: tuple[DividendAllocation, ...] | None = None  # fixed at the record date
+
+
+@dataclass(frozen=True, slots=True)
+class _Exercise:
+    ref: str
+    payload: OptionExercisedPayload
+    settles_at: datetime
 
 
 @dataclass(slots=True)
@@ -352,6 +394,8 @@ class SimulationEngine:
         # Corporate-event steps: (when, sequence, step, dividend_id), step "record" or "pay".
         self._corporate_queue: list[tuple[datetime, int, str, str]] = []
         self._dividends: dict[str, _Dividend] = {}
+        self._exercises: dict[str, _Exercise] = {}
+        self._closes: dict[tuple[str, date], Decimal] = {}  # (instrument key, date)
         self._queued = 0
         self._account_types: dict[str, AccountType] = {}
         self._status: dict[str, AccountStatus] = {}
@@ -402,6 +446,115 @@ class SimulationEngine:
         account_id, _ = self._account(account)
         return self._status[account_id] is AccountStatus.TRADING_RESTRICTED
 
+    def settled_quantity(self, account: str, instrument: str) -> Decimal:
+        """Units the account owns on a settlement-date basis."""
+        account_id, _ = self._account(account)
+        return self._positions.settled_quantity(account_id, self._instrument_ids[instrument])
+
+    def exercise_shortfall(
+        self, account: str, option: str, contracts: Decimal, on: date
+    ) -> str | None:
+        """Why the account can't exercise ``contracts`` of ``option`` now, or None if it can.
+
+        It needs the contracts settled; for a put, the shares to deliver (long
+        only); for a call, the strike amount: in cash for a CASH account, within
+        the borrowing guard for a MARGIN account.
+        """
+        account_id, _ = self._account(account)
+        _, spec = self._instrument(option)
+        return self._shortfall(account_id, spec, contracts, on, {}, {})
+
+    def expiry_close_outs(
+        self,
+        day: date,
+        underlying_closes: Mapping[str, Decimal],
+        option_closes: Mapping[str, Decimal],
+    ) -> list[tuple[str, str, Decimal]]:
+        """What the brokerage must sell at the close on an expiry day (ADR 013).
+
+        The options expiring ``day`` that the policy would exercise, but that their
+        holder couldn't exercise after everything processed before them, in the
+        order expiry processing takes them (instrument, then account): an earlier
+        exercise uses up cash or borrowing room or delivers shares, and an earlier
+        close-out sale adds its proceeds less commission. Restricted accounts can't
+        sell, so their options are left out (they expire NOT_EXERCISABLE).
+        Returns (account, option, contracts) to sell, at ``option_closes``.
+        """
+        policy = self._p.option_expiry
+        if not policy.close_out_uncovered:
+            return []
+        holders = {v: k for k, (v, _) in self._accounts.items()}
+        cash: dict[tuple[str, Currency], Decimal] = defaultdict(Decimal)
+        shares: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+        sells: list[tuple[str, str, Decimal]] = []
+        for key, spec in self._instruments.items():
+            terms = spec.option
+            if terms is None or terms.expiry != day:
+                continue
+            close = underlying_closes.get(terms.underlying)
+            if close is None or not policy.exercises_at_expiry(
+                terms.right, terms.strike, close, day
+            ):
+                continue
+            option_id = self._instrument_ids[key]
+            underlying_id = self._instrument_ids[terms.underlying]
+            for (account_id, instrument_id), (owned, _) in self._positions.positions().items():
+                if instrument_id != option_id or owned <= 0:
+                    continue
+                if self._status[account_id] is AccountStatus.TRADING_RESTRICTED:
+                    continue
+                if self._shortfall(account_id, spec, owned, day, cash, shares) is None:
+                    amount = terms.strike * owned * spec.multiplier
+                    if terms.right is OptionRight.CALL:
+                        cash[(account_id, spec.currency)] -= amount
+                        shares[(account_id, underlying_id)] += owned * spec.multiplier
+                    else:
+                        cash[(account_id, spec.currency)] += amount
+                        shares[(account_id, underlying_id)] -= owned * spec.multiplier
+                    continue
+                price = option_closes[key]
+                fees = self._p.fee_schedule
+                proceeds = gross_amount(owned, price, spec.multiplier, spec.currency)
+                commission = fees.commission(spec.market, spec.currency, day, owned)
+                cash[(account_id, spec.currency)] += proceeds.amount - commission.amount
+                sells.append((holders[account_id], key, owned))
+        return sells
+
+    def _shortfall(
+        self,
+        account_id: str,
+        spec: InstrumentSpec,
+        contracts: Decimal,
+        on: date,
+        cash_delta: Mapping[tuple[str, Currency], Decimal],
+        shares_delta: Mapping[tuple[str, str], Decimal],
+    ) -> str | None:
+        """``exercise_shortfall`` after hypothetical cash and share changes (expiry planning)."""
+        if spec.option is None:
+            return f"{spec.key!r} is not an option"
+        option_id = self._instrument_ids[spec.key]
+        if self._positions.settled_quantity(account_id, option_id) < contracts:
+            return "the contracts are not all settled"
+        shares = contracts * spec.multiplier
+        underlying_id = self._instrument_ids[spec.option.underlying]
+        if spec.option.right is OptionRight.PUT:
+            held = self._positions.trade_date_quantity(account_id, underlying_id)
+            if held + shares_delta.get((account_id, underlying_id), Decimal(0)) < shares:
+                return "the account doesn't hold the shares to deliver"
+            return None
+        cost = spec.option.strike * shares
+        balances = dict(self._by_account.get(account_id, {}))
+        for (owner, currency), delta in cash_delta.items():
+            if owner == account_id:
+                balances[currency] = balances.get(currency, Decimal(0)) + delta
+        balance = balances.get(spec.currency, Decimal(0))
+        if self._account_types[account_id] is AccountType.CASH:
+            return None if balance >= cost else "the CASH account can't pay the strike"
+        balances[spec.currency] = balance - cost
+        if self._debit_cad_of(balances, on).amount > self._p.margin_policy.max_debit_balance.amount:
+            return "paying the strike would borrow over the guard"
+        return None
+
     def reference_rate(self, on: date) -> Decimal:
         """The reference USD/CAD rate that applies on ``on`` (policy fallback)."""
         return reference_rate_on(on, self._fx_rates)[0]
@@ -438,6 +591,10 @@ class SimulationEngine:
                     self._order(action)
                 case DeclareDividend():
                     self._declare_dividend(action)
+                case ExerciseOption():
+                    self._exercise_early(action)
+                case ProcessExpiry():
+                    self._process_expiry(action)
                 case ClosePrice():
                     self._close(action)
             completed = True
@@ -531,8 +688,10 @@ class SimulationEngine:
             _, _, step, dividend_id = heapq.heappop(self._corporate_queue)
             if step == "record":
                 self._fix_entitlements(dividend_id)
-            else:
+            elif step == "pay":
                 self._pay_dividend(dividend_id)
+            else:
+                self._settle_exercise(dividend_id)  # the step's key is the exercise_id
 
     def _interest_time(self) -> datetime | None:
         if self._next_interest_day is None:
@@ -881,8 +1040,11 @@ class SimulationEngine:
             raise ScenarioError(msg)
 
     def _debit_cad(self, account_id: str, on: date) -> Money:
+        return self._debit_cad_of(self._by_account.get(account_id, {}), on)
+
+    def _debit_cad_of(self, balances: Mapping[Currency, Decimal], on: date) -> Money:
         total = Decimal(0)
-        for currency, balance in self._by_account.get(account_id, {}).items():
+        for currency, balance in balances.items():
             if balance >= 0:
                 continue
             loan = -balance
@@ -1054,7 +1216,158 @@ class SimulationEngine:
             DividendPaid(**_envelope(at, dividend_id), payload=payload),
         )
 
+    def _exercise_early(self, action: ExerciseOption) -> None:
+        _, spec = self._instrument(action.option)
+        if spec.option is None or spec.option.exercise_style is not ExerciseStyle.AMERICAN:
+            msg = f"only an American option can be exercised early, not {action.option!r}"
+            raise ScenarioError(msg)
+        if business_date(action.at) >= spec.option.expiry:
+            msg = f"{action.option} expires {spec.option.expiry}: expiry processing exercises it"
+            raise ScenarioError(msg)
+        self._exercise(action.at, action.account, action.option, action.contracts, None)
+
+    def _process_expiry(self, action: ProcessExpiry) -> None:
+        policy = self._p.option_expiry
+        day = action.expiry_date
+        local = action.at.astimezone(BUSINESS_TIMEZONE)
+        if local.date() != day or local.time() < policy.processing_time_local:
+            msg = f"expiry of {day} is processed at {policy.processing_time_local} that day"
+            raise ScenarioError(msg)
+        holders = {v: k for k, (v, _) in self._accounts.items()}  # account_id -> key
+        for key, spec in self._instruments.items():
+            if spec.option is None or spec.option.expiry != day:
+                continue
+            close = self._closes.get((spec.option.underlying, day))
+            if close is None:
+                msg = f"no {day} close of {spec.option.underlying} to decide {key}'s expiry"
+                raise ScenarioError(msg)
+            option_id = self._instrument_ids[key]
+            exercise = policy.exercises_at_expiry(spec.option.right, spec.option.strike, close, day)
+            for (account_id, instrument_id), (owned, _) in self._positions.positions().items():
+                if instrument_id != option_id or owned <= 0:
+                    continue
+                account = holders[account_id]
+                if not exercise:
+                    reason = ExpiryReason.OUT_OF_THE_MONEY
+                elif (
+                    self.exercise_shortfall(account, key, owned, day) is not None
+                    and self._status[account_id] is AccountStatus.TRADING_RESTRICTED
+                ):
+                    # It couldn't be sold before the close either (owner decision 2026-11-20).
+                    reason = ExpiryReason.NOT_EXERCISABLE
+                else:
+                    self._exercise(action.at, account, key, owned, close)
+                    continue
+                self._expire(action.at, account_id, option_id, owned, day, close, reason)
+
+    def _exercise(
+        self,
+        at: datetime,
+        account: str,
+        option: str,
+        contracts: Decimal,
+        expiry_close: Decimal | None,
+    ) -> None:
+        """Exercise ``contracts`` (early if ``expiry_close`` is None, else at expiry)."""
+        day = business_date(at)
+        if (shortfall := self.exercise_shortfall(account, option, contracts, day)) is not None:
+            msg = f"{account} can't exercise {contracts} {option}: {shortfall}"
+            raise ScenarioError(msg)
+        account_id, _ = self._account(account)
+        option_id, spec = self._instrument(option)
+        if spec.option is None:  # pragma: no cover - checked by exercise_shortfall
+            raise ScenarioError(option)
+        underlying_id, underlying = self._instrument(spec.option.underlying)
+        settles_on = settlement_date(
+            day,
+            underlying.market,
+            underlying.asset_class,
+            self._p.settlement_rules,
+            self._p.calendars[underlying.market],
+        )
+        exercise_id = self._next_id(EntityType.EXERCISE)
+        shares = contracts * spec.multiplier
+        payload = OptionExercisedPayload(
+            exercise_id=exercise_id,
+            settlement_id=self._next_id(EntityType.SETTLEMENT),
+            account_id=account_id,
+            option_instrument_id=option_id,
+            underlying_instrument_id=underlying_id,
+            right=spec.option.right,
+            contracts=contracts,
+            multiplier=spec.multiplier,
+            shares=shares,
+            strike=spec.option.strike,
+            strike_amount=spec.option.strike * shares,
+            currency=spec.currency,
+            exercise_date=day,
+            settlement_date=settles_on,
+            reason=ExerciseReason.EARLY if expiry_close is None else ExerciseReason.EXPIRY,
+            underlying_close=expiry_close,
+            expiry_policy_version=None if expiry_close is None else self._p.option_expiry.version,
+        )
+        self._record(
+            _Draft(at, exercise_id, None, _maker(OptionExercised, at, account_id, payload)),
+            OptionExercised(**_envelope(at, account_id), payload=payload),
+        )
+        settles_at = _local(settles_on, self._settlement_time)
+        self._exercises[exercise_id] = _Exercise(exercise_id, payload, settles_at)
+        self._queued += 1
+        heapq.heappush(
+            self._corporate_queue, (settles_at, self._queued, "settle_exercise", exercise_id)
+        )
+
+    def _expire(
+        self,
+        at: datetime,
+        account_id: str,
+        option_id: str,
+        contracts: Decimal,
+        day: date,
+        close: Decimal,
+        reason: ExpiryReason,
+    ) -> None:
+        payload = OptionExpiredPayload(
+            account_id=account_id,
+            instrument_id=option_id,
+            contracts=contracts,
+            expiry_date=day,
+            underlying_close=close,
+            expiry_policy_version=self._p.option_expiry.version,
+            reason=reason,
+        )
+        ref = f"exp:{account_id}:{option_id}"
+        self._record(
+            _Draft(at, ref, None, _maker(OptionExpired, at, account_id, payload)),
+            OptionExpired(**_envelope(at, account_id), payload=payload),
+        )
+
+    def _settle_exercise(self, exercise_id: str) -> None:
+        exercise = self._exercises.pop(exercise_id)
+        p, at = exercise.payload, exercise.settles_at
+        payload = ExerciseSettledPayload(
+            settlement_id=p.settlement_id,
+            exercise_id=exercise_id,
+            account_id=p.account_id,
+            instrument_id=p.underlying_instrument_id,
+            side=Side.BUY if p.right is OptionRight.CALL else Side.SELL,
+            quantity=p.shares,
+            amount=p.strike_amount,
+            currency=p.currency,
+            settlement_date=p.settlement_date,
+        )
+        self._record(
+            _Draft(
+                at,
+                p.settlement_id,
+                exercise.ref,
+                _maker(ExerciseSettled, at, p.account_id, payload),
+            ),
+            ExerciseSettled(**_envelope(at, p.account_id), payload=payload),
+        )
+
     def _close(self, action: ClosePrice) -> None:
+        self._closes[(action.instrument, action.price_date)] = action.close
         instrument_id, spec = self._instrument(action.instrument)
         ref = f"px:{instrument_id}:{action.price_date.isoformat()}"
         payload = PriceUpdatedPayload(

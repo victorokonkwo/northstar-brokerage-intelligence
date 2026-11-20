@@ -8,6 +8,9 @@
         'inputs': [
             'stg_brokerage__trade_executed',
             'stg_brokerage__trade_settled',
+            'stg_brokerage__option_exercised',
+            'stg_brokerage__exercise_settled',
+            'stg_brokerage__option_expired',
             'stg_brokerage__price_updated',
             'stg_brokerage__instrument_listed',
             'stg_brokerage__fx_rate_published',
@@ -23,28 +26,88 @@
 -- trade-date or settled quantity. Trade-date quantity is the sum of executed
 -- quantities with trade_date on or before the date; settled quantity is the
 -- sum of settled quantities with settlement_date on or before it (long only).
+-- Exercises and expiries move positions too (roadmap 5C-b, ADR 013): an
+-- exercised or expired option leaves both quantities on its exercise or expiry
+-- date, and an exercise's underlying moves at trade date on the exercise date
+-- (bought for a call, sold for a put) and settles on its settlement date.
 -- Market value is trade-date quantity x close x multiplier, rounded half-even
 -- once (ADR 004). It is null when no close exists (INV-08: never valued with a
 -- missing price), and the stale flag is carried from the price. USD values are
 -- translated to CAD at the applicable reference rate (INV-07).
-with executed as (
+with retired as (
+    -- Exercised and expired contracts: out of both quantities at once.
+    select
+        account_id,
+        option_instrument_id as instrument_id,
+        exercise_date as on_date,
+        -contracts as quantity
+    from {{ ref('stg_brokerage__option_exercised') }}
+    union all
+    select
+        account_id,
+        instrument_id,
+        expiry_date as on_date,
+        -contracts as quantity
+    from {{ ref('stg_brokerage__option_expired') }}
+),
+
+trade_date_moves as (
     select
         account_id,
         instrument_id,
         trade_date as on_date,
-        sum(case when side = 'BUY' then quantity else -quantity end) as quantity
+        case when side = 'BUY' then quantity else -quantity end as quantity
     from {{ ref('stg_brokerage__trade_executed') }}
-    group by account_id, instrument_id, trade_date
+    union all
+    select
+        account_id,
+        underlying_instrument_id as instrument_id,
+        exercise_date as on_date,
+        case
+            when option_right = 'CALL' then underlying_quantity
+            else -underlying_quantity
+        end as quantity
+    from {{ ref('stg_brokerage__option_exercised') }}
+    union all
+    select * from retired
+),
+
+settled_moves as (
+    select
+        account_id,
+        instrument_id,
+        settlement_date as on_date,
+        case when side = 'BUY' then quantity else -quantity end as quantity
+    from {{ ref('stg_brokerage__trade_settled') }}
+    union all
+    select
+        account_id,
+        instrument_id,
+        settlement_date as on_date,
+        case when side = 'BUY' then quantity else -quantity end as quantity
+    from {{ ref('stg_brokerage__exercise_settled') }}
+    union all
+    select * from retired
+),
+
+executed as (
+    select
+        account_id,
+        instrument_id,
+        on_date,
+        sum(quantity) as quantity
+    from trade_date_moves
+    group by account_id, instrument_id, on_date
 ),
 
 settled as (
     select
         account_id,
         instrument_id,
-        settlement_date as on_date,
-        sum(case when side = 'BUY' then quantity else -quantity end) as quantity
-    from {{ ref('stg_brokerage__trade_settled') }}
-    group by account_id, instrument_id, settlement_date
+        on_date,
+        sum(quantity) as quantity
+    from settled_moves
+    group by account_id, instrument_id, on_date
 ),
 
 holdings as (

@@ -23,10 +23,19 @@ from northstar.domain.events import (
     DividendPaidPayload,
     Event,
     EventType,
+    ExerciseReason,
+    ExerciseSettled,
+    ExerciseSettledPayload,
+    ExpiryReason,
     FxConverted,
     FxConvertedPayload,
     MarginInterestAccrued,
     MarginInterestAccruedPayload,
+    OptionExercised,
+    OptionExercisedPayload,
+    OptionExpired,
+    OptionExpiredPayload,
+    OptionRight,
     PolicyVersions,
     Side,
     TradeExecuted,
@@ -279,6 +288,90 @@ def dividend_paid(
     )
 
 
+def option_exercised(
+    right: OptionRight = OptionRight.CALL,
+    contracts: str = "2",
+    strike: str = "65.00",
+    currency: Currency = Currency.USD,
+    account_id: str = "acc_s1_000001",
+    when: datetime | None = None,
+    event_id: str = "evt_s1_000008",
+) -> OptionExercised:
+    """An early exercise of ``contracts`` x 100 shares, settling the next business day."""
+    ts = when or at_toronto(date(2026, 3, 4), 17)
+    day = ts.astimezone(BUSINESS_TIMEZONE).date()
+    shares = Decimal(contracts) * 100
+    return OptionExercised(
+        event_id=event_id,
+        event_timestamp=ts,
+        recorded_at=ts,
+        correlation_id=account_id,
+        payload=OptionExercisedPayload(
+            exercise_id="oex_s1_000001",
+            settlement_id="stl_s1_000009",
+            account_id=account_id,
+            option_instrument_id="ins_s1_000009",
+            underlying_instrument_id="ins_s1_000005",
+            right=right,
+            contracts=Decimal(contracts),
+            multiplier=100,
+            shares=shares,
+            strike=Decimal(strike),
+            strike_amount=Decimal(strike) * shares,
+            currency=currency,
+            exercise_date=day,
+            settlement_date=day + timedelta(days=1),
+            reason=ExerciseReason.EARLY,
+        ),
+    )
+
+
+def exercise_settled(
+    exercised: OptionExercised, event_id: str = "evt_s1_000009"
+) -> ExerciseSettled:
+    """The settlement of ``exercised`` on its settlement date."""
+    p = exercised.payload
+    ts = at_toronto(p.settlement_date, 12)
+    return ExerciseSettled(
+        event_id=event_id,
+        event_timestamp=ts,
+        recorded_at=ts,
+        correlation_id=p.account_id,
+        payload=ExerciseSettledPayload(
+            settlement_id=p.settlement_id,
+            exercise_id=p.exercise_id,
+            account_id=p.account_id,
+            instrument_id=p.underlying_instrument_id,
+            side=Side.BUY if p.right is OptionRight.CALL else Side.SELL,
+            quantity=p.shares,
+            amount=p.strike_amount,
+            currency=p.currency,
+            settlement_date=p.settlement_date,
+        ),
+    )
+
+
+def option_expired(
+    contracts: str = "3", account_id: str = "acc_s1_000001", event_id: str = "evt_s1_000010"
+) -> OptionExpired:
+    ts = at_toronto(date(2026, 3, 20), 17, 30)
+    return OptionExpired(
+        event_id=event_id,
+        event_timestamp=ts,
+        recorded_at=ts,
+        correlation_id=account_id,
+        payload=OptionExpiredPayload(
+            account_id=account_id,
+            instrument_id="ins_s1_000009",
+            contracts=Decimal(contracts),
+            expiry_date=date(2026, 3, 20),
+            underlying_close=Decimal("60.00"),
+            expiry_policy_version="test",
+            reason=ExpiryReason.OUT_OF_THE_MONEY,
+        ),
+    )
+
+
 # --- Hypothesis strategies -------------------------------------------------
 
 currencies = st.sampled_from(Currency)
@@ -319,6 +412,8 @@ NO_CLIENT_CASH: frozenset[EventType] = frozenset(
         EventType.PRICE_UPDATED,
         EventType.FX_RATE_PUBLISHED,
         EventType.DIVIDEND_DECLARED,
+        EventType.EXERCISE_SETTLED,  # moves firm cash and clearing balances only
+        EventType.OPTION_EXPIRED,  # worthless: nothing is paid
     }
 )
 """Event types that never move client cash (listed, so a new type can't be skipped)."""
@@ -356,6 +451,12 @@ def expected_client_cash(events: Iterable[Event]) -> dict[tuple[str, Currency], 
             case DividendPaid(payload=p):
                 for a in p.allocations:
                     balance[(a.account_id, p.currency)] += a.quantity * p.amount_per_share
+            case OptionExercised(payload=p):
+                # A call pays the strike for the shares; a put receives it.
+                signed = (
+                    -p.strike * p.shares if p.right is OptionRight.CALL else p.strike * p.shares
+                )
+                balance[(p.account_id, p.currency)] += signed
             case _ if event.event_type in NO_CLIENT_CASH:
                 pass
             case _:

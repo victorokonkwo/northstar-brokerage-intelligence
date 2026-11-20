@@ -1,7 +1,8 @@
 # Dev dataset for the seeded generator (owner decision 2026-11-19: about 50
 # accounts, Q1 2026). ILLUSTRATIVE: every instrument, price path, FX path, and
 # activity parameter is invented. Symbols are synthetic, not real securities.
-# Options expire after the window (exercise and expiry are Phase 5).
+# The September options expire after the window; four short-dated ones expire
+# inside it (roadmap 5C-b; see below).
 # Option closes are model prices (roadmap 5B, ADR 012): the binomial tree on the
 # underlying's close, at the option's annual implied_vol and its currency's rate
 # (config/risk/rates.yaml). Each implied_vol is its underlying's daily_vol x
@@ -61,6 +62,62 @@ instruments:
     option: {underlying: SYNF, strike: "135.00", expiry: 2026-09-18, right: PUT, exercise_style: AMERICAN}
     implied_vol: "0.22"
 
+  # Short-dated options expiring inside the window (roadmap 5C-b, ADR 013), on
+  # third Fridays (OCC By-Laws). The SYNG pair shares a strike and expiry, so one
+  # finishes in the money and the other expires. The deep in-the-money SYNB call
+  # and the deep in-the-money SYNH 7.00 call (affordable at about $250 a contract)
+  # are worth exercising early the day before their underlying goes ex-dividend.
+  # Implied vols are the underlyings' daily_vol x sqrt(252), rounded.
+  - key: SYNB-C45
+    symbol: SYNB-C-20260320-45
+    name: Synthetic Beta Inc. call, 45.00, 2026-03-20
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNB, strike: "45.00", expiry: 2026-03-20, right: CALL, exercise_style: AMERICAN}
+    implied_vol: "0.27"
+  - key: SYNG-C
+    symbol: SYNG-C-20260320-22.5
+    name: Synthetic Eta Inc. call, 22.50, 2026-03-20
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNG, strike: "22.50", expiry: 2026-03-20, right: CALL, exercise_style: AMERICAN}
+    implied_vol: "0.41"
+  - key: SYNG-P
+    symbol: SYNG-P-20260320-22.5
+    name: Synthetic Eta Inc. put, 22.50, 2026-03-20
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNG, strike: "22.50", expiry: 2026-03-20, right: PUT, exercise_style: AMERICAN}
+    implied_vol: "0.41"
+  - key: SYNH-C7
+    symbol: SYNH-C-20260320-7
+    name: Synthetic Theta Ltd. call, 7.00, 2026-03-20
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNH, strike: "7.00", expiry: 2026-03-20, right: CALL, exercise_style: AMERICAN}
+    implied_vol: "0.56"
+  - key: SYNH-C
+    symbol: SYNH-C-20260220-10
+    name: Synthetic Theta Ltd. call, 10.00, 2026-02-20
+    market: XCBO
+    asset_class: OPTION
+    currency: USD
+    multiplier: 100
+    option: {underlying: SYNH, strike: "10.00", expiry: 2026-02-20, right: CALL, exercise_style: AMERICAN}
+    implied_vol: "0.56"
+
+# Early exercise (roadmap 5C-b; illustrative): when the model says exercising beats
+# holding, each holder who can exercise does so with this probability.
+option_exercise: {early_exercise_probability: "0.8"}
+
 # Cash dividends (roadmap 5C-a, ADR 013). ILLUSTRATIVE: invented rates and dates,
 # whole cents per share. Each record_date is also the ex-dividend date (T+1) and a
 # business day on the instrument's market; the price drops by the dividend that
@@ -70,6 +127,7 @@ dividends:
   - {instrument: SYNB, amount_per_share: "0.40", declaration_date: 2026-01-27, record_date: 2026-02-26, pay_date: 2026-03-12}
   - {instrument: SYND, amount_per_share: "0.95", declaration_date: 2026-02-02, record_date: 2026-03-06, pay_date: 2026-03-20}
   - {instrument: SYNF, amount_per_share: "0.85", declaration_date: 2026-02-10, record_date: 2026-03-12, pay_date: 2026-03-26}
+  - {instrument: SYNH, amount_per_share: "0.25", declaration_date: 2026-02-10, record_date: 2026-03-05, pay_date: 2026-03-19}
 
 # FR-SIM-05: seasonal deposits (higher in January and February), month-end
 # withdrawals, and order intensity that rises with the day's price moves.

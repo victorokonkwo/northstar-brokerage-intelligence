@@ -8,6 +8,9 @@
         'inputs': [
             'stg_brokerage__trade_executed',
             'stg_brokerage__trade_settled',
+            'stg_brokerage__option_exercised',
+            'stg_brokerage__exercise_settled',
+            'stg_brokerage__option_expired',
             'stg_brokerage__price_updated',
             'stg_brokerage__instrument_listed',
             'stg_brokerage__fx_rate_published',

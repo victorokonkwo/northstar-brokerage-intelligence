@@ -31,6 +31,7 @@ class EntityType(StrEnum):
     FX_CONVERSION = "fxc"
     SETTLEMENT = "stl"
     DIVIDEND = "div"
+    EXERCISE = "oex"
     EVENT = "evt"
 
 

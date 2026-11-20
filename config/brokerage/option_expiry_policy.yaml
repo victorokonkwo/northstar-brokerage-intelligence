@@ -1,0 +1,21 @@
+# What the brokerage does with clients' long options at expiry (roadmap 5C-b,
+# ADR 013). Owner decision 2026-11-20. ILLUSTRATIVE: a simulated brokerage's
+# policy, not a real firm's.
+#
+# On the expiry date (the third Friday, OCC By-Laws Art. I):
+# - close-out: before the close, the brokerage sells at that day's close any
+#   in-the-money long put the account can't deliver the shares for, and any
+#   in-the-money call it can't fund: a CASH account without the strike, or a
+#   MARGIN account that would borrow over its guard (clients are long only, so
+#   exercising either would make a short or an overdraft). Taken in the order
+#   expiry processes them, after the exercises and sales before each;
+# - then at processing_time_local, every remaining option in the money by at
+#   least auto_exercise_threshold per share is exercised; the rest expire.
+#   The $0.01 threshold is OCC's exercise by exception for customer accounts
+#   (docs/sources.md: partly verified). There is no exercise fee.
+version: "2026.1"
+effective_from: 2026-01-01
+illustrative: true
+auto_exercise_threshold: "0.01"
+close_out_uncovered: true
+processing_time_local: "17:30:00"

@@ -11,13 +11,15 @@ Each record, the canonical event it comes from, and the broker reference it
 carries:
 
 - clearing confirmation: one per ``trade_executed`` (``execution_id``)
-- settlement confirmation: one per ``trade_settled`` (``settlement_id``)
+- settlement confirmation: one per ``trade_settled`` and ``exercise_settled``
+  (``settlement_id``)
 - bank statement line: one per ``cash_deposited``, ``cash_withdrawn``,
-  ``trade_settled``, and ``dividend_paid`` (``cash_movement_id``,
+  ``trade_settled``, ``exercise_settled``, and ``dividend_paid`` (``cash_movement_id``,
   ``settlement_id``, or ``dividend_id``: the depository pays a dividend's total
   in one movement, ADR 013)
 - custody snapshot: the running settled quantity per account x instrument, on
-  each ledger business day while it is non-zero
+  each ledger business day while it is non-zero; exercised and expired options
+  leave it on the exercise or expiry date (roadmap 5C-b)
 - fee record: one per ``trade_executed`` with a clearing fee (``execution_id``)
 - FX confirmation: one per ``fx_converted`` (``fx_conversion_id``)
 - price feed record: one per ``price_updated``
@@ -45,9 +47,12 @@ from northstar.domain.events import (
     CashWithdrawn,
     DividendPaid,
     Event,
+    ExerciseSettled,
     FxConverted,
     FxRate,
     NonNegativeAmount,
+    OptionExercised,
+    OptionExpired,
     PositiveAmount,
     Price,
     PriceUpdated,
@@ -269,7 +274,9 @@ def derive_external_records(
                             amount=p.clearing_fee,
                         )
                     )
-            case TradeSettled(payload=p):
+            case TradeSettled(payload=p) | ExerciseSettled(payload=p):
+                # A trade's or an exercise's settlement: the depository delivers the
+                # units and the strike or trade amount moves through the bank.
                 settlements.append(
                     SettlementConfirmation(
                         record_id=next_id("settlement_confirmations"),
@@ -285,6 +292,7 @@ def derive_external_records(
                     )
                 )
                 signed = -p.amount if p.side is Side.BUY else p.amount
+                what = "exercise" if isinstance(event, ExerciseSettled) else "clearing"
                 bank.append(
                     BankStatementLine(
                         record_id=next_id("bank_statement_lines"),
@@ -292,12 +300,19 @@ def derive_external_records(
                         value_date=p.settlement_date,
                         currency=p.currency,
                         amount=signed,
-                        description=f"clearing settlement {p.side.value.lower()}",
+                        description=f"{what} settlement {p.side.value.lower()}",
                     )
                 )
                 key = (p.account_id, p.instrument_id)
                 settled[key] += p.quantity if p.side is Side.BUY else -p.quantity
                 settled_by_day[p.settlement_date] = dict(settled)
+            case OptionExercised(payload=p):
+                # The exercised contracts leave the depository on the exercise date.
+                settled[(p.account_id, p.option_instrument_id)] -= p.contracts
+                settled_by_day[p.exercise_date] = dict(settled)
+            case OptionExpired(payload=p):
+                settled[(p.account_id, p.instrument_id)] -= p.contracts
+                settled_by_day[p.expiry_date] = dict(settled)
             case CashDeposited(payload=p) | CashWithdrawn(payload=p):
                 is_deposit = isinstance(event, CashDeposited)
                 bank.append(

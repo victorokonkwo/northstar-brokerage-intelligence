@@ -1,5 +1,6 @@
 """Synthetic option closes are model prices on the underlying (roadmap 5B; ADR 012)."""
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 
@@ -10,7 +11,13 @@ from pydantic import ValidationError
 from northstar.common.money import Currency
 from northstar.domain.calendar import Holiday
 from northstar.domain.events import ExerciseStyle, OptionRight
-from northstar.domain.market_risk.options import Dividend, OptionInputs, binomial, implied_vol
+from northstar.domain.market_risk.options import (
+    Dividend,
+    OptionInputs,
+    PricingError,
+    binomial,
+    implied_vol,
+)
 from northstar.infrastructure.config_loader import load_policy
 from northstar.simulation.generator import (
     DatasetConfig,
@@ -97,10 +104,23 @@ def test_the_risk_model_recovers_the_configured_implied_vol(
         assert spec.implied_vol is not None
         underlying = market.closes[spec.option.underlying]
         for day, close in list(market.closes[spec.key].items())[::10]:  # bisection is slow
+            if day >= spec.option.expiry:
+                continue  # at expiry the price is intrinsic: no vol in it
             o = _inputs(spec, underlying[day], day, USD_RATE, config.dividends)
-            recovered = implied_vol(o, float(close), steps=OPTION_TREE_STEPS)
+            up = binomial(replace(o, vol=o.vol + 0.01), OPTION_TREE_STEPS)
+            down = binomial(replace(o, vol=o.vol - 0.01), OPTION_TREE_STEPS)
+            vega = (up - down) / 0.02
+            try:
+                recovered = implied_vol(o, float(close), steps=OPTION_TREE_STEPS)
+            except PricingError:
+                # Not identified: rounded to a cent, the close is the price at the
+                # lowest vol (a deep in-the-money option with almost no vega).
+                lowest = binomial(replace(o, vol=1e-4 + 1e-3), OPTION_TREE_STEPS)
+                assert abs(lowest - float(close)) <= 0.005, (spec.key, day)
+                continue
             # Up to the rounding of the close to a cent: half a cent over vega.
-            assert recovered == pytest.approx(float(spec.implied_vol), abs=2e-3), (spec.key, day)
+            bound = 1.05 * 0.005 / vega
+            assert abs(recovered - float(spec.implied_vol)) <= bound, (spec.key, day)
 
 
 def test_an_option_has_no_close_on_a_day_its_underlying_has_none(

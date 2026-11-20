@@ -28,8 +28,11 @@ from northstar.domain.events import (
     DividendPaid,
     Event,
     EventType,
+    ExerciseSettled,
     FxConverted,
     MarginInterestAccrued,
+    OptionExercised,
+    OptionRight,
     Side,
     TradeExecuted,
     TradeSettled,
@@ -202,6 +205,10 @@ FX_BUY_USD: Final = PostingRule("fx_converted.buy_usd", 1)
 FX_BUY_CAD: Final = PostingRule("fx_converted.buy_cad", 1)
 MARGIN_INTEREST: Final = PostingRule("margin_interest_accrued", 1)
 DIVIDEND_PAYMENT: Final = PostingRule("dividend_paid", 1)
+EXERCISE_CALL: Final = PostingRule("option_exercised.call", 1)
+EXERCISE_PUT: Final = PostingRule("option_exercised.put", 1)
+SETTLE_EXERCISE_CALL: Final = PostingRule("exercise_settled.call", 1)
+SETTLE_EXERCISE_PUT: Final = PostingRule("exercise_settled.put", 1)
 
 CASH: Final = "1000"
 RECEIVABLE_FROM_CLEARING: Final = "1200"
@@ -234,6 +241,7 @@ NON_POSTING_EVENTS: Final = frozenset(
         EventType.ORDER_CANCELLED,
         EventType.PRICE_UPDATED,
         EventType.DIVIDEND_DECLARED,
+        EventType.OPTION_EXPIRED,
     }
 )
 """Event types that change no balance and therefore post nothing."""
@@ -246,6 +254,8 @@ PostingEvent = (
     | TradeSettled
     | MarginInterestAccrued
     | DividendPaid
+    | OptionExercised
+    | ExerciseSettled
 )
 
 type _LineSpec = tuple[str, str | None, EntrySide, Money]
@@ -293,6 +303,10 @@ class PostingEngine:
                 return self._post_interest(event)
             case DividendPaid():
                 return self._post_dividend(event)
+            case OptionExercised():
+                return self._post_exercise(event)
+            case ExerciseSettled():
+                return self._post_exercise_settlement(event)
 
     def post_events(self, events: Iterable[Event]) -> tuple[JournalBatch, ...]:
         """Post every event that changes a balance, in order.
@@ -450,6 +464,55 @@ class PostingEngine:
                     (CLIENT_CASH, a.account_id, EntrySide.CREDIT, Money(a.amount, p.currency))
                     for a in p.allocations
                 ),
+            ],
+        )
+
+    def _post_exercise(self, event: OptionExercised) -> JournalBatch:
+        """Post an exercise on its exercise date, like a trade at the strike (ADR 013).
+
+        A call: the client pays the strike amount, owed to clearing until the
+        underlying is delivered. A put: the client is owed the strike amount,
+        receivable from clearing. No fee.
+        """
+        p = event.payload
+        amount = Money(p.strike_amount, p.currency)
+        if p.right is OptionRight.CALL:
+            return self._batch(
+                event,
+                EXERCISE_CALL,
+                [
+                    (CLIENT_CASH, p.account_id, EntrySide.DEBIT, amount),
+                    (PAYABLE_TO_CLEARING, None, EntrySide.CREDIT, amount),
+                ],
+            )
+        return self._batch(
+            event,
+            EXERCISE_PUT,
+            [
+                (RECEIVABLE_FROM_CLEARING, None, EntrySide.DEBIT, amount),
+                (CLIENT_CASH, p.account_id, EntrySide.CREDIT, amount),
+            ],
+        )
+
+    def _post_exercise_settlement(self, event: ExerciseSettled) -> JournalBatch:
+        """Post an exercise's settlement: the strike amount moves through the bank."""
+        p = event.payload
+        amount = Money(p.amount, p.currency)
+        if p.side is Side.BUY:
+            return self._batch(
+                event,
+                SETTLE_EXERCISE_CALL,
+                [
+                    (PAYABLE_TO_CLEARING, None, EntrySide.DEBIT, amount),
+                    (CASH, None, EntrySide.CREDIT, amount),
+                ],
+            )
+        return self._batch(
+            event,
+            SETTLE_EXERCISE_PUT,
+            [
+                (CASH, None, EntrySide.DEBIT, amount),
+                (RECEIVABLE_FROM_CLEARING, None, EntrySide.CREDIT, amount),
             ],
         )
 

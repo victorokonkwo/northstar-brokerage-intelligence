@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "ExpiryReason": {
+      "description": "Why a long option expired rather than being exercised (ADR 013).",
+      "enum": [
+        "OUT_OF_THE_MONEY",
+        "NOT_EXERCISABLE"
+      ],
+      "title": "ExpiryReason",
+      "type": "string"
+    },
+    "OptionExpiredPayload": {
+      "additionalProperties": false,
+      "description": "A long option lapsed at expiry (roadmap 5C-b).\n\nIts contracts leave the account and nothing is paid. ``reason`` says why it\nwasn't exercised.",
+      "properties": {
+        "account_id": {
+          "title": "Account Id",
+          "type": "string"
+        },
+        "contracts": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 8,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Contracts"
+        },
+        "expiry_date": {
+          "format": "date",
+          "title": "Expiry Date",
+          "type": "string"
+        },
+        "expiry_policy_version": {
+          "title": "Expiry Policy Version",
+          "type": "string"
+        },
+        "instrument_id": {
+          "title": "Instrument Id",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/ExpiryReason"
+        },
+        "underlying_close": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "decimal_places": 8,
+          "gt": 0,
+          "max_digits": 18,
+          "title": "Underlying Close"
+        }
+      },
+      "required": [
+        "account_id",
+        "instrument_id",
+        "contracts",
+        "expiry_date",
+        "underlying_close",
+        "expiry_policy_version",
+        "reason"
+      ],
+      "title": "OptionExpiredPayload",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``option_expired`` event.",
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_timestamp": {
+      "format": "date-time",
+      "title": "Event Timestamp",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "option_expired",
+      "default": "option_expired",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/OptionExpiredPayload"
+    },
+    "recorded_at": {
+      "format": "date-time",
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_system": {
+      "const": "brokerage_simulator",
+      "default": "brokerage_simulator",
+      "title": "Source System",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "event_timestamp",
+    "recorded_at",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "OptionExpired",
+  "type": "object"
+}

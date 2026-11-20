@@ -34,3 +34,6 @@ sources:
                       - fx_rate_published
                       - dividend_declared   # roadmap 5C-a
                       - dividend_paid
+                      - option_exercised    # roadmap 5C-b
+                      - exercise_settled
+                      - option_expired

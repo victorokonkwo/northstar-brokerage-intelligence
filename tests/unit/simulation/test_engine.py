@@ -17,11 +17,19 @@ from northstar.domain.events import (
     DividendDeclared,
     DividendPaid,
     Event,
+    ExerciseReason,
+    ExerciseSettled,
+    ExerciseStyle,
+    ExpiryReason,
     FxConverted,
     FxRatePublished,
+    OptionExercised,
+    OptionExpired,
+    OptionRight,
     OrderCancelled,
     OrderType,
     Side,
+    TradeExecuted,
     TradeSettled,
 )
 from northstar.domain.positions import PositionBook, ShortSaleError
@@ -32,10 +40,13 @@ from northstar.simulation.engine import (
     Convert,
     DeclareDividend,
     Deposit,
+    ExerciseOption,
     Fill,
     InstrumentSpec,
     OpenAccount,
+    OptionSpec,
     PlaceOrder,
+    ProcessExpiry,
     SimulationEngine,
     UpdateAccount,
     Withdraw,
@@ -536,3 +547,202 @@ class TestDividends:
                     T0 + timedelta(hours=1), "A", Decimal("0.50"), date(2026, 3, 7), self.PAY
                 )
             )
+
+
+class TestExerciseAndExpiry:
+    """Early exercise, exercise by exception, and worthless expiry (roadmap 5C-b, ADR 013)."""
+
+    EXPIRY = date(2026, 3, 20)  # the third Friday of March 2026
+    U = InstrumentSpec(
+        key="U",
+        symbol="SYNU",
+        name="Synthetic U",
+        market="XNYS",
+        asset_class=AssetClass.EQUITY,
+        currency=Currency.USD,
+    )
+
+    def option(
+        self, key: str, right: OptionRight, style: ExerciseStyle = ExerciseStyle.AMERICAN
+    ) -> InstrumentSpec:
+        return InstrumentSpec(
+            key=key,
+            symbol=f"SYNU-{key}",
+            name=f"Synthetic U {right}",
+            market="XCBO",
+            asset_class=AssetClass.OPTION,
+            currency=Currency.USD,
+            multiplier=100,
+            option=OptionSpec(
+                underlying="U",
+                strike=Decimal("50.00"),
+                expiry=self.EXPIRY,
+                right=right,
+                exercise_style=style,
+            ),
+        )
+
+    @staticmethod
+    def at(month: int, day: int, hour: int, minute: int = 0) -> datetime:
+        return datetime.combine(
+            date(2026, month, day), time(hour, minute), tzinfo=BUSINESS_TIMEZONE
+        ).astimezone(UTC)
+
+    def sim(
+        self, account_type: AccountType = AccountType.CASH, usd: str = "20000"
+    ) -> SimulationEngine:
+        sim = SimulationEngine(
+            policies(),
+            (
+                self.U,
+                self.option("C", OptionRight.CALL),
+                self.option("P", OptionRight.PUT),
+                self.option("E", OptionRight.CALL, ExerciseStyle.EUROPEAN),
+                self.option("C2", OptionRight.CALL),
+            ),
+            RATES,
+            1,
+            time(12, 0),
+        )
+        sim.submit(OpenAccount(self.at(3, 2, 9), "a", account_type, Currency.CAD))
+        sim.submit(Deposit(self.at(3, 2, 9, 1), "a", Money(Decimal(usd), Currency.USD)))
+        return sim
+
+    def buy(self, sim: SimulationEngine, key: str, quantity: str, price: str, at: datetime) -> None:
+        q = Decimal(quantity)
+        sim.submit(
+            PlaceOrder(at, "a", key, Side.BUY, OrderType.MARKET, q, (Fill(at, q, Decimal(price)),))
+        )
+
+    def run(self, close: str) -> tuple[Event, ...]:
+        sim = self.sim()
+        self.buy(sim, "C", "2", "1.00", self.at(3, 2, 10))
+        self.buy(sim, "P", "1", "1.00", self.at(3, 2, 10, 5))
+        self.buy(sim, "U", "100", "48.00", self.at(3, 2, 10, 10))
+        sim.submit(ExerciseOption(self.at(3, 4, 17), "a", "C", Decimal(1)))  # settled on Mar 3
+        sim.submit(ClosePrice(self.at(3, 20, 16, 30), "U", self.EXPIRY, Decimal(close)))
+        sim.submit(ProcessExpiry(self.at(3, 20, 17, 30), self.EXPIRY))
+        return sim.finish(date(2026, 3, 31))
+
+    def test_an_early_and_an_automatic_exercise_and_a_worthless_expiry(self) -> None:
+        events = self.run(close="55.00")  # the call is 5.00 in, the put out
+        exercised = [e.payload for e in events if isinstance(e, OptionExercised)]
+        assert [(p.reason, p.contracts, p.exercise_date, p.settlement_date) for p in exercised] == [
+            (ExerciseReason.EARLY, Decimal(1), date(2026, 3, 4), date(2026, 3, 5)),
+            (
+                ExerciseReason.EXPIRY,
+                Decimal(1),
+                self.EXPIRY,
+                date(2026, 3, 23),
+            ),  # T+1 over the weekend
+        ]
+        assert exercised[1].underlying_close == Decimal("55.00")
+        assert exercised[1].expiry_policy_version == policies().option_expiry.version
+        assert all(p.strike_amount == Decimal("5000.00") for p in exercised)
+        expired = [e.payload for e in events if isinstance(e, OptionExpired)]
+        assert [(p.contracts, p.expiry_date) for p in expired] == [(Decimal(1), self.EXPIRY)]
+        settled = [e for e in events if isinstance(e, ExerciseSettled)]
+        assert [s.payload.settlement_id for s in settled] == [p.settlement_id for p in exercised]
+        book = PositionBook().apply_all(events)
+        u = exercised[0].underlying_instrument_id
+        assert book.positions()[("acc_s1_000001", u)] == (Decimal(300), Decimal(300))
+        assert all(i == u for _, i in book.positions())  # both options gone
+        assert all(line.balanced for line in book.stock_record())
+        assert expected_client_cash(events)[("acc_s1_000001", Currency.USD)] == (
+            Decimal(20000)
+            - Decimal("200.00")
+            - Decimal("100.00")
+            - Decimal("4800.00")
+            - Decimal("10000.00")
+            - sum(
+                (e.payload.commission for e in events if isinstance(e, TradeExecuted)), Decimal(0)
+            )
+        )
+
+    def test_one_cent_out_of_the_money_expires(self) -> None:
+        events = self.run(close="50.00")  # at the money: neither option is in
+        assert [type(e) for e in events if isinstance(e, OptionExercised | OptionExpired)] == [
+            OptionExercised,
+            OptionExpired,
+            OptionExpired,
+        ]  # only the early exercise
+
+    def test_refusals(self) -> None:
+        sim = self.sim(usd="300")
+        self.buy(sim, "C", "2", "1.00", self.at(3, 2, 10))
+        with pytest.raises(ScenarioError, match="not all settled"):
+            sim.submit(ExerciseOption(self.at(3, 2, 17), "a", "C", Decimal(1)))
+        sim = self.sim(usd="300")
+        self.buy(sim, "C", "2", "1.00", self.at(3, 2, 10))
+        with pytest.raises(ScenarioError, match="can't pay the strike"):
+            sim.submit(ExerciseOption(self.at(3, 4, 17), "a", "C", Decimal(1)))
+        sim = self.sim()
+        self.buy(sim, "E", "1", "1.00", self.at(3, 2, 10))
+        with pytest.raises(ScenarioError, match="only an American option"):
+            sim.submit(ExerciseOption(self.at(3, 4, 17), "a", "E", Decimal(1)))
+
+    def test_an_uncovered_put_in_the_money_is_refused_at_expiry(self) -> None:
+        # The policy has the brokerage sell it before the close; the engine never makes a short.
+        sim = self.sim()
+        self.buy(sim, "P", "1", "1.00", self.at(3, 2, 10))
+        sim.submit(ClosePrice(self.at(3, 20, 16, 30), "U", self.EXPIRY, Decimal("45.00")))
+        with pytest.raises(ScenarioError, match="doesn't hold the shares"):
+            sim.submit(ProcessExpiry(self.at(3, 20, 17, 30), self.EXPIRY))
+
+    def test_a_restricted_accounts_unexercisable_option_expires_with_its_reason(self) -> None:
+        sim = self.sim()
+        self.buy(sim, "P", "1", "1.00", self.at(3, 2, 10))
+        sim.submit(
+            UpdateAccount(
+                self.at(3, 19, 8),
+                "a",
+                AccountType.CASH,
+                AccountStatus.TRADING_RESTRICTED,
+                AccountUpdateReason.TRADING_RESTRICTED,
+            )
+        )
+        sim.submit(ClosePrice(self.at(3, 20, 16, 30), "U", self.EXPIRY, Decimal("45.00")))
+        sim.submit(ProcessExpiry(self.at(3, 20, 17, 30), self.EXPIRY))
+        expired = [e.payload for e in sim.finish(date(2026, 3, 31)) if isinstance(e, OptionExpired)]
+        assert [(p.reason, p.underlying_close) for p in expired] == [
+            (ExpiryReason.NOT_EXERCISABLE, Decimal("45.00"))  # 5.00 in the money, lost
+        ]
+
+    def test_the_close_out_plan_follows_the_exercises_before_it(self) -> None:
+        # Two calls, 6 contracts each at 50.00: 30,000 USD (about 41,100 CAD) each fits
+        # under the 50,000 CAD borrowing guard, but not both. Expiry processing takes C
+        # first, so C2 is the one the brokerage must sell.
+        sim = self.sim(AccountType.MARGIN, usd="1300")
+        self.buy(sim, "C", "6", "1.00", self.at(3, 2, 10))
+        self.buy(sim, "C2", "6", "1.00", self.at(3, 2, 10, 5))
+        sim.submit(ClosePrice(self.at(3, 20, 15), "C", self.EXPIRY, Decimal("5.00")))  # time passes
+        assert sim.exercise_shortfall("a", "C", Decimal(6), self.EXPIRY) is None
+        assert sim.exercise_shortfall("a", "C2", Decimal(6), self.EXPIRY) is None
+        closes = {"U": Decimal("55.00"), "C": Decimal("5.00"), "C2": Decimal("5.00")}
+        assert sim.expiry_close_outs(self.EXPIRY, closes, closes) == [("a", "C2", Decimal(6))]
+        at = self.at(3, 20, 16)
+        sim.submit(
+            PlaceOrder(
+                at,
+                "a",
+                "C2",
+                Side.SELL,
+                OrderType.MARKET,
+                Decimal(6),
+                (Fill(at, Decimal(6), Decimal("5.00")),),
+            )
+        )
+        sim.submit(ClosePrice(self.at(3, 20, 16, 30), "U", self.EXPIRY, Decimal("55.00")))
+        sim.submit(ProcessExpiry(self.at(3, 20, 17, 30), self.EXPIRY))  # C alone: fits
+        exercised = [
+            e.payload for e in sim.finish(date(2026, 3, 31)) if isinstance(e, OptionExercised)
+        ]
+        assert [(p.contracts, p.reason) for p in exercised] == [(Decimal(6), ExerciseReason.EXPIRY)]
+
+    def test_expiry_needs_the_close_and_the_processing_time(self) -> None:
+        sim = self.sim()
+        with pytest.raises(ScenarioError, match="processed at 17:30"):
+            sim.submit(ProcessExpiry(self.at(3, 20, 17, 0), self.EXPIRY))
+        sim = self.sim()
+        with pytest.raises(ScenarioError, match="no 2026-03-20 close of U"):
+            sim.submit(ProcessExpiry(self.at(3, 20, 17, 30), self.EXPIRY))

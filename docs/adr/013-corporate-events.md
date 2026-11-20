@@ -45,15 +45,17 @@ Owner decisions, 2026-11-20 (the 5C design note):
    There is no exercise fee. The option leaves the position on the exercise date, and the underlying moves at trade date and settles one business day later on its market's settlement calendar.
 
 5. **Expiry policy** (`config/brokerage/option_expiry_policy.yaml`, versioned, illustrative). On the expiry date:
-   - **Close-out:** the brokerage sells at the close any in-the-money long put the account can't deliver shares for, and any in-the-money call a CASH account can't fund.
+   - **Close-out:** the brokerage sells at the close any in-the-money long put the account can't deliver shares for, and any in-the-money call the account can't fund: a CASH account without the strike, or a MARGIN account that would borrow over its guard.
    - **Exercise or expire:** after the close, every remaining option $0.01 or more in the money is exercised; the rest expire.
 
-6. **Reconciliation through the existing record sets.** Bank lines, settlement confirmations, and custody snapshots reflect dividends and exercises. There is no new record set and no new reconciliation.
+6. **An unexercisable option of a restricted account expires** (owner decision during 5C-b). A trading-restricted account can't place orders, and a dbt control checks that it never does, so the brokerage can't sell its in-the-money option either. The option expires unexercised, and `option_expired` records the reason, `NOT_EXERCISABLE` (otherwise `OUT_OF_THE_MONEY`).
+7. **Close-outs are planned in order.** The brokerage decides what to sell by walking the expiry in the order it is processed. An earlier exercise uses up cash or borrowing room, or delivers shares; an earlier close-out sale adds its proceeds less commission. So no exercise fails after the close (found in testing: two calls, each fundable alone but not together).
+8. **Reconciliation through the existing record sets.** Bank lines, settlement confirmations, and custody snapshots reflect dividends and exercises. There is no new record set and no new reconciliation.
 
-7. **Market behaviour in the simulator:**
+9. **Market behaviour in the simulator:**
    - an equity drops by the dividend at the ex-date
    - options are priced with the dividends declared by the pricing day
-   - a holder may exercise early when the model says exercising is optimal
+   - a holder may exercise early when the model says exercising beats waiting a day: the tree has one step per calendar day to expiry, since clients decide once a day after the close
 
 ## Consequences
 

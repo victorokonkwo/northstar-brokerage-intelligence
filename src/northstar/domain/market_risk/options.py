@@ -248,6 +248,32 @@ def tree_greeks(o: OptionInputs, steps: int = 500) -> Greeks:
     return Greeks(delta=delta, gamma=gamma, vega=vega, theta=theta, rho=rho)
 
 
+def exercise_is_optimal(o: OptionInputs, steps: int) -> bool:
+    """Whether exercising an American option now beats waiting for the next chance.
+
+    The tree's steps are the exercise opportunities: with ``steps`` equal to
+    the days to expiry, the holder can exercise once a day. Exercising now is
+    optimal when the tree's price is no more than the payoff now (on the spot,
+    dividends included; the root's price is the larger of holding and
+    exercising), and that payoff is positive: for a call, typically the last
+    day before a large dividend goes ex. Decided on the model's own values,
+    never on a rounded price.
+
+    Raises:
+        PricingError: The option is European, ``steps`` is below 1, or the inputs
+            are invalid.
+    """
+    if o.style is not ExerciseStyle.AMERICAN:
+        msg = "only American options can be exercised early"
+        raise PricingError(msg)
+    now = o.intrinsic()
+    if now <= 0:
+        return False
+    if o.expiry == 0:
+        return True
+    return _tree(o, steps).root <= now
+
+
 def min_tree_vol(rate: float, expiry: float, steps: int) -> float:
     """The volatility a tree of ``steps`` needs to be arbitrage-free: above |rate| * sqrt(dt)."""
     return abs(rate) * math.sqrt(expiry / steps)

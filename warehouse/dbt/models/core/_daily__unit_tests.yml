@@ -82,6 +82,12 @@ unit_tests:
       - input: ref('stg_brokerage__trade_settled')
         rows:
           - {account_id: a1, instrument_id: us, side: BUY, quantity: 3, settlement_date: 2026-03-03}
+      - input: ref('stg_brokerage__option_exercised')  # covered by positions_move_on_exercise_and_expiry
+        rows: []
+      - input: ref('stg_brokerage__exercise_settled')
+        rows: []
+      - input: ref('stg_brokerage__option_expired')
+        rows: []
       - input: ref('int_reporting_dates')
         rows:
           - {business_date: 2026-03-02}
@@ -112,6 +118,56 @@ unit_tests:
         - {instrument_id: us, business_date: 2026-03-02, trade_date_quantity: 3, settled_quantity: 0, market_value: null, market_value_cad: null, is_price_missing: true, fx_rate_date: null}
         # 2 x 2.10 x 100 = 420.00 USD; x 1.3712 = 575.904 -> 575.90 CAD; carries the stale flag
         - {instrument_id: us, business_date: 2026-03-03, trade_date_quantity: 2, settled_quantity: 3, market_value: 420.00, market_value_cad: 575.90, is_price_missing: false, fx_rate_date: 2026-03-02}
+
+  - name: positions_move_on_exercise_and_expiry
+    model: fct_positions_daily
+    # Roadmap 5C-b (ADR 013): 3 call contracts bought and settled; 1 exercised on
+    # 03-04 (the option out of both quantities at once, 100 shares in at trade
+    # date, settled on 03-05); the other 2 expire on 03-06. Afterwards the option
+    # has no row, and the shares stay.
+    overrides: {macros: {is_incremental: false}}
+    given:
+      - input: ref('int_arrivals')  # read only by incremental builds
+        rows: []
+      - input: ref('stg_brokerage__trade_executed')
+        rows:
+          - {account_id: a1, instrument_id: opt, side: BUY, quantity: 3, trade_date: 2026-03-02}
+      - input: ref('stg_brokerage__trade_settled')
+        rows:
+          - {account_id: a1, instrument_id: opt, side: BUY, quantity: 3, settlement_date: 2026-03-03}
+      - input: ref('stg_brokerage__option_exercised')
+        rows:
+          - {account_id: a1, option_instrument_id: opt, underlying_instrument_id: und, option_right: CALL, contracts: 1, underlying_quantity: 100, exercise_date: 2026-03-04}
+      - input: ref('stg_brokerage__exercise_settled')
+        rows:
+          - {account_id: a1, instrument_id: und, side: BUY, quantity: 100, settlement_date: 2026-03-05}
+      - input: ref('stg_brokerage__option_expired')
+        rows:
+          - {account_id: a1, instrument_id: opt, contracts: 2, expiry_date: 2026-03-06}
+      - input: ref('int_reporting_dates')
+        rows:
+          - {business_date: 2026-03-02}
+          - {business_date: 2026-03-03}
+          - {business_date: 2026-03-04}
+          - {business_date: 2026-03-05}
+          - {business_date: 2026-03-06}
+      - input: ref('dim_instrument')
+        rows:
+          - {instrument_id: opt, currency: USD, multiplier: 100, is_current: true}
+          - {instrument_id: und, currency: USD, multiplier: 1, is_current: true}
+      - input: ref('fct_market_prices_daily')
+        rows: []
+      - input: ref('int_fx_rates_applicable')
+        rows: []
+    expect:
+      rows:
+        - {instrument_id: opt, business_date: 2026-03-02, trade_date_quantity: 3, settled_quantity: 0}
+        - {instrument_id: opt, business_date: 2026-03-03, trade_date_quantity: 3, settled_quantity: 3}
+        - {instrument_id: opt, business_date: 2026-03-04, trade_date_quantity: 2, settled_quantity: 2}
+        - {instrument_id: opt, business_date: 2026-03-05, trade_date_quantity: 2, settled_quantity: 2}
+        - {instrument_id: und, business_date: 2026-03-04, trade_date_quantity: 100, settled_quantity: 0}
+        - {instrument_id: und, business_date: 2026-03-05, trade_date_quantity: 100, settled_quantity: 100}
+        - {instrument_id: und, business_date: 2026-03-06, trade_date_quantity: 100, settled_quantity: 100}
 
   - name: the_rate_on_a_weekend_is_fridays_and_is_flagged
     model: int_fx_rates_applicable

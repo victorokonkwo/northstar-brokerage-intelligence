@@ -150,6 +150,44 @@ with arrivals as (
 
     union all
 
+    -- An exercise moves positions from its exercise date and opens its obligation
+    -- (roadmap 5C-b); its settlement and an expiry move them from their dates.
+    select
+        'stg_brokerage__option_exercised' as source_model,
+        event_id as record_id,
+        exercise_date as effective_date,
+        account_id,
+        null as order_id,
+        settlement_id,
+        option_instrument_id as instrument_id
+    from {{ ref('stg_brokerage__option_exercised') }}
+
+    union all
+
+    select
+        'stg_brokerage__exercise_settled' as source_model,
+        event_id as record_id,
+        settlement_date as effective_date,
+        account_id,
+        null as order_id,
+        settlement_id,
+        instrument_id
+    from {{ ref('stg_brokerage__exercise_settled') }}
+
+    union all
+
+    select
+        'stg_brokerage__option_expired' as source_model,
+        event_id as record_id,
+        expiry_date as effective_date,
+        account_id,
+        null as order_id,
+        null as settlement_id,
+        instrument_id
+    from {{ ref('stg_brokerage__option_expired') }}
+
+    union all
+
     -- A close is the latest price from its price date until a newer one.
     select
         'stg_brokerage__price_updated' as source_model,

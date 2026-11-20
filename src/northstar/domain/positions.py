@@ -15,8 +15,17 @@ where they are. At every step the two sides are equal:
 | BUY settles | (no change) | pending receipt -q, depository +q |
 | SELL executes | client -q, clearing: pending delivery +q | (no change) |
 | SELL settles | pending delivery -q | depository -q |
+| option exercised or expired (c contracts) | client -c | depository -c |
+| call exercised (s shares) | client +s | clearing: pending receipt +s |
+| put exercised (s shares) | client -s, clearing: pending delivery +s | (no change) |
+| exercise settles | as a BUY (call) or SELL (put) of s settles | |
 
-Long only: selling more than the trade-date quantity raises ``ShortSaleError``.
+An exercised or expired option leaves both the trade-date and the settled
+position at once: only settled contracts, held in the depository, can be
+exercised or expire (roadmap 5C-b, ADR 013).
+
+Long only: selling more than the trade-date quantity raises ``ShortSaleError``,
+and so does exercising a put without the shares to deliver.
 Average cost is not computed here (Phase 3 positions mart).
 """
 
@@ -27,7 +36,16 @@ from decimal import Decimal
 from enum import StrEnum
 
 from northstar.common.exceptions import NorthstarError
-from northstar.domain.events import Event, Side, TradeExecuted, TradeSettled
+from northstar.domain.events import (
+    Event,
+    ExerciseSettled,
+    OptionExercised,
+    OptionExpired,
+    OptionRight,
+    Side,
+    TradeExecuted,
+    TradeSettled,
+)
 
 
 class ShortSaleError(NorthstarError, ValueError):
@@ -72,9 +90,10 @@ class StockRecordLine:
 
 
 class PositionBook:
-    """Applies trade and settlement events, in order, to positions and the stock record.
+    """Applies events, in order, to positions and the stock record.
 
-    Other event types do not change positions and are ignored.
+    Trades, settlements, exercises, and expiries change positions; other event
+    types are ignored.
     """
 
     def __init__(self) -> None:
@@ -88,13 +107,32 @@ class PositionBook:
         """Apply one event.
 
         Raises:
-            ShortSaleError: A SELL exceeds the trade-date quantity.
-            SettlementError: A settlement exceeds the quantity in flight.
+            ShortSaleError: A SELL, or a put's delivery, exceeds the trade-date quantity.
+            SettlementError: A settlement exceeds the quantity in flight, or an
+                exercise or expiry exceeds the settled contracts.
         """
-        if isinstance(event, TradeExecuted):
-            self._apply_execution(event)
-        elif isinstance(event, TradeSettled):
-            self._apply_settlement(event)
+        match event:
+            case TradeExecuted(payload=p):
+                if p.side is Side.BUY:
+                    self._receive(p.account_id, p.instrument_id, p.quantity)
+                else:
+                    self._deliver(p.account_id, p.instrument_id, p.quantity, p.execution_id)
+            case TradeSettled(payload=p):
+                self._settle(p.account_id, p.instrument_id, p.side, p.quantity, p.settlement_id)
+            case OptionExercised(payload=p):
+                self._retire(p.account_id, p.option_instrument_id, p.contracts, p.exercise_id)
+                if p.right is OptionRight.CALL:
+                    self._receive(p.account_id, p.underlying_instrument_id, p.shares)
+                else:
+                    self._deliver(p.account_id, p.underlying_instrument_id, p.shares, p.exercise_id)
+            case ExerciseSettled(payload=p):
+                self._settle(p.account_id, p.instrument_id, p.side, p.quantity, p.settlement_id)
+            case OptionExpired(payload=p):
+                self._retire(
+                    p.account_id, p.instrument_id, p.contracts, f"expiry of {p.instrument_id}"
+                )
+            case _:
+                pass
 
     def apply_all(self, events: Iterable[Event]) -> "PositionBook":
         """Apply events in order and return ``self``."""
@@ -138,40 +176,57 @@ class PositionBook:
             )
         return lines
 
-    def _apply_execution(self, event: TradeExecuted) -> None:
-        p = event.payload
-        key = (p.account_id, p.instrument_id)
-        if p.side is Side.BUY:
-            self._trade_date[key] += p.quantity
-            self._locations[(p.instrument_id, Location.PENDING_RECEIPT)] += p.quantity
-            return
-        if p.quantity > self._trade_date[key]:
+    def _receive(self, account_id: str, instrument_id: str, quantity: Decimal) -> None:
+        """The client owns ``quantity`` more, due in from clearing."""
+        self._trade_date[(account_id, instrument_id)] += quantity
+        self._locations[(instrument_id, Location.PENDING_RECEIPT)] += quantity
+
+    def _deliver(self, account_id: str, instrument_id: str, quantity: Decimal, ref: str) -> None:
+        """The client owns ``quantity`` less, owed to clearing (long only)."""
+        key = (account_id, instrument_id)
+        if quantity > self._trade_date[key]:
             msg = (
-                f"{p.execution_id}: selling {p.quantity} of {p.instrument_id} but "
-                f"{p.account_id} holds {self._trade_date[key]} (short selling is out of scope)"
+                f"{ref}: delivering {quantity} of {instrument_id} but {account_id} holds "
+                f"{self._trade_date[key]} (short selling is out of scope)"
             )
             raise ShortSaleError(msg)
-        self._trade_date[key] -= p.quantity
-        self._pending_delivery[p.instrument_id] += p.quantity
+        self._trade_date[key] -= quantity
+        self._pending_delivery[instrument_id] += quantity
 
-    def _apply_settlement(self, event: TradeSettled) -> None:
-        p = event.payload
-        key = (p.account_id, p.instrument_id)
-        if p.side is Side.BUY:
-            pending = self._locations[(p.instrument_id, Location.PENDING_RECEIPT)]
-            if p.quantity > pending:
-                msg = f"{p.settlement_id}: receiving {p.quantity} but only {pending} is pending"
+    def _settle(
+        self, account_id: str, instrument_id: str, side: Side, quantity: Decimal, ref: str
+    ) -> None:
+        """Units in flight arrive in, or leave, the depository and the settled position."""
+        key = (account_id, instrument_id)
+        if side is Side.BUY:
+            pending = self._locations[(instrument_id, Location.PENDING_RECEIPT)]
+            if quantity > pending:
+                msg = f"{ref}: receiving {quantity} but only {pending} is pending"
                 raise SettlementError(msg)
-            self._locations[(p.instrument_id, Location.PENDING_RECEIPT)] -= p.quantity
-            self._locations[(p.instrument_id, Location.DEPOSITORY)] += p.quantity
-            self._settled[key] += p.quantity
+            self._locations[(instrument_id, Location.PENDING_RECEIPT)] -= quantity
+            self._locations[(instrument_id, Location.DEPOSITORY)] += quantity
+            self._settled[key] += quantity
             return
-        if p.quantity > self._pending_delivery[p.instrument_id]:
+        if quantity > self._pending_delivery[instrument_id]:
             msg = (
-                f"{p.settlement_id}: delivering {p.quantity} but only "
-                f"{self._pending_delivery[p.instrument_id]} is pending delivery"
+                f"{ref}: delivering {quantity} but only "
+                f"{self._pending_delivery[instrument_id]} is pending delivery"
             )
             raise SettlementError(msg)
-        self._pending_delivery[p.instrument_id] -= p.quantity
-        self._locations[(p.instrument_id, Location.DEPOSITORY)] -= p.quantity
-        self._settled[key] -= p.quantity
+        self._pending_delivery[instrument_id] -= quantity
+        self._locations[(instrument_id, Location.DEPOSITORY)] -= quantity
+        self._settled[key] -= quantity
+
+    def _retire(self, account_id: str, instrument_id: str, contracts: Decimal, ref: str) -> None:
+        """Exercised or expired contracts leave the account and the depository at once."""
+        key = (account_id, instrument_id)
+        owned, settled = self._trade_date[key], self._settled[key]
+        if contracts > owned or contracts > settled:
+            msg = (
+                f"{ref}: retiring {contracts} of {instrument_id} but {account_id} owns {owned} "
+                f"with {settled} settled (only settled contracts are exercised or expire)"
+            )
+            raise SettlementError(msg)
+        self._trade_date[key] -= contracts
+        self._settled[key] -= contracts
+        self._locations[(instrument_id, Location.DEPOSITORY)] -= contracts

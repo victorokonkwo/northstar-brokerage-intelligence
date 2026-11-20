@@ -15,9 +15,12 @@ from northstar.domain.events import (
     CashWithdrawn,
     DividendPaid,
     Event,
+    ExerciseSettled,
     FxConverted,
     FxRatePublished,
     InstrumentListed,
+    OptionExercised,
+    OptionExpired,
     PriceUpdated,
     TradeExecuted,
     TradeSettled,
@@ -112,7 +115,7 @@ def internal_side(events: tuple[Event, ...]) -> Ours:
                             p.execution_id, p.account_id, p.clearing_fee, p.currency, p.trade_date
                         )
                     )
-            case TradeSettled(payload=p):
+            case TradeSettled(payload=p) | ExerciseSettled(payload=p):
                 settlements.append(
                     InternalSettlement(
                         p.settlement_id,
@@ -166,21 +169,35 @@ def internal_side(events: tuple[Event, ...]) -> Ours:
 
 
 def positions(events: tuple[Event, ...], days: set[date]) -> list[InternalPosition]:
+    """Settled positions by day: settlements of trades and exercises move them, and
+    exercised or expired options leave on their exercise or expiry date."""
     settled: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
     currency: dict[tuple[str, str], Currency] = {}
-    moves = sorted(
-        ((e.payload.settlement_date, e.payload) for e in events if isinstance(e, TradeSettled)),
-        key=lambda x: x[0],
-    )
+    listed = {
+        e.payload.instrument_id: e.payload.currency
+        for e in events
+        if isinstance(e, InstrumentListed)
+    }
+    moves: list[tuple[date, str, str, Decimal]] = []
+    for e in events:
+        match e:
+            case TradeSettled(payload=p) | ExerciseSettled(payload=p):
+                signed = p.quantity if p.side.value == "BUY" else -p.quantity
+                moves.append((p.settlement_date, p.account_id, p.instrument_id, signed))
+            case OptionExercised(payload=p):
+                moves.append((p.exercise_date, p.account_id, p.option_instrument_id, -p.contracts))
+            case OptionExpired(payload=p):
+                moves.append((p.expiry_date, p.account_id, p.instrument_id, -p.contracts))
+            case _:
+                pass
+    moves.sort(key=lambda m: m[0])
     out: list[InternalPosition] = []
     k = 0
     for day in sorted(days):
         while k < len(moves) and moves[k][0] <= day:
-            p = moves[k][1]
-            settled[(p.account_id, p.instrument_id)] += (
-                p.quantity if p.side.value == "BUY" else -p.quantity
-            )
-            currency[(p.account_id, p.instrument_id)] = p.currency
+            _, account, instrument, signed = moves[k]
+            settled[(account, instrument)] += signed
+            currency[(account, instrument)] = listed[instrument]
             k += 1
         out.extend(
             InternalPosition(a, i, day, q, currency[(a, i)]) for (a, i), q in settled.items()
@@ -360,6 +377,33 @@ class TestGroundTruth:
                 paid[b.reference].total_amount,
                 paid[b.reference].currency,
             )
+
+    def test_a_missing_exercise_settlement_breaks_on_its_settlement(
+        self, dataset: tuple[tuple[Event, ...], ExternalRecords, tuple[DefectEntry, ...]]
+    ) -> None:
+        # Neither the depository's confirmation nor the bank movement of any exercise
+        # settlement arrives (roadmap 5C-b): each is found, and nothing else.
+        events, _, _ = dataset
+        exact = derive_external_records(events, 42, xtse())
+        settled = {
+            e.payload.settlement_id: e.payload for e in events if isinstance(e, ExerciseSettled)
+        }
+        assert settled
+        dropped = replace(
+            exact,
+            settlement_confirmations=tuple(
+                c for c in exact.settlement_confirmations if c.broker_reference not in settled
+            ),
+            bank_statement_lines=tuple(
+                b for b in exact.bank_statement_lines if b.reference not in settled
+            ),
+        )
+        result = reconcile_all(build_inputs(events, dropped), TOL)
+        assert {(b.exception_type, b.reference) for b in result.breaks} == {
+            (kind, settlement_id)
+            for settlement_id in settled
+            for kind in (ExceptionType.MISSING_EXTERNAL, ExceptionType.CASH_BREAK)
+        }
 
     def test_cash_breaks_block_and_late_settlements_do_not(
         self, dataset: tuple[tuple[Event, ...], ExternalRecords, tuple[DefectEntry, ...]]

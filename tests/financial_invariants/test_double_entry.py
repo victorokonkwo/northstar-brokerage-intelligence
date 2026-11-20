@@ -15,7 +15,7 @@ from hypothesis import strategies as st
 from northstar.common.exceptions import UnbalancedJournalError
 from northstar.common.money import Currency, Money
 from northstar.domain.accounting import EntrySide, JournalBatch
-from northstar.domain.events import Side
+from northstar.domain.events import OptionRight, Side
 from northstar.domain.fx import quote
 from northstar.domain.interest import daily_interest
 
@@ -27,8 +27,10 @@ from factories import (
     dividend_paid,
     engine,
     execution,
+    exercise_settled,
     fx_conversion,
     interest,
+    option_exercised,
     positive_amounts,
     prices,
     quantities,
@@ -60,6 +62,22 @@ def test_dividends_balance(
     assert_balanced(batch)
     cash = [line for line in batch.lines if line.gl_account == "1000"]
     assert len(cash) == 1  # one bank line per dividend (ADR 013)
+
+
+@given(
+    right=st.sampled_from(OptionRight),
+    contracts=st.integers(1, 10**4),
+    strike_cents=st.integers(1, 10**6),
+    currency=currencies,
+    when=covered_timestamps(),
+)
+def test_exercises_and_their_settlements_balance(
+    right: OptionRight, contracts: int, strike_cents: int, currency: Currency, when: datetime
+) -> None:
+    strike = str(Decimal(strike_cents).scaleb(-2))
+    event = option_exercised(right, str(contracts), strike, currency, when=when)
+    assert_balanced(engine().post(event))
+    assert_balanced(engine().post(exercise_settled(event)))
 
 
 @given(amount=positive_amounts, currency=currencies, when=covered_timestamps())

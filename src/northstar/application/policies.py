@@ -4,6 +4,7 @@ from pathlib import Path
 
 from northstar.domain.accounting import ChartOfAccounts
 from northstar.domain.calendar import MarketCalendar
+from northstar.domain.corporate_actions import OptionExpiryPolicy
 from northstar.domain.fx import FxPolicy
 from northstar.domain.interest import MarginPolicy
 from northstar.domain.market_risk.policy import RiskFreeRates
@@ -33,6 +34,7 @@ def load_policies(config_dir: Path) -> Policies:
         fee_schedule=load_policy(brokerage / "fee_schedule.yaml", FeeSchedule),
         fx_policy=load_policy(brokerage / "fx_policy.yaml", FxPolicy),
         margin_policy=load_policy(brokerage / "margin_policy.yaml", MarginPolicy),
+        option_expiry=load_policy(brokerage / "option_expiry_policy.yaml", OptionExpiryPolicy),
         chart=load_policy(config_dir / "accounting" / "chart_of_accounts.yaml", ChartOfAccounts),
         risk_free_rates=load_policy(config_dir / "risk" / "rates.yaml", RiskFreeRates),
     )

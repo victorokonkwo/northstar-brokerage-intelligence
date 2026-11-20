@@ -127,6 +127,9 @@ class EventType(StrEnum):
     FX_RATE_PUBLISHED = "fx_rate_published"
     DIVIDEND_DECLARED = "dividend_declared"
     DIVIDEND_PAID = "dividend_paid"
+    OPTION_EXERCISED = "option_exercised"
+    EXERCISE_SETTLED = "exercise_settled"
+    OPTION_EXPIRED = "option_expired"
 
 
 class AccountType(StrEnum):
@@ -485,6 +488,114 @@ class DividendPaidPayload(_Frozen):
         return self
 
 
+class ExerciseReason(StrEnum):
+    """Why a long option was exercised (roadmap 5C-b, ADR 013)."""
+
+    EARLY = "EARLY"
+    """The holder exercised an American option before expiry."""
+    EXPIRY = "EXPIRY"
+    """Automatically at expiry: in the money by at least the policy threshold."""
+
+
+class OptionExercisedPayload(_Frozen):
+    """A long option exercised (roadmap 5C-b, ADR 013).
+
+    The contracts leave, and the underlying is bought (a call) or sold (a put)
+    at the strike, settling one business day later.
+
+    ``underlying_close`` is the close the expiry decision used (``EXPIRY`` only),
+    and ``expiry_policy_version`` the policy that made it.
+
+    Raises:
+        pydantic.ValidationError: The shares, the strike amount, or the dates
+            don't follow from the terms, or an expiry exercise lacks its close.
+    """
+
+    exercise_id: str
+    settlement_id: str
+    account_id: str
+    option_instrument_id: str
+    underlying_instrument_id: str
+    right: OptionRight
+    contracts: Quantity
+    multiplier: Annotated[int, Field(ge=1)]
+    shares: Quantity
+    strike: Price
+    strike_amount: PositiveAmount
+    currency: Currency
+    exercise_date: date
+    settlement_date: date
+    reason: ExerciseReason
+    underlying_close: Price | None = None
+    expiry_policy_version: str | None = None
+
+    @model_validator(mode="after")
+    def _follows_from_the_terms(self) -> Self:
+        if self.contracts != self.contracts.to_integral_value():
+            msg = "options are exercised in whole contracts"
+            raise ValueError(msg)
+        if self.shares != self.contracts * self.multiplier:
+            msg = f"{self.shares} shares is not {self.contracts} contracts x {self.multiplier}"
+            raise ValueError(msg)
+        if self.strike_amount != self.strike * self.shares:
+            msg = f"the strike amount is not {self.strike} x {self.shares}"
+            raise ValueError(msg)
+        if self.settlement_date <= self.exercise_date:
+            msg = "an exercise settles after its exercise date"
+            raise ValueError(msg)
+        if self.reason is ExerciseReason.EXPIRY and (
+            self.underlying_close is None or self.expiry_policy_version is None
+        ):
+            msg = "an exercise at expiry records the close and the policy that decided it"
+            raise ValueError(msg)
+        return self
+
+
+class ExerciseSettledPayload(_Frozen):
+    """An exercise's settlement: the underlying delivered against the strike amount.
+
+    ``side`` is the client's: BUY for an exercised call (receives the shares,
+    pays the strike), SELL for an exercised put.
+    """
+
+    settlement_id: str
+    exercise_id: str
+    account_id: str
+    instrument_id: str
+    side: Side
+    quantity: Quantity
+    amount: PositiveAmount
+    currency: Currency
+    settlement_date: date
+
+
+class ExpiryReason(StrEnum):
+    """Why a long option expired rather than being exercised (ADR 013)."""
+
+    OUT_OF_THE_MONEY = "OUT_OF_THE_MONEY"
+    """Out of the money, or in by less than the policy threshold."""
+    NOT_EXERCISABLE = "NOT_EXERCISABLE"
+    """In the money, but the account was under a trading restriction and couldn't
+    exercise it (a put without the shares, or a call it couldn't fund), so the
+    brokerage couldn't sell it either (owner decision 2026-11-20)."""
+
+
+class OptionExpiredPayload(_Frozen):
+    """A long option lapsed at expiry (roadmap 5C-b).
+
+    Its contracts leave the account and nothing is paid. ``reason`` says why it
+    wasn't exercised.
+    """
+
+    account_id: str
+    instrument_id: str
+    contracts: Quantity
+    expiry_date: date
+    underlying_close: Price
+    expiry_policy_version: str
+    reason: ExpiryReason
+
+
 class MarginInterestAccruedPayload(_Frozen):
     """One day of interest on a client's debit (margin loan) balance in one currency."""
 
@@ -633,6 +744,27 @@ class DividendPaid(_Envelope):
     payload: DividendPaidPayload
 
 
+class OptionExercised(_Envelope):
+    """``option_exercised`` event."""
+
+    event_type: Literal[EventType.OPTION_EXERCISED] = EventType.OPTION_EXERCISED
+    payload: OptionExercisedPayload
+
+
+class ExerciseSettled(_Envelope):
+    """``exercise_settled`` event."""
+
+    event_type: Literal[EventType.EXERCISE_SETTLED] = EventType.EXERCISE_SETTLED
+    payload: ExerciseSettledPayload
+
+
+class OptionExpired(_Envelope):
+    """``option_expired`` event."""
+
+    event_type: Literal[EventType.OPTION_EXPIRED] = EventType.OPTION_EXPIRED
+    payload: OptionExpiredPayload
+
+
 Event = Annotated[
     AccountCreated
     | InstrumentListed
@@ -648,7 +780,10 @@ Event = Annotated[
     | AccountUpdated
     | FxRatePublished
     | DividendDeclared
-    | DividendPaid,
+    | DividendPaid
+    | OptionExercised
+    | ExerciseSettled
+    | OptionExpired,
     Field(discriminator="event_type"),
 ]
 """Any canonical event, discriminated by ``event_type``."""
@@ -669,5 +804,8 @@ EVENT_MODELS: dict[EventType, type[_Envelope]] = {
     EventType.FX_RATE_PUBLISHED: FxRatePublished,
     EventType.DIVIDEND_DECLARED: DividendDeclared,
     EventType.DIVIDEND_PAID: DividendPaid,
+    EventType.OPTION_EXERCISED: OptionExercised,
+    EventType.EXERCISE_SETTLED: ExerciseSettled,
+    EventType.OPTION_EXPIRED: OptionExpired,
 }
 """Event model per type, used to export the JSON Schemas."""
