@@ -1,5 +1,7 @@
 # Developer interface. Every target runs tools pinned in uv.lock.
 .DEFAULT_GOAL := help
+# The Airflow image is built with the code version it records (W4.3).
+export NBI_CODE_VERSION ?= $(shell git rev-parse HEAD 2>/dev/null)$(shell git status --porcelain --untracked-files=no 2>/dev/null | grep -q . && echo -dirty)
 COMPOSE := docker compose --env-file .env --file infrastructure/docker/compose.yaml
 WITH_ENV := set -a && . ./.env && set +a &&
 TF_BOOTSTRAP := infrastructure/terraform/bootstrap
@@ -54,7 +56,8 @@ env: ## Create .env with generated local secrets (never overwrites)
 	uv run python scripts/create_local_env.py
 
 up: | .env ## Start the local stack and wait until every service is healthy
-	$(COMPOSE) up --detach --wait
+	mkdir -p data/generated
+	$(COMPOSE) up --detach --wait --build
 
 down: ## Stop the local stack (data volumes are kept)
 	$(COMPOSE) down

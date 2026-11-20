@@ -25,6 +25,7 @@ build-backend = "uv_build"
 dbt = [
     "dbt-core>=1.12.7,<1.13",
     "dbt-postgres>=1.11.0,<1.12",
+    "openlineage-dbt>=1.55.0,<2",
     "sqlfluff>=4.5.0",
     "sqlfluff-templater-dbt>=4.5.0",
 ]

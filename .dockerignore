@@ -1,0 +1,13 @@
+# Only what infrastructure/docker/airflow/Dockerfile copies is needed.
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!src/**
+!config/**
+!warehouse/dbt/**
+warehouse/dbt/target
+warehouse/dbt/logs
+warehouse/dbt/dbt_packages
+warehouse/dbt/.user.yml
+**/__pycache__

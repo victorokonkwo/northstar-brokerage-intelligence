@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Status | Partly implemented (Phase 3): ingestion and the warehouse load (3B); dbt staging, dimensions, and core trading facts (3C); daily facts and the gate marts (3D); published snapshots and restatements (3E). Orchestration and the load test follow in 3F–3G ([roadmap](../project/roadmap.md#phase-3-weeks-57)). |
-| Requirements | FR-M1-01 to FR-M1-06 ([requirements](../business/requirements.md)) |
+| Status | Partly implemented (Phase 3): ingestion and the warehouse load (3B); dbt staging, dimensions, and core trading facts (3C); daily facts and the gate marts (3D); published snapshots and restatements (3E); Airflow orchestration and lineage (3F). The load test follows in 3G ([roadmap](../project/roadmap.md#phase-3-weeks-57)). |
+| Requirements | FR-M1-01 to FR-M1-07 ([requirements](../business/requirements.md)) |
 
 ## Ingestion (FR-M1-01 to FR-M1-03)
 
@@ -181,3 +181,37 @@ Daily models are reported for **reporting dates**: every ledger business day (an
 **Late-arriving data, end to end.** `tests/fixtures/late_deposit` holds one synthetic deposit for 2026-03-02, recorded a month later. CI ingests it after the dev dataset has been published, then loads it, rebuilds dbt, and publishes again.
 - **What changes:** 2026-03-02 and every later reporting date get a v2, since a deposit changes that account's closing balance from then on, and each v2 names `mart_daily_client_cash`. Earlier dates are unchanged, and so is `mart_daily_finance`, because a deposit is not revenue.
 - **Reproducible:** in two independent local runs on the dev dataset, the 2026-03-02 hashes were identical: v1 `afa6bfb51973…` and v2 `b30adb209b5c…`.
+
+## Orchestration and lineage (FR-M1-07, ADR 008)
+
+The DAG `northstar_daily` (`orchestration/airflow/dags/`) runs the daily close. Each run processes business date D, the day before its logical date. Runs trigger at 06:00 America/Toronto, after D has ended (domain model §5).
+
+```text
+check_business_day → ingest → load → dbt_build (dbt-ol, lineage archived) → publish
+```
+
+**Tasks hold no business logic.** Each task calls the `northstar` CLI in the image's own virtualenv (`/opt/northstar/.venv`, owner decision 2026-11-19). The image extends `apache/airflow:3.4.0-python3.13` (`infrastructure/docker/airflow/Dockerfile`). It installs the locked project, its dbt group, the config, and the dbt project, and records the code version (W4.3) as a build argument from `make up`.
+
+**The tasks.**
+- `check_business_day` exits 99 for a day that is not a ledger business day, and the whole run is skipped.
+- `ingest` gives its run ID the try number, because an ingestion run writes its manifest once.
+- `load` loads that run.
+- `dbt_build` runs `dbt-ol build` and archives the OpenLineage events to `audit/lineage/dbt-<run>.jsonl`, even when dbt fails, then exits with dbt's status.
+- `publish` publishes D (ADR 006).
+
+**Retries and alerts.** Retries come from `NBI_AIRFLOW_RETRIES` and `NBI_AIRFLOW_RETRY_DELAY_SECONDS` (defaults 2 and 300 s). A task that fails after its last retry runs `northstar record-alert`, which logs the failure at ERROR and stores `audit/alerts/<dag>/<run>/<task>-try<n>.json`. There is no email or chat service.
+
+**Lineage.**
+- **dbt:** `openlineage-dbt` 1.55.0 (`dbt-ol`) emits START and COMPLETE events per model and test, naming each model's input and output tables. They go to a file, and from there to the object store.
+- **Airflow tasks:** the image's OpenLineage provider (2.21.0) writes task events to `/opt/airflow/lineage/airflow.jsonl` on the `airflow-lineage` volume.
+- **No lineage service:** there is none, by owner decision. The events are inspectable JSON Lines.
+
+**The window and one writer at a time.** The DAG covers the dev dataset's business dates (start and end dates in the DAG), with `catchup=False` and `max_active_runs=1`. That limit alone does not stop a backfill from running beside a triggered run. In CI, two concurrent dbt builds on one schema deadlocked in Postgres, and this was reproduced locally. So `load`, `dbt_build`, and `publish` share the one-slot `warehouse` pool, created by `airflow-init`. Concurrent runs now take turns, and a daily run and a backfill submitted together both succeed on their first try with the CLI's hashes.
+
+**Equivalence, checked in CI.**
+- **Runs:** a daily run (2026-01-06) and a backfill (2026-01-09, then the Saturday 2026-01-10, which is skipped).
+- **Hashes:** each publishes the same content hash as the CLI publication of that date.
+- **Failure path:** a run pointed at a missing dataset fails after its retry and leaves exactly one alert.
+- **Local run:** a daily run for 2026-01-06 and a backfill of 2026-01-07 to 2026-01-09 all matched the CLI hashes.
+
+**Healthchecks.** With LocalExecutor, tasks (dbt included) run in the scheduler container. A CLI healthcheck there (`airflow jobs check`) outlasted its timeout under that load, and the checks piled up: 61 processes and about 1,200% CPU in a local run. The scheduler is therefore checked through its own HTTP health server (port 8974), every 30 s, and the DAG processor every 30 s, as in the official compose file.

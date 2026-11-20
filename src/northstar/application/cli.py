@@ -17,6 +17,10 @@ Commands:
 - ``publish``: publish business dates' marts from a dbt schema as versioned
   snapshots (ADR 006). Exits 2 if a date's gate fails and it stays DRAFT.
 - ``snapshot-history``: print every version of one business date.
+- ``is-business-day``: exit 0 for a ledger business day, 99 otherwise (the
+  orchestrator skips the day's run on 99).
+- ``archive-lineage``: store an OpenLineage JSON Lines file under ``audit/lineage/``.
+- ``record-alert``: log a failed pipeline task and store it under ``audit/alerts/``.
 
 Connection settings come from the ``NBI_PG_*`` and ``NBI_S3_*`` environment
 variables.
@@ -35,6 +39,13 @@ from pathlib import Path
 from opentelemetry import trace
 
 from northstar.application.ingest import ingest_dataset, load_run
+from northstar.application.operations import (
+    Alert,
+    archive_lineage,
+    is_ledger_business_day,
+    record_alert,
+)
+from northstar.application.policies import load_policies
 from northstar.application.publish import publish_all, publish_date
 from northstar.application.simulate import simulate_dataset
 from northstar.application.sprint1 import (
@@ -49,6 +60,10 @@ from northstar.infrastructure.object_store import ObjectStoreSettings, S3ObjectS
 from northstar.infrastructure.postgres import PostgresSettings, WarehouseSchemas
 from northstar.infrastructure.snapshots import history
 from northstar.infrastructure.telemetry import TelemetrySettings, configure_telemetry
+from northstar.simulation.engine import LEDGER_CALENDAR_MARKET
+
+NOT_A_BUSINESS_DAY = 99
+"""Exit code of ``is-business-day`` for a non-business day (the DAG skips on it)."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -103,6 +118,21 @@ def build_parser() -> argparse.ArgumentParser:
     hist = commands.add_parser("snapshot-history", help="print every version of a business date")
     hist.add_argument("--published-schema", required=True, help="schema of published snapshots")
     hist.add_argument("--business-date", type=date.fromisoformat, required=True)
+
+    day = commands.add_parser("is-business-day", help="exit 0 on a ledger business day, else 99")
+    day.add_argument("--date", type=date.fromisoformat, required=True)
+    day.add_argument("--config", type=Path, default=Path("config"), help="policy directory")
+
+    lin = commands.add_parser("archive-lineage", help="store OpenLineage events in the audit area")
+    lin.add_argument("--file", type=Path, required=True, help="OpenLineage JSON Lines file")
+    lin.add_argument("--run-id", required=True, help="pipeline run ID (one archive per run)")
+
+    alert = commands.add_parser("record-alert", help="log and store a failed pipeline task")
+    alert.add_argument("--dag-id", required=True)
+    alert.add_argument("--task-id", required=True)
+    alert.add_argument("--run-id", required=True)
+    alert.add_argument("--try-number", type=int, required=True)
+    alert.add_argument("--message", required=True)
     return parser
 
 
@@ -136,6 +166,29 @@ def _run(args: argparse.Namespace) -> int:
             out.write(f"  defect {defect_type} {count}\n")
         for name, digest in result.file_sha256.items():
             out.write(f"  sha256 {digest} {name}\n")
+        return 0
+    if args.command == "is-business-day":
+        ledger = load_policies(args.config).calendars[LEDGER_CALENDAR_MARKET]
+        business = is_ledger_business_day(ledger, args.date)
+        out.write(f"{args.date} is {'' if business else 'not '}a ledger business day\n")
+        return 0 if business else NOT_A_BUSINESS_DAY
+    if args.command == "archive-lineage":
+        key = archive_lineage(S3ObjectStore(ObjectStoreSettings.from_env()), args.file, args.run_id)
+        out.write(f"archived lineage to {key}\n")
+        return 0
+    if args.command == "record-alert":
+        alert_key = record_alert(
+            S3ObjectStore(ObjectStoreSettings.from_env()),
+            Alert(
+                args.dag_id,
+                args.task_id,
+                args.run_id,
+                args.try_number,
+                args.message,
+                datetime.now(UTC),
+            ),
+        )
+        out.write(f"recorded alert at {alert_key}\n")
         return 0
     if args.command == "ingest":
         store = S3ObjectStore(ObjectStoreSettings.from_env())
