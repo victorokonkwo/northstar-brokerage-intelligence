@@ -122,10 +122,11 @@ def _history(
             instrument_id=ids[i.symbol],
             currency=i.currency,
             asset_class=i.asset_class,
-            anchor=i.start_price,
-            daily_vol=i.daily_vol,
+            anchor=i.walk()[0],
+            daily_vol=i.walk()[1],
         )
         for i in config.instruments
+        if i.option is None  # options are priced by the model, not walked
     ]
     return generate_history(
         specs,

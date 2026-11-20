@@ -48,6 +48,7 @@ from northstar.domain.events import (
     OrderType,
     Side,
 )
+from northstar.domain.market_risk.policy import RiskFreeRates
 from northstar.domain.settlement import AssetClass
 from northstar.simulation.engine import (
     LEDGER_CALENDAR_MARKET,
@@ -63,7 +64,13 @@ from northstar.simulation.engine import (
     UpdateAccount,
     Withdraw,
 )
-from northstar.simulation.market import PRICE_TICK, RATE_PLACES, absolute_returns, log_normal_path
+from northstar.simulation.market import (
+    PRICE_TICK,
+    RATE_PLACES,
+    absolute_returns,
+    log_normal_path,
+    model_option_close,
+)
 
 Probability = Annotated[Decimal, Field(ge=0, le=1)]
 
@@ -95,10 +102,47 @@ class AccountMix(_Frozen):
 
 
 class GeneratedInstrument(InstrumentSpec):
-    """An instrument plus the parameters of its synthetic price path."""
+    """An instrument plus the parameters of its synthetic prices.
 
-    start_price: Decimal = Field(gt=0)
-    daily_vol: Decimal = Field(gt=0, lt=1)
+    An equity walks from ``start_price`` with ``daily_vol``. An option is priced
+    by the model on its underlying's close, at ``implied_vol`` (annual; roadmap 5B).
+
+    Raises:
+        pydantic.ValidationError: An equity lacks its walk, or an option its
+            implied vol, or either has the other's parameters.
+    """
+
+    start_price: Decimal | None = Field(default=None, gt=0)
+    daily_vol: Decimal | None = Field(default=None, gt=0, lt=1)
+    implied_vol: Decimal | None = Field(default=None, gt=0, lt=5)
+
+    @model_validator(mode="after")
+    def _price_parameters(self) -> "GeneratedInstrument":
+        walks = self.start_price is not None and self.daily_vol is not None
+        if self.asset_class is AssetClass.OPTION:
+            ok = (
+                self.implied_vol is not None and self.start_price is None and self.daily_vol is None
+            )
+        else:
+            ok = walks and self.implied_vol is None
+        if not ok:
+            msg = (
+                f"instrument {self.key}: an equity needs start_price and daily_vol, "
+                "an option implied_vol only"
+            )
+            raise ValueError(msg)
+        return self
+
+    def walk(self) -> tuple[Decimal, Decimal]:
+        """An equity's start price and daily vol.
+
+        Raises:
+            ValueError: The instrument is an option, which doesn't walk.
+        """
+        if self.start_price is None or self.daily_vol is None:
+            msg = f"instrument {self.key} is priced by the model, not walked"
+            raise ValueError(msg)
+        return self.start_price, self.daily_vol
 
 
 class FxPath(_Frozen):
@@ -230,6 +274,9 @@ class MarketData:
     rates: dict[date, Decimal]
     activity: dict[date, Decimal]
     mean_activity: Decimal
+    opening: dict[str, Decimal]
+    """Each instrument's price before its first close: an equity's start price, an
+    option's model price on its underlying's start price the day before the window."""
 
 
 def _days(start: date, end: date) -> list[date]:
@@ -245,17 +292,44 @@ def _uniform(rng: np.random.Generator) -> Decimal:
 
 
 def build_market(
-    config: DatasetConfig, calendars: dict[str, MarketCalendar], rng: np.random.Generator
+    config: DatasetConfig,
+    calendars: dict[str, MarketCalendar],
+    rates_policy: RiskFreeRates,
+    rng: np.random.Generator,
 ) -> MarketData:
-    """Build the synthetic market from the market random stream (the dataset seed's first child)."""
+    """Build the synthetic market from the market random stream (the dataset seed's first child).
+
+    Equities walk, in config order. Each option is then priced on its
+    underlying's close for every day both markets trade; a day without an
+    underlying close has no option close (nothing is carried forward, W2.6).
+
+    Raises:
+        PolicyNotFoundError: The risk-free rates don't cover the window.
+    """
     days = _days(config.window.start, config.window.end)
-    closes = {}
+    walked: dict[str, dict[date, Decimal]] = {}
+    opening: dict[str, Decimal] = {}
     for spec in config.instruments:
-        calendar = calendars[spec.market]
-        trading = [d for d in days if calendar.is_trading_day(d)]
-        closes[spec.key] = log_normal_path(
-            rng, spec.start_price, spec.daily_vol, trading, PRICE_TICK
-        )
+        if spec.option is None:
+            start_price, daily_vol = spec.walk()
+            trading = [d for d in days if calendars[spec.market].is_trading_day(d)]
+            walked[spec.key] = log_normal_path(rng, start_price, daily_vol, trading, PRICE_TICK)
+            opening[spec.key] = start_price
+    priced: dict[str, dict[date, Decimal]] = {}
+    for spec in config.instruments:
+        if spec.option is not None:
+            trading = [d for d in days if calendars[spec.market].is_trading_day(d)]
+            underlying = walked[spec.option.underlying]
+            priced[spec.key] = {
+                d: _option_close(spec, rates_policy, d, underlying[d])
+                for d in trading
+                if d in underlying
+            }
+            before = config.window.start - timedelta(days=1)
+            opening[spec.key] = _option_close(
+                spec, rates_policy, before, opening[spec.option.underlying]
+            )
+    closes = {spec.key: walked.get(spec.key) or priced[spec.key] for spec in config.instruments}
     ledger = calendars[LEDGER_CALENDAR_MARKET]
     # The reference rate needs a value at or before the first day.
     rate_days = [config.window.start - timedelta(days=1)] + [
@@ -268,7 +342,26 @@ def build_market(
             moves.setdefault(day, []).append(move)
     activity = {day: sum(m, Decimal(0)) / len(m) for day, m in moves.items()}
     mean = sum(activity.values(), Decimal(0)) / len(activity) if activity else Decimal(1)
-    return MarketData(closes, rates, activity, mean or Decimal(1))
+    return MarketData(closes, rates, activity, mean or Decimal(1), opening)
+
+
+def _option_close(
+    spec: GeneratedInstrument, rates_policy: RiskFreeRates, day: date, underlying_close: Decimal
+) -> Decimal:
+    """An option's model close on ``day``, at its implied vol and its currency's rate."""
+    if spec.option is None or spec.implied_vol is None:
+        msg = f"instrument {spec.key} is not an option"
+        raise ValueError(msg)
+    return model_option_close(
+        spec.option.right,
+        spec.option.exercise_style,
+        spec.option.strike,
+        spec.option.expiry,
+        underlying_close,
+        day,
+        rates_policy.rate(spec.currency, day),
+        spec.implied_vol,
+    )
 
 
 def _month_end_days(config: DatasetConfig, ledger: MarketCalendar) -> set[date]:
@@ -328,9 +421,11 @@ def generate_dataset(config: DatasetConfig, seed: int, policies: Policies) -> tu
     streams = np.random.SeedSequence(seed).spawn(1 + config.accounts.count)
     market_rng = market_stream(seed)
     rngs = [np.random.Generator(np.random.PCG64(s)) for s in streams[1:]]
-    market = build_market(config, policies.calendars, market_rng)
+    market = build_market(config, policies.calendars, policies.risk_free_rates, market_rng)
     instruments = tuple(
-        InstrumentSpec.model_validate(i.model_dump(exclude={"start_price", "daily_vol"}))
+        InstrumentSpec.model_validate(
+            i.model_dump(exclude={"start_price", "daily_vol", "implied_vol"})
+        )
         for i in config.instruments
     )
     engine = SimulationEngine(
@@ -508,7 +603,7 @@ def _day_activity(
 def _last_close(market: MarketData, spec: GeneratedInstrument, day: date) -> Decimal:
     closes = market.closes[spec.key]
     prior = [d for d in closes if d < day]
-    return closes[max(prior)] if prior else spec.start_price
+    return closes[max(prior)] if prior else market.opening[spec.key]
 
 
 def _one_order(

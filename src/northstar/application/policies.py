@@ -6,6 +6,7 @@ from northstar.domain.accounting import ChartOfAccounts
 from northstar.domain.calendar import MarketCalendar
 from northstar.domain.fx import FxPolicy
 from northstar.domain.interest import MarginPolicy
+from northstar.domain.market_risk.policy import RiskFreeRates
 from northstar.domain.settlement import SettlementRules
 from northstar.domain.trading import FeeSchedule
 from northstar.infrastructure.config_loader import load_policy
@@ -16,7 +17,7 @@ CALENDAR_FILES = ("xtse", "xnys", "xcbo")
 
 
 def load_policies(config_dir: Path) -> Policies:
-    """Load calendars, settlement rules, fees, FX, margin, and the chart of accounts.
+    """Load calendars, settlement rules, fees, FX, margin, the chart, and risk-free rates.
 
     Raises:
         ConfigurationError: A policy file is missing or invalid.
@@ -33,4 +34,5 @@ def load_policies(config_dir: Path) -> Policies:
         fx_policy=load_policy(brokerage / "fx_policy.yaml", FxPolicy),
         margin_policy=load_policy(brokerage / "margin_policy.yaml", MarginPolicy),
         chart=load_policy(config_dir / "accounting" / "chart_of_accounts.yaml", ChartOfAccounts),
+        risk_free_rates=load_policy(config_dir / "risk" / "rates.yaml", RiskFreeRates),
     )

@@ -43,8 +43,7 @@ instruments:
     currency: USD
     multiplier: 100
     option: {underlying: SYNB, strike: "65.00", expiry: 2026-09-18, right: CALL, exercise_style: AMERICAN}
-    start_price: "2.15"
-    daily_vol: "0.060"
+    implied_vol: "0.27"  # model-priced, as in dev.yaml (roadmap 5B)
   - key: SYNF-P
     symbol: SYNF-P-20260918-135
     name: Synthetic Zeta Corp. put, 135.00, 2026-09-18
@@ -53,8 +52,7 @@ instruments:
     currency: USD
     multiplier: 100
     option: {underlying: SYNF, strike: "135.00", expiry: 2026-09-18, right: PUT, exercise_style: AMERICAN}
-    start_price: "4.30"
-    daily_vol: "0.050"
+    implied_vol: "0.22"  # model-priced, as in dev.yaml (roadmap 5B)
 
 # FR-SIM-05: seasonal deposits (higher in January and February), month-end
 # withdrawals, and order intensity that rises with the day's price moves.

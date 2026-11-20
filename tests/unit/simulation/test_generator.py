@@ -82,8 +82,16 @@ def test_dataset_ledger_balances_and_positions_are_consistent(dataset: tuple[Eve
     assert all(td == settled for td, settled in book.positions().values())
 
 
+@pytest.fixture(scope="module")
+def big(config: DatasetConfig) -> tuple[Event, ...]:
+    """400 accounts, so statistical patterns stand out from noise (the dev dataset
+    has only about 14 withdrawals: too few to test their timing)."""
+    accounts = config.accounts.model_copy(update={"count": 400})
+    return generate_dataset(config.model_copy(update={"accounts": accounts}), 1, policies())
+
+
 def test_month_end_withdrawals_are_more_frequent(
-    config: DatasetConfig, dataset: tuple[Event, ...]
+    config: DatasetConfig, big: tuple[Event, ...]
 ) -> None:
     ledger = policies().calendars["XTSE"]
     days = [
@@ -99,10 +107,9 @@ def test_month_end_withdrawals_are_more_frequent(
         ]
     }
     withdrawals = [
-        business_date(e.event_timestamp)
-        for e in dataset
-        if e.event_type is EventType.CASH_WITHDRAWN
+        business_date(e.event_timestamp) for e in big if e.event_type is EventType.CASH_WITHDRAWN
     ]
+    assert len(withdrawals) > 50
     share_of_withdrawals = Decimal(sum(d in month_end for d in withdrawals)) / len(withdrawals)
     share_of_days = Decimal(len(month_end)) / len(business)
     assert share_of_withdrawals > 2 * share_of_days
@@ -111,7 +118,9 @@ def test_month_end_withdrawals_are_more_frequent(
 def test_order_activity_rises_with_price_moves(
     config: DatasetConfig, dataset: tuple[Event, ...]
 ) -> None:
-    market = build_market(config, policies().calendars, market_stream(42))
+    market = build_market(
+        config, policies().calendars, policies().risk_free_rates, market_stream(42)
+    )
     orders = Counter(
         business_date(e.event_timestamp) for e in dataset if e.event_type is EventType.ORDER_PLACED
     )
@@ -122,11 +131,10 @@ def test_order_activity_rises_with_price_moves(
     assert correlation > 0.3
 
 
-def test_deposits_follow_the_seasonal_factors(config: DatasetConfig) -> None:
-    # 400 accounts so the pattern stands out from noise. February (factor 1.4)
-    # beats March (1.0) per business day, excluding each account's opening deposit.
-    big = config.model_copy(update={"accounts": config.accounts.model_copy(update={"count": 400})})
-    events = generate_dataset(big, 1, policies())
+def test_deposits_follow_the_seasonal_factors(big: tuple[Event, ...]) -> None:
+    # February (factor 1.4) beats March (1.0) per business day, excluding each
+    # account's opening deposit.
+    events = big
     ledger = policies().calendars["XTSE"]
     seen: set[str] = set()
     per_month: Counter[int] = Counter()
