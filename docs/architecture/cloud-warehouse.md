@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Phase 4F-a: loading and dbt on Redshift. Reconciliation and publication on Redshift follow in 4F-c, and the scheduled cloud run (Step Functions and ECS Fargate) in 4G |
+| Status | Phase 4F: loading and dbt (4F-a), incremental models (4F-b), and reconciliation and publication (4F-c) on Redshift. The scheduled cloud run (Step Functions and ECS Fargate) follows in 4G |
 | Decisions | [ADR 005](../adr/005-local-postgres-cloud-redshift.md) (local Postgres, cloud Redshift); owner decisions 2026-11-20: Step Functions and Fargate for the cloud batch; Redshift controls by grants, the application, and dbt tests |
 | Infrastructure | [Terraform data stack](../../infrastructure/terraform/data/README.md) |
 | Facts | [sources.md](../sources.md): the Redshift and S3 rows dated 2026-11-20 |
@@ -35,6 +35,8 @@ Redshift has no triggers and no CHECK constraints, and doesn't enforce unique ke
 | Lifecycle rules on transitions (FR-M2-05, FR-M2-06) | CHECK and UNIQUE constraints | the domain's `check()` before every write, plus `assert_exception_transitions_follow_the_lifecycle` (dbt, both warehouses), which returns any stored row that breaks a rule |
 | Journal line constraints (ADR 002) | CHECK and UNIQUE constraints | `insert_new`, plus `assert_journal_lines_meet_ledger_constraints` (dbt, both warehouses) |
 | One manual change at a time per exception | `SELECT … FOR UPDATE` | `LOCK` on an empty `lifecycle_lock` table. LOCK needs UPDATE, which the pipeline holds on that table only |
+| Append-only published snapshots (W3.3, ADR 006) | triggers refuse UPDATE, DELETE, TRUNCATE | the admin creates the published tables (`redshift-bootstrap --published-schema … --dbt-schema …`, after the first dbt build, because the copies take the marts' columns); the pipeline only inserts. Proven by `make test-redshift` |
+| Snapshot version rules: version 1 has no restatement reason, later versions need one; three statuses | CHECK constraints | `record_version` and `log_status` refuse a breaking row before writing, on both warehouses (tested on Postgres, where the database would otherwise refuse it first) |
 
 `make test-redshift` also inserts one row per broken rule on Redshift, where nothing refuses them, and checks that each dbt test returns exactly those rows: 10 transitions and 5 journal lines. Removing a rule from either test makes it fail.
 
@@ -54,6 +56,13 @@ Redshift has no triggers and no CHECK constraints, and doesn't enforce unique ke
 - **Parsing both targets.** `make dbt-parse` parses both targets.
 - **Incremental models.** The incremental models and their `rebuild` strategy run unchanged on both warehouses ([incremental models](incremental-models.md)). `tests/redshift/test_redshift_incremental.py` runs the late-data scenario live.
 
+## Reconciliation and publication
+
+`reconcile` and `publish` take `--warehouse redshift` like every other command. Two things had to change so that both warehouses give the same answer:
+
+- **Order without a collation.** Postgres here sorts text by `en_US.utf8`, and Redshift sorts it differently. Snapshot content hashes were computed over rows sorted by SQL, and matching takes the first of several candidate records, so either could depend on the warehouse. Both now sort rows in Python (`infrastructure/ordering.py`): every column ascending, nulls last, text by code point. All 237 snapshot versions stored locally on 2026-11-20 hash the same as before, so nothing was restated by the change, and reconciliation of the dev dataset still finds the same 76 exceptions, an exact match with the defect manifest.
+- **The publication store.** `jsonb` becomes SUPER (written with `json_parse`, read back as JSON text and parsed). There is no `add column if not exists`, so the catalog is checked first.
+
 ## Parity with Postgres
 
 `make compare-warehouses` compares every model in `dbt_dataset` between the two warehouses, row for row. It leaves out only the lineage columns, which identify a run rather than the data.
@@ -61,6 +70,8 @@ Redshift has no triggers and no CHECK constraints, and doesn't enforce unique ke
 | Run | Result |
 |---|---|
 | Commit `fee1f1a`, 2026-11-20. The seed-42 dev dataset (`make simulate`) plus the late-deposit fixture, loaded into both warehouses. `make dbt-build-dataset` and `make dbt-build-redshift`: 241 of 241 pass on each. Then `make compare-warehouses` | **41 of 49 models identical**. The other 8 are the reconciliation models (`stg_recon__*`, `fct_reconciliation_exceptions`, and the KPI-02, -03/-04, and -05 marts), which are empty on Redshift until reconciliation runs there (4F-c) |
+
+**The parity run (4F-c gate).** `make parity` runs the same pipeline from nothing on each warehouse, in dedicated schemas: the seed-42 dev dataset, then the late deposit, each through ingest, load, `dbt build`, reconcile, the controls marts, and both publication streams (`scripts/parity.sh`). No exception is changed by hand, so both see the same inputs. Then every table in the dbt, recon, and two published schemas is compared. It leaves out the columns that record when or by which run something happened: run IDs, `created_at`, `changed_at`, `opened_at`, `resolved_at`, `published_at`, `superseded_at`, and `code_version`. Every content hash is compared.
 
 **Known differences that don't change results:**
 - **Division precision.** It keeps 16 decimal places on Redshift against 20 on Postgres. The rate KPIs round to 6 (half-even), and the comparison shows no difference.
@@ -75,6 +86,7 @@ Redshift has no triggers and no CHECK constraints, and doesn't enforce unique ke
 | `northstar --warehouse redshift ingest …` / `load-run …` | ingest to S3 bronze; load into Redshift |
 | `make dbt-build-redshift` | `dbt build` on Redshift into `dbt_dataset` |
 | `make compare-warehouses` | Postgres vs Redshift, every model |
-| `make test-redshift` | loading, append-only, lock, and dbt-check controls, live (costs a few cents) |
+| `make test-redshift` | loading, append-only (raw, ledger, recon, published), lock, dbt-check controls, and the incremental late-data scenario, live (minutes of compute) |
+| `make parity` | the same pipeline from nothing on both warehouses, then every table compared (needs `make up` too; minutes of compute) |
 
 Each needs `aws login`. The endpoint, bucket, and secret ARN contain the account ID, so they are read from `terraform output` at run time (`scripts/redshift_env.py`) and never committed.

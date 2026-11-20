@@ -62,7 +62,8 @@ make sql-lint           # SQLFluff (needs the running warehouse)
 make redshift-bootstrap # as the admin: append-only tables owned by the admin, pipeline granted SELECT/INSERT
 make dbt-build-redshift # dbt build on Redshift
 make compare-warehouses # every dbt model, Postgres vs Redshift, row for row
-make test-redshift      # live loading, append-only, and dbt-check controls (costs a few cents)
+make test-redshift      # live loading, append-only, dbt-check, and incremental controls (minutes of compute)
+make parity             # the same pipeline on both warehouses from nothing, every table compared
 ```
 
 See [cloud warehouse](docs/architecture/cloud-warehouse.md).

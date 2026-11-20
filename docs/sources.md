@@ -89,6 +89,7 @@ When code depends on one of these facts, it references this file, and the fact m
 | PostgreSQL 18.7: `coalesce(<numeric(18, 2) expression>, 0.00)` and `case when … then <numeric(18, 10) column> end` yield plain `numeric`, without the precision, when the inputs are not constants (constant inputs are folded and keep it). | Local check against the stack's `postgres:18.7`, 2026-11-20 | Verified |
 | PostgreSQL 18.7: `now()` returns the start time of the current transaction (unchanged after `pg_sleep` within it), while `clock_timestamp()` advances. So a row's default `now()` is earlier than its commit, and an `_ingested_at` watermark can skip a load that commits late. | Local check against the stack's `postgres:18.7`, 2026-11-20 | Verified |
 | dbt 1.12.7 runs an `on-run-start` hook whose SQL renders empty as a success without executing it (`get_execution_status`). It refuses to parse a unit test of an incremental model without an `is_incremental` override ("Boolean override for 'is_incremental' must be provided"). | Installed code: `dbt/task/run.py`; `dbt parse` output (2026-11-20) | Verified |
+| The local warehouse database `northstar` uses collation `en_US.utf8` (`pg_database.datcollate`), so SQL sorts text by locale rather than by code point. Sorting each mart's rows in Python instead (every column ascending, nulls last, text by code point) reproduces the stored content hash of all 237 snapshot versions in the local published schemas, and moves no row. | Local check against the stack's `postgres:18.7`, 2026-11-20 | Verified |
 
 ## Calendars (OQ-04)
 
