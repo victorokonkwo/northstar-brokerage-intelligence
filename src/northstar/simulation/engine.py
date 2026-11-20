@@ -80,6 +80,7 @@ from northstar.domain.events import (
 )
 from northstar.domain.fx import FxPolicy, quote, reference_rate_on
 from northstar.domain.interest import MarginPolicy, daily_interest
+from northstar.domain.market_risk.policy import RiskFreeRates
 from northstar.domain.positions import PositionBook
 from northstar.domain.settlement import AssetClass, SettlementRules, settlement_date
 from northstar.domain.trading import FeeSchedule, gross_amount
@@ -143,6 +144,8 @@ class Policies:
     fx_policy: FxPolicy
     margin_policy: MarginPolicy
     chart: ChartOfAccounts
+    risk_free_rates: RiskFreeRates
+    """The rates the synthetic market prices options with (config/risk/rates.yaml)."""
 
 
 # --- Actions -------------------------------------------------------------------

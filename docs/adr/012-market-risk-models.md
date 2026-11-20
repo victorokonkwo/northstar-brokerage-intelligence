@@ -34,6 +34,8 @@ Owner decisions, 2026-11-20:
    - **Backtest:** KPI-14 runs on a fixed reference portfolio over the history plus the window (300+ days). Account-level backtests over the window alone are flagged as an insufficient sample.
 3. **Model-consistent option prices** (5B):
    - **How:** the simulator prices each option with a CRR binomial tree on its underlying's close, with a configured implied volatility and the illustrative risk-free rate of its currency (`config/risk/rates.yaml`).
+   - **Conventions:** time to expiry is calendar days / 365, and the simulator's tree has 200 steps (`OPTION_TREE_STEPS`). The risk model reprices with the same steps, so it recovers the configured implied vol up to the rounding of the close to a cent.
+   - **Determinism:** the tree uses only operations IEEE 754 rounds correctly, with `exp` from `Decimal` and powers by multiplication, so its prices, and the dataset, stay byte-identical on every machine (NFR-06).
    - **Exercise:** American exercise is priced by the tree. European exercise is priced by Black–Scholes, and the tree must converge to it.
    - **Dividends:** known cash dividends are escrowed: the underlying is reduced by the present value of dividends before expiry.
 4. **Issuers** (KPI-13): an equity is its own issuer, and an option's issuer is its underlying's. No issuer column is added.
@@ -44,6 +46,7 @@ Owner decisions, 2026-11-20:
 - **VaR rests on synthetic history.** It's only as realistic as that history. The history's volatilities are the instruments' configured daily volatilities, so VaR mostly reflects them.
 - **Synthetic dates.** The history has prices on real 2025 holidays, labelled synthetic. If verified 2025 calendars are added later, the history can be regenerated on them.
 - **The dataset changes in 5B.** Model-consistent option prices change option closes, premiums, the ledger, and the marts. Locally published snapshots restate; CI starts from scratch.
+- **Implied vol isn't always identified.** An American option worth exercising now is priced at its intrinsic value for every low enough vol, so `implied_vol` refuses that price rather than return an arbitrary vol.
 - **The order statistics are coarse.** With 250 scenarios, VaR moves in steps of one scenario, an accepted cost of reproducibility.
 
 ## Revisit when

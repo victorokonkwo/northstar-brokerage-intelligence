@@ -2,6 +2,11 @@
 # accounts, Q1 2026). ILLUSTRATIVE: every instrument, price path, FX path, and
 # activity parameter is invented. Symbols are synthetic, not real securities.
 # Options expire after the window (exercise and expiry are Phase 5).
+# Option closes are model prices (roadmap 5B, ADR 012): the binomial tree on the
+# underlying's close, at the option's annual implied_vol and its currency's rate
+# (config/risk/rates.yaml). Each implied_vol is its underlying's daily_vol x
+# sqrt(252), rounded (SYNB 0.017 -> 0.27, SYNF 0.014 -> 0.22), so the options are
+# priced consistently with how their underlying moves.
 dataset_id: dev
 illustrative: true
 window: {start: 2026-01-02, end: 2026-03-31}
@@ -45,8 +50,7 @@ instruments:
     currency: USD
     multiplier: 100
     option: {underlying: SYNB, strike: "65.00", expiry: 2026-09-18, right: CALL, exercise_style: AMERICAN}
-    start_price: "2.15"
-    daily_vol: "0.060"
+    implied_vol: "0.27"
   - key: SYNF-P
     symbol: SYNF-P-20260918-135
     name: Synthetic Zeta Corp. put, 135.00, 2026-09-18
@@ -55,8 +59,7 @@ instruments:
     currency: USD
     multiplier: 100
     option: {underlying: SYNF, strike: "135.00", expiry: 2026-09-18, right: PUT, exercise_style: AMERICAN}
-    start_price: "4.30"
-    daily_vol: "0.050"
+    implied_vol: "0.22"
 
 # FR-SIM-05: seasonal deposits (higher in January and February), month-end
 # withdrawals, and order intensity that rises with the day's price moves.

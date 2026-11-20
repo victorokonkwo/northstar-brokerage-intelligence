@@ -52,22 +52,22 @@ All simulated data is **synthetic**. Instruments, prices, FX rates, and client b
 | Withdrawals | Probability × `month_end_multiplier` on the last `month_end_days` business days of each month. At most `max_fraction` of CAD cash. |
 | Orders | Poisson count per account and day, with intensity `daily_rate × (1 + volatility_sensitivity × (activity/mean − 1))`, where activity is the day's average absolute price move. |
 | Order details | Buys are sized as a random fraction of buying power (cash, plus `margin_headroom_use` of the remaining guard headroom for MARGIN accounts). Sells take part of a position. Each order has 1–3 partial fills near the last close (`price_noise`), and with `cancel_probability` it is cancelled after a partial fill. A USD buy without USD cash first converts `usd_conversion_fraction` of CAD. |
-| Prices and FX | A daily close for each instrument on its market's trading days (`price_updated`). A synthetic reference rate for each ledger business day plus an opening rate for the day before the window, each published as `fx_rate_published`. Other days use the most recent prior rate (FX fallback policy v1). |
+| Prices and FX | A daily close for each instrument on its market's trading days (`price_updated`). An equity's close walks log-normally from `start_price` with `daily_vol`. An option's close is its model price (roadmap 5B, [ADR 012](../adr/012-market-risk-models.md)): the binomial tree of `domain.market_risk.options` on its underlying's close that day, at the option's annual `implied_vol` and its currency's rate (`config/risk/rates.yaml`), with time to expiry in calendar days / 365. A day without an underlying close has no option close. A synthetic reference rate for each ledger business day plus an opening rate for the day before the window, each published as `fx_rate_published`. Other days use the most recent prior rate (FX fallback policy v1). |
 
-These patterns are FR-SIM-05, and they are tested on generated data:
-- On the dev dataset (seed 42), 10 of 25 withdrawals fall on the 6 month-end days out of 62 business days.
-- Orders per day correlate with the day's average absolute price move at 0.71.
-- With 400 accounts, February deposits run at more than 1.2× March per business day (factors 1.4 vs 1.0).
+These patterns are FR-SIM-05, and they are tested on generated data (`tests/unit/simulation/test_generator.py`). Measured on 2026-11-20 with that test logic on the code of roadmap 5B:
+- With 400 accounts (seed 1), 57 of 140 withdrawals fall on the 6 month-end days out of 62 business days. The dev dataset has only 14 withdrawals, too few to show the pattern, so the test uses the larger sample.
+- On the dev dataset (seed 42), orders per day correlate with the day's average absolute price move at 0.80.
+- With 400 accounts (seed 1), February deposits run at 1.34× March per business day (factors 1.4 vs 1.0); the test requires more than 1.2×.
 
 ### Determinism
 
-`numpy.random.SeedSequence(seed)` is split into a market stream (child 0) and one stream per account (W4). Each account's lifecycle plan comes from a child of its stream, so planning consumes none of the account's activity draws. Only the random draws come from numpy (PCG64). Everything after them, including `exp`, is `Decimal` arithmetic in an explicit context. Floating-point `exp` can differ across CPUs and math libraries, so this keeps the output **byte-identical on every machine**.
+`numpy.random.SeedSequence(seed)` is split into a market stream (child 0) and one stream per account (W4). Each account's lifecycle plan comes from a child of its stream, so planning consumes none of the account's activity draws. Only the random draws come from numpy (PCG64). Everything after them, including `exp`, is `Decimal` arithmetic in an explicit context. Floating-point `exp` can differ across CPUs and math libraries, so this keeps the output **byte-identical on every machine**. Option closes come from the binomial tree, which is float64 but uses only operations IEEE 754 rounds correctly, with `exp` taken from `Decimal` and the lattice's powers built by multiplication, so they are byte-identical on every machine too.
 
 Note that the event IDs come from global sequences. Adding an account therefore shifts later IDs, even where the account's behaviour is unchanged.
 
 ### The dev dataset (seed 42)
 
-`make simulate` produces 5,148 events. All 13 event types appear, along with partial fills, cancellations, sells, CAD and USD trades, options, clearing fees, FX conversions, withdrawals, margin interest, margin approvals, and trading restrictions. The events file's SHA-256 is printed by the command, and CI regenerates and compares it (Phase 2E).
+`make simulate` produces 5,216 events (since roadmap 5B's model option prices). All 13 event types appear, along with partial fills, cancellations, sells, CAD and USD trades, options, clearing fees, FX conversions, withdrawals, margin interest, margin approvals, and trading restrictions. The events file's SHA-256 is printed by the command, and CI regenerates and compares it (Phase 2E).
 
 ## External records (FR-SIM-02)
 
@@ -121,5 +121,6 @@ The dev dataset with seed 42 has 76 defects: 20 dropped, 8 duplicates, 19 wrong 
 - Clearing-fee invoices are not paid (2200 accumulates the fees).
 - FX covering trades are not simulated (2300 holds the open position).
 - The generator converts CAD → USD only. The engine and posting rules support both directions, which the scripted and property tests exercise.
-- Options expire after the window. Exercise, assignment, and expiry are Phase 5.
+- Options expire after the window. Exercise, assignment, and expiry are Phase 5 (roadmap 5C).
+- Option model prices know of no dividends yet (dividends are roadmap 5C), and every option of a currency is priced at that currency's single illustrative rate.
 - The reference rate for day D is published at the start of D, and account updates are processed at 08:00. Both are simulation conventions, not the behaviour of a real rate source or back office.

@@ -46,8 +46,8 @@ Plan approved by the owner on 2026-11-20, as eight PRs. The Market Risk dashboar
 
 | PR | Scope | Status |
 |---|---|---|
-| 5A foundations | `config/risk/` policies (owner-approved, illustrative); the 2025 synthetic market history and its dbt models; ADR 012 | **In progress** (this PR): the policies and their validated models; `price_history` and `fx_rate_history` (2,080 equity closes and 260 rates on the seed-42 dev dataset, continuous with the window); `fct_price_history_daily` and `fct_fx_rate_history_daily` |
-| 5B pricing | Black–Scholes and CRR (American, escrowed dividends), Greeks, implied vol; model-consistent option prices in the simulator | Not started |
+| 5A foundations | `config/risk/` policies (owner-approved, illustrative); the 2025 synthetic market history and its dbt models; ADR 012 | **Built, in draft PR #38** (not merged): the policies and their validated models; `price_history` and `fx_rate_history` (2,080 equity closes and 260 rates on the seed-42 dev dataset, continuous with the window); `fct_price_history_daily` and `fct_fx_rate_history_daily` |
+| 5B pricing | Black–Scholes and CRR (American, escrowed dividends), Greeks, implied vol; model-consistent option prices in the simulator | **In progress** (this PR): `domain/market_risk/options.py`, validated in `tests/quantitative_validation/` against a published Black–Scholes reference value, put–call parity, convergence of the tree, and Greeks by bumping; option closes are model prices (seed-42 dev dataset: 5,216 events; reconciliation matches its 73-defect manifest exactly) |
 | 5C corporate events | Dividends and option exercise and expiry: a design note for owner approval first (events, posting rules, accounts) | Not started |
 | 5D margin and collateral | KPI-07, KPI-08; the risk run and its store | Not started |
 | 5E VaR and ES | KPI-09, KPI-10; the VaR methodology doc | Not started |

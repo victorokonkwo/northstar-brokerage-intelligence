@@ -125,6 +125,9 @@ When code depends on one of these facts, it references this file, and the fact m
 | Method | Reference | Status |
 |---|---|---|
 | Black–Scholes option pricing | Black, F. & Scholes, M. (1973). "The Pricing of Options and Corporate Liabilities." *Journal of Political Economy*, 81(3). | Standard reference |
+| Binomial option pricing (CRR) | Cox, J. C., Ross, S. A. & Rubinstein, M. (1979). "Option Pricing: A Simplified Approach." *Journal of Financial Economics*, 7(3). | Standard reference |
+| Black–Scholes reference value (test) | Hull, J. C., *Options, Futures and Other Derivatives*, 9th ed., Ex. 15.6: S0 42, K 40, r 10%, σ 20%, T 0.5 gives a call of 4.759422 and a put of 0.8085994. Read on 2026-11-20 as printed in the CRAN documentation of the R package QFRM, `BS_Simple` (https://search.r-project.org/CRAN/refmans/QFRM/html/BS_Simple.html), which cites Hull p. 339, Ex. 15.6. The textbook itself wasn't read. | **Secondary source.** Used in `tests/quantitative_validation/test_option_pricing.py`; the other pricing tests are internal identities (parity, convergence, bumping) |
+| Binomial American put reference (Hull, 5-step tree) | Not used: its only candidate page (O'Reilly) refused automated access on 2026-11-20, so the printed value is unverified | **Unverified, not used** |
 | VaR backtest: proportion of failures | Kupiec, P. (1995). "Techniques for Verifying the Accuracy of Risk Measurement Models." *Journal of Derivatives*, 3(2). | Standard reference |
 | VaR backtest: independence / conditional coverage | Christoffersen, P. (1998). "Evaluating Interval Forecasts." *International Economic Review*, 39(4). | Standard reference |
 | Forecast evaluation and time-series cross-validation | Hyndman, R. J. & Athanasopoulos, G. *Forecasting: Principles and Practice* (3rd ed.), OTexts. | Standard reference |
