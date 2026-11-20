@@ -10,7 +10,7 @@ DEV_DATASET := data/generated/dev/seed=42
 ifndef RUN_ID
 RUN_ID := dev-$(shell date -u +%Y%m%dT%H%M%SZ)
 endif
-DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev"}'
+DATASET_VARS := '{"raw_schema": "raw_dev", "ledger_schema": "ledger_dev", "recon_schema": "recon_dev"}'
 .PHONY: help setup lint format typecheck test test-integration check dbt-parse dbt-build sql-lint env up down ps logs reset e2e simulate ingest simulate-load dbt-build-dataset reconcile publish benchmark tf-validate tf-init-bootstrap tf-plan-bootstrap
 
 help: ## List the targets
@@ -96,15 +96,16 @@ ingest: | .env ## Validate the dev dataset into the raw layer and write a manife
 	$(WITH_ENV) uv run northstar ingest --dataset-dir $(DEV_DATASET) --run-id $(RUN_ID)
 
 simulate-load: ingest ## Ingest the dev dataset, load it into raw_dev/ledger_dev, dbt build, print KPI-01
-	$(WITH_ENV) uv run northstar load-run --run-id $(RUN_ID) --raw-schema raw_dev --ledger-schema ledger_dev
+	$(WITH_ENV) uv run northstar load-run --run-id $(RUN_ID) --raw-schema raw_dev --ledger-schema ledger_dev --recon-schema recon_dev
 	$(MAKE) dbt-build-dataset
 	$(WITH_ENV) uv run northstar ledger-summary --dbt-schema dbt_dataset
 
 dbt-build-dataset: | .env ## dbt build over raw_dev/ledger_dev into dbt_dataset (needs make up)
 	$(WITH_ENV) export NBI_DBT_SCHEMA=dbt_dataset && cd warehouse/dbt && uv run dbt build --vars $(DATASET_VARS)
 
-publish: | .env ## Publish every reporting date of the dev dataset as versioned snapshots (after simulate-load)
-	$(WITH_ENV) uv run northstar publish --dbt-schema dbt_dataset --published-schema published_dev
+publish: | .env ## Publish the dev dataset's controls, then financial snapshots (after reconcile); exits 2 if a date is blocked
+	$(WITH_ENV) uv run northstar publish --stream controls --dbt-schema dbt_dataset --published-schema published_controls_dev
+	$(WITH_ENV) uv run northstar publish --stream financial --dbt-schema dbt_dataset --published-schema published_dev --recon-schema recon_dev
 
 benchmark: | .env ## Load-test benchmark at config/simulation/datasets/load.yaml; writes docs/performance/load-test.md (needs make up; minutes)
 	$(WITH_ENV) uv run python scripts/benchmark.py --dataset config/simulation/datasets/load.yaml --write-doc docs/performance/load-test.md
@@ -112,3 +113,4 @@ benchmark: | .env ## Load-test benchmark at config/simulation/datasets/load.yaml
 reconcile: | .env ## Reconcile the dev dataset (dbt_dataset -> recon_dev) and verify it against its defect manifest
 	$(WITH_ENV) uv run northstar reconcile --dbt-schema dbt_dataset --recon-schema recon_dev
 	$(WITH_ENV) uv run northstar recon-verify --recon-schema recon_dev --manifest $(DEV_DATASET)/defects/manifest.jsonl
+	$(WITH_ENV) export NBI_DBT_SCHEMA=dbt_dataset && cd warehouse/dbt && uv run dbt build --select tag:controls --vars $(DATASET_VARS)

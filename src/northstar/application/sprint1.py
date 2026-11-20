@@ -36,6 +36,7 @@ from northstar.infrastructure.postgres import (
     load_events,
     load_journal,
 )
+from northstar.infrastructure.recon_store import ensure_recon_tables
 from northstar.simulation.scenario import Scenario, generate_events
 
 LEDGER_CALENDAR_MARKET: Final = "XTSE"
@@ -138,6 +139,7 @@ def load_slice(
             events_inserted = load_events(conn, prepared.events, run_id, schemas)
             lines_inserted = load_journal(conn, prepared.batches, run_id, schemas)
             load_calendar_days(conn, prepared.calendar_days, run_id, schemas)
+            ensure_recon_tables(conn, schemas.recon)
         span.set_attributes(
             {
                 "northstar.run_id": run_id,

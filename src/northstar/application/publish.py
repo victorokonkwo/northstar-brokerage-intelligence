@@ -9,9 +9,17 @@ date's latest version:
 - **Changed** content, or a first run, creates version n+1. Version 1 has no
   restatement reason; later versions always do, naming the marts that changed.
 - A new version is ``DRAFT``, and becomes ``PUBLISHED`` only when its gate
-  passes: KPI-01 = 0 for the date. The previously published version becomes
-  ``SUPERSEDED`` at the same instant, and stays queryable. Phase 4 adds the
-  second condition of domain model §7.4 (no blocking reconciliation exception).
+  passes. The previously published version becomes ``SUPERSEDED`` at the same
+  instant, and stays queryable. A DRAFT whose gate later passes (with
+  unchanged content) is published as it is, with no new version.
+
+There are two streams, each in its own published schema:
+
+- ``financial``: the four gate marts. Gate: KPI-01 = 0 for the date, and no
+  open blocking (CRITICAL or HIGH) reconciliation exception dated that day
+  (domain model §7.4, FR-M2-08).
+- ``controls``: the reconciliation KPI marts. Gate: KPI-01 = 0 only, so
+  operations can always see the exceptions that block the financial snapshot.
 
 Nothing is recomputed here (ADR 007): the published rows are copies of dbt's.
 Everything for one date happens in one transaction.
@@ -28,7 +36,10 @@ from typing import Any
 import psycopg
 
 from northstar.common.exceptions import PublicationBlockedError
+from northstar.domain.reconciliation import ReconciliationPolicy, Severity
+from northstar.infrastructure.recon_store import current_states
 from northstar.infrastructure.snapshots import (
+    CONTROLS_MARTS,
     PUBLISHED_MARTS,
     VersionRecord,
     content_columns,
@@ -40,6 +51,27 @@ from northstar.infrastructure.snapshots import (
     reporting_dates,
     unbalanced_batches,
 )
+
+
+class Stream(StrEnum):
+    """Which snapshot a publication belongs to."""
+
+    FINANCIAL = "financial"
+    CONTROLS = "controls"
+
+
+STREAM_MARTS: dict[Stream, tuple[str, ...]] = {
+    Stream.FINANCIAL: PUBLISHED_MARTS,
+    Stream.CONTROLS: CONTROLS_MARTS,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Gate:
+    """What the financial gate checks beyond KPI-01: open blocking exceptions."""
+
+    recon_schema: str
+    policy: ReconciliationPolicy
 
 
 class Outcome(StrEnum):
@@ -60,6 +92,7 @@ class DatePublication:
     content_sha256: str
     restatement_reason: str | None
     superseded_version: int | None
+    blocked_by: tuple[str, ...] = ()
 
 
 def content_hash(
@@ -82,6 +115,21 @@ def content_hash(
     return overall, per_mart
 
 
+def blocking_exceptions(
+    conn: psycopg.Connection[Any], gate: Gate, business_date: date
+) -> tuple[str, ...]:
+    """IDs of unresolved exceptions dated ``business_date`` whose severity blocks publication."""
+    return tuple(
+        sorted(
+            s.exception_id
+            for s in current_states(conn, gate.recon_schema).values()
+            if s.business_date == business_date
+            and s.status != "RESOLVED"
+            and gate.policy.blocks_publication(Severity(s.severity))
+        )
+    )
+
+
 def publish_date(
     conn: psycopg.Connection[Any],
     source: str,
@@ -91,47 +139,80 @@ def publish_date(
     code_version: str,
     now: datetime,
     note: str | None = None,
+    stream: Stream = Stream.FINANCIAL,
+    gate: Gate | None = None,
 ) -> DatePublication:
-    """Publish one business date from the dbt schema ``source`` into ``published``.
+    """Publish one business date of ``stream`` from the dbt schema ``source`` into ``published``.
+
+    ``gate`` is required for the financial stream (it names the reconciliation
+    results to check); the controls stream ignores it.
 
     Raises:
-        ValueError: ``business_date`` is not a reporting date in ``source``.
-        PublicationBlockedError: KPI-01 is not 0; the version is recorded as
+        ValueError: ``business_date`` is not a reporting date in ``source``, or
+            the financial stream has no gate.
+        PublicationBlockedError: The gate fails; the version is recorded as
             DRAFT (committed) and not published.
     """
+    if stream is Stream.FINANCIAL and gate is None:
+        msg = "the financial stream needs a gate (reconciliation results)"
+        raise ValueError(msg)
     if business_date not in reporting_dates(conn, source):
         msg = f"{business_date} is not a reporting date in {source}"
         raise ValueError(msg)
+    marts = STREAM_MARTS[stream]
     with conn.transaction():
-        ensure_published(conn, published, source)
+        ensure_published(conn, published, source, marts)
         rows = {
             mart: read_rows(conn, source, mart, business_date, content_columns(conn, source, mart))
-            for mart in PUBLISHED_MARTS
+            for mart in marts
         }
         kpi_01 = unbalanced_batches(conn, source, business_date)
+        blockers = (
+            blocking_exceptions(conn, gate, business_date)
+            if stream is Stream.FINANCIAL and gate is not None
+            else ()
+        )
+        passes = kpi_01 == 0 and not blockers
         overall, per_mart = content_hash(rows, kpi_01)
         versions = history(conn, published, business_date)
         latest = versions[-1] if versions else None
-        if latest is not None and latest.content_sha256 == overall:
-            return DatePublication(
-                business_date,
-                Outcome.UNCHANGED,
-                latest.snapshot_version,
-                overall,
-                latest.restatement_reason,
-                None,
-            )
-        number = 1 if latest is None else latest.snapshot_version + 1
-        reason = None if latest is None else _reason(latest, per_mart, note)
-        record = VersionRecord(
-            business_date, number, overall, per_mart, "DRAFT", None, None, reason
-        )
-        record_version(conn, published, record, kpi_01, run_id, code_version, source, now)
-        log_status(conn, published, business_date, number, "DRAFT", now, reason or "first version")
         current = next((v for v in versions if v.status == "PUBLISHED"), None)
-        if kpi_01 == 0:
-            log_status(conn, published, business_date, number, "PUBLISHED", now, "KPI-01 = 0")
-            if current is not None:
+        if latest is not None and latest.content_sha256 == overall:
+            if latest.status != "DRAFT" or not passes:
+                outcome = Outcome.UNCHANGED if latest.status != "DRAFT" else Outcome.BLOCKED
+                return DatePublication(
+                    business_date,
+                    outcome,
+                    latest.snapshot_version,
+                    overall,
+                    latest.restatement_reason,
+                    None,
+                    blockers,
+                )
+            number, reason = latest.snapshot_version, latest.restatement_reason
+        else:
+            number = 1 if latest is None else latest.snapshot_version + 1
+            reason = None if latest is None else _reason(latest, per_mart, note)
+            record = VersionRecord(
+                business_date, number, overall, per_mart, "DRAFT", None, None, reason
+            )
+            record_version(
+                conn, published, record, kpi_01, run_id, code_version, source, now, marts
+            )
+            log_status(
+                conn, published, business_date, number, "DRAFT", now, reason or "first version"
+            )
+        if passes:
+            log_status(
+                conn,
+                published,
+                business_date,
+                number,
+                "PUBLISHED",
+                now,
+                "KPI-01 = 0" + ("; no open blocking exceptions" if gate is not None else ""),
+            )
+            if current is not None and current.snapshot_version != number:
                 log_status(
                     conn,
                     published,
@@ -141,11 +222,13 @@ def publish_date(
                     now,
                     f"superseded by v{number}",
                 )
-    if kpi_01 != 0:
-        msg = (
-            f"{business_date} v{number} stays DRAFT: KPI-01 is {kpi_01} "
-            "(unbalanced journal batches must be 0)"
-        )
+    if not passes:
+        why = []
+        if kpi_01 != 0:
+            why.append(f"KPI-01 is {kpi_01} (unbalanced journal batches must be 0)")
+        if blockers:
+            why.append(f"{len(blockers)} open blocking exception(s): {', '.join(blockers)}")
+        msg = f"{business_date} v{number} stays DRAFT: " + "; ".join(why)
         raise PublicationBlockedError(msg)
     return DatePublication(
         business_date,
@@ -153,7 +236,9 @@ def publish_date(
         number,
         overall,
         reason,
-        current.snapshot_version if current is not None else None,
+        current.snapshot_version
+        if current is not None and current.snapshot_version != number
+        else None,
     )
 
 
@@ -165,17 +250,41 @@ def publish_all(
     code_version: str,
     now: datetime,
     note: str | None = None,
+    stream: Stream = Stream.FINANCIAL,
+    gate: Gate | None = None,
 ) -> list[DatePublication]:
-    """Publish every reporting date in ``source``, oldest first.
+    """Publish every reporting date of ``stream``, oldest first.
 
-    Raises:
-        PublicationBlockedError: A date fails its gate. Earlier dates stay
-            published; later dates are not attempted.
+    A blocked date stays DRAFT and is reported as ``BLOCKED`` (with what
+    blocks it); the other dates are still published.
     """
-    return [
-        publish_date(conn, source, published, day, run_id, code_version, now, note)
-        for day in reporting_dates(conn, source)
-    ]
+    results = []
+    for day in reporting_dates(conn, source):
+        try:
+            results.append(
+                publish_date(
+                    conn, source, published, day, run_id, code_version, now, note, stream, gate
+                )
+            )
+        except PublicationBlockedError:
+            latest = history(conn, published, day)[-1]
+            blockers = (
+                blocking_exceptions(conn, gate, day)
+                if stream is Stream.FINANCIAL and gate is not None
+                else ()
+            )
+            results.append(
+                DatePublication(
+                    day,
+                    Outcome.BLOCKED,
+                    latest.snapshot_version,
+                    latest.content_sha256,
+                    latest.restatement_reason,
+                    None,
+                    blockers,
+                )
+            )
+    return results
 
 
 def _reason(latest: VersionRecord, per_mart: dict[str, str], note: str | None) -> str:

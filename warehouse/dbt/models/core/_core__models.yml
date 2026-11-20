@@ -397,3 +397,39 @@ models:
       - {name: fx_policy_version, data_type: text}
       - {name: _price_event_id, data_type: text, description: Lineage to the close used (INV-10).}
       - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}
+
+  - name: fct_reconciliation_exceptions
+    description: >
+      One row per reconciliation exception (grain) with its current lifecycle state.
+      Primary key exception_id. Impact and severity are Python's (ADR 007); status,
+      resolution, and escalation come from the append-only transition trail.
+    config:
+      contract: {enforced: true}
+    columns:
+      - {name: exception_id, data_type: text, constraints: [{type: not_null}], data_tests: [unique, not_null]}
+      - {name: reconciliation, data_type: text, constraints: [{type: not_null}]}
+      - {name: exception_type, data_type: text, constraints: [{type: not_null}]}
+      - {name: severity, data_type: text, constraints: [{type: not_null}]}
+      - {name: reference, data_type: text, constraints: [{type: not_null}]}
+      - {name: business_date, data_type: date, constraints: [{type: not_null}]}
+      - {name: impact_amount, data_type: "numeric(18, 8)", constraints: [{type: not_null}]}
+      - {name: impact_currency, data_type: text, constraints: [{type: not_null}]}
+      - {name: impact_basis, data_type: text, constraints: [{type: not_null}]}
+      - {name: impact_cad, data_type: "numeric(18, 2)"}
+      - {name: fx_rate_date, data_type: date}
+      - {name: fx_policy_version, data_type: text}
+      - {name: external_record_ids, data_type: text, constraints: [{type: not_null}]}
+      - name: status
+        data_type: text
+        constraints: [{type: not_null}]
+        data_tests:
+          - accepted_values: {arguments: {values: [OPEN, INVESTIGATING, ESCALATED, RESOLVED]}}
+      - {name: resolution_type, data_type: text}
+      - {name: last_actor, data_type: text, constraints: [{type: not_null}]}
+      - {name: opened_at, data_type: timestamp with time zone, constraints: [{type: not_null}]}
+      - {name: resolved_at, data_type: timestamp with time zone}
+      - {name: was_escalated, data_type: boolean, constraints: [{type: not_null}]}
+      - {name: transition_count, data_type: integer, constraints: [{type: not_null}]}
+      - {name: policy_version, data_type: text, constraints: [{type: not_null}]}
+      - {name: _detected_run_id, data_type: text, constraints: [{type: not_null}]}
+      - {name: _dbt_invocation_id, data_type: text, constraints: [{type: not_null}]}

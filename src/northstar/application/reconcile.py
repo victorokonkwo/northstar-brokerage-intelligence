@@ -6,9 +6,9 @@ the versioned policy, and stores matches and exceptions append-only in one
 transaction (FR-M2-02 to FR-M2-04, FR-M2-07).
 
 ``verify_against_manifest`` is NFR-03's acceptance check on the real pipeline:
-the stored exceptions must equal the simulator's defect manifest exactly, by
-expected exception type, reference, and impact, with nothing missing and
-nothing extra.
+the stored exceptions (except those later resolved as source-corrected) must
+equal the simulator's defect manifest exactly, by expected exception type,
+reference, and impact, with nothing missing and nothing extra.
 """
 
 import json
@@ -33,6 +33,7 @@ from northstar.infrastructure.recon_store import (
     ensure_recon_tables,
     last_reporting_date,
     read_inputs,
+    source_corrected_ids,
     store_run,
     stored_exceptions,
 )
@@ -142,8 +143,13 @@ def verify_against_manifest(
         if line.strip()
     ]
     expected = {(m["expected_exception"], m["broker_reference"]): m for m in manifest}
+    # A source-corrected exception is a break that no longer exists (for
+    # example, a confirmation an earlier as-of run had not seen yet).
+    corrected = source_corrected_ids(conn, recon_schema)
     found = {
-        (x["exception_type"], x["reference"]): x for x in stored_exceptions(conn, recon_schema)
+        (x["exception_type"], x["reference"]): x
+        for x in stored_exceptions(conn, recon_schema)
+        if str(x["exception_id"]) not in corrected
     }
     impact_differences = tuple(
         f"{key}: manifest {m['impact_amount']} {m['impact_currency']}, "
